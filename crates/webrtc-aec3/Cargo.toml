@@ -1,0 +1,21 @@
+[package]
+name = "webrtc-aec3"
+version = "0.1.0"
+description = "Echo Canceller 3 (AEC3) — Rust port of WebRTC's modern echo canceller"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+webrtc-fft = { workspace = true }
+webrtc-simd = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+test-strategy = { workspace = true }
+
+[lints]
+workspace = true

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/webrtc-apm-sys",
     "crates/webrtc-common-audio",
+    "crates/webrtc-aec3",
     "crates/webrtc-agc2",
     "crates/webrtc-ns",
     "crates/webrtc-simd",
@@ -21,6 +22,7 @@ repository = "https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing"
 # Internal crates
 webrtc-apm-sys = { path = "crates/webrtc-apm-sys" }
 webrtc-common-audio = { path = "crates/webrtc-common-audio" }
+webrtc-aec3 = { path = "crates/webrtc-aec3" }
 webrtc-agc2 = { path = "crates/webrtc-agc2" }
 webrtc-ns = { path = "crates/webrtc-ns" }
 webrtc-simd = { path = "crates/webrtc-simd" }
