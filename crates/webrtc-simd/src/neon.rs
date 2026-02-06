@@ -1,39 +1,13 @@
 //! NEON implementations of SIMD operations (aarch64).
 
-use crate::SimdOps;
 use std::arch::aarch64::*;
-
-pub struct NeonOps;
-
-impl SimdOps for NeonOps {
-    fn dot_product(&self, a: &[f32], b: &[f32]) -> f32 {
-        debug_assert_eq!(a.len(), b.len());
-        // Safety: we're on aarch64, NEON is always available
-        unsafe { dot_product_neon(a, b) }
-    }
-
-    fn dual_dot_product(&self, input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
-        debug_assert_eq!(input.len(), k1.len());
-        debug_assert_eq!(input.len(), k2.len());
-        unsafe { dual_dot_product_neon(input, k1, k2) }
-    }
-
-    fn multiply_accumulate(&self, acc: &mut [f32], a: &[f32], b: &[f32]) {
-        debug_assert_eq!(acc.len(), a.len());
-        debug_assert_eq!(acc.len(), b.len());
-        unsafe { multiply_accumulate_neon(acc, a, b) }
-    }
-
-    fn sum(&self, x: &[f32]) -> f32 {
-        unsafe { sum_neon(x) }
-    }
-}
 
 /// NEON dot product: processes 4 floats at a time with vmlaq_f32.
 ///
-/// Mirrors the pattern in fir_filter_neon.cc and sinc_resampler_neon.cc.
+/// # Safety
+/// Caller must ensure NEON is available (always true on aarch64).
 #[inline]
-unsafe fn dot_product_neon(a: &[f32], b: &[f32]) -> f32 {
+pub unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     let len = a.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -52,9 +26,8 @@ unsafe fn dot_product_neon(a: &[f32], b: &[f32]) -> f32 {
         }
     }
 
-    let mut result = unsafe { horizontal_sum_f32(acc) };
+    let mut result = unsafe { horizontal_sum(acc) };
 
-    // Handle remainder
     let tail_start = chunks * 4;
     for i in 0..remainder {
         result += a[tail_start + i] * b[tail_start + i];
@@ -65,9 +38,10 @@ unsafe fn dot_product_neon(a: &[f32], b: &[f32]) -> f32 {
 
 /// NEON dual dot product for sinc resampler convolution.
 ///
-/// Computes dot(input, k1) and dot(input, k2) simultaneously.
+/// # Safety
+/// Caller must ensure NEON is available.
 #[inline]
-unsafe fn dual_dot_product_neon(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
+pub unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
     let len = input.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -90,8 +64,8 @@ unsafe fn dual_dot_product_neon(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, 
         }
     }
 
-    let mut sum1 = unsafe { horizontal_sum_f32(acc1) };
-    let mut sum2 = unsafe { horizontal_sum_f32(acc2) };
+    let mut sum1 = unsafe { horizontal_sum(acc1) };
+    let mut sum2 = unsafe { horizontal_sum(acc2) };
 
     let tail_start = chunks * 4;
     for i in 0..remainder {
@@ -104,8 +78,11 @@ unsafe fn dual_dot_product_neon(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, 
 }
 
 /// NEON multiply-accumulate: acc[i] += a[i] * b[i]
+///
+/// # Safety
+/// Caller must ensure NEON is available.
 #[inline]
-unsafe fn multiply_accumulate_neon(acc: &mut [f32], a: &[f32], b: &[f32]) {
+pub unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
     let len = acc.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -133,8 +110,11 @@ unsafe fn multiply_accumulate_neon(acc: &mut [f32], a: &[f32], b: &[f32]) {
 }
 
 /// NEON sum of all elements.
+///
+/// # Safety
+/// Caller must ensure NEON is available.
 #[inline]
-unsafe fn sum_neon(x: &[f32]) -> f32 {
+pub unsafe fn sum(x: &[f32]) -> f32 {
     let len = x.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -149,7 +129,7 @@ unsafe fn sum_neon(x: &[f32]) -> f32 {
         }
     }
 
-    let mut result = unsafe { horizontal_sum_f32(acc) };
+    let mut result = unsafe { horizontal_sum(acc) };
 
     let tail_start = chunks * 4;
     for i in 0..remainder {
@@ -160,11 +140,8 @@ unsafe fn sum_neon(x: &[f32]) -> f32 {
 }
 
 /// Reduce a float32x4_t to a scalar sum.
-///
-/// Mirrors the NEON reduction pattern used in the C++ code:
-/// vadd_f32(vget_high_f32(v), vget_low_f32(v)) -> vpadd_f32 -> vget_lane_f32
 #[inline(always)]
-unsafe fn horizontal_sum_f32(v: float32x4_t) -> f32 {
+unsafe fn horizontal_sum(v: float32x4_t) -> f32 {
     unsafe {
         let sum_pair = vadd_f32(vget_high_f32(v), vget_low_f32(v));
         let sum = vpadd_f32(sum_pair, sum_pair);
@@ -180,18 +157,15 @@ mod tests {
     fn test_neon_dot_product() {
         let a = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let b = [8.0f32, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
-        let result = NeonOps.dot_product(&a, &b);
-        // 8 + 14 + 18 + 20 + 20 + 18 + 14 + 8 = 120
+        let result = unsafe { dot_product(&a, &b) };
         assert!((result - 120.0).abs() < 1e-5);
     }
 
     #[test]
     fn test_neon_dot_product_non_aligned() {
-        // 5 elements: 4 NEON + 1 scalar remainder
         let a = [1.0f32, 2.0, 3.0, 4.0, 5.0];
         let b = [2.0f32, 3.0, 4.0, 5.0, 6.0];
-        let result = NeonOps.dot_product(&a, &b);
-        // 2 + 6 + 12 + 20 + 30 = 70
+        let result = unsafe { dot_product(&a, &b) };
         assert!((result - 70.0).abs() < 1e-5);
     }
 
@@ -199,7 +173,7 @@ mod tests {
     fn test_neon_horizontal_sum() {
         unsafe {
             let v = vld1q_f32([1.0f32, 2.0, 3.0, 4.0].as_ptr());
-            assert!((horizontal_sum_f32(v) - 10.0).abs() < 1e-6);
+            assert!((horizontal_sum(v) - 10.0).abs() < 1e-6);
         }
     }
 }

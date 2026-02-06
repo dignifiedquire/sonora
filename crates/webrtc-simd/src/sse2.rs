@@ -5,39 +5,12 @@ use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use crate::SimdOps;
-
-pub struct Sse2Ops;
-
-impl SimdOps for Sse2Ops {
-    fn dot_product(&self, a: &[f32], b: &[f32]) -> f32 {
-        debug_assert_eq!(a.len(), b.len());
-        // Safety: caller guarantees SSE2 is available via runtime detection
-        unsafe { dot_product_sse2(a, b) }
-    }
-
-    fn dual_dot_product(&self, input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
-        debug_assert_eq!(input.len(), k1.len());
-        debug_assert_eq!(input.len(), k2.len());
-        unsafe { dual_dot_product_sse2(input, k1, k2) }
-    }
-
-    fn multiply_accumulate(&self, acc: &mut [f32], a: &[f32], b: &[f32]) {
-        debug_assert_eq!(acc.len(), a.len());
-        debug_assert_eq!(acc.len(), b.len());
-        unsafe { multiply_accumulate_sse2(acc, a, b) }
-    }
-
-    fn sum(&self, x: &[f32]) -> f32 {
-        unsafe { sum_sse2(x) }
-    }
-}
-
 /// SSE2 dot product: processes 4 floats at a time.
 ///
-/// Mirrors the pattern in fir_filter_sse.cc.
+/// # Safety
+/// Caller must ensure SSE2 is available (via `is_x86_feature_detected!`).
 #[target_feature(enable = "sse2")]
-unsafe fn dot_product_sse2(a: &[f32], b: &[f32]) -> f32 {
+pub unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     let len = a.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -54,7 +27,7 @@ unsafe fn dot_product_sse2(a: &[f32], b: &[f32]) -> f32 {
         acc = _mm_add_ps(acc, _mm_mul_ps(va, vb));
     }
 
-    let mut result = horizontal_sum_sse2(acc);
+    let mut result = horizontal_sum(acc);
 
     let tail_start = chunks * 4;
     for i in 0..remainder {
@@ -65,8 +38,11 @@ unsafe fn dot_product_sse2(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// SSE2 dual dot product for sinc resampler convolution.
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
 #[target_feature(enable = "sse2")]
-unsafe fn dual_dot_product_sse2(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
+pub unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
     let len = input.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -87,8 +63,8 @@ unsafe fn dual_dot_product_sse2(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, 
         acc2 = _mm_add_ps(acc2, _mm_mul_ps(vi, vk2));
     }
 
-    let mut sum1 = horizontal_sum_sse2(acc1);
-    let mut sum2 = horizontal_sum_sse2(acc2);
+    let mut sum1 = horizontal_sum(acc1);
+    let mut sum2 = horizontal_sum(acc2);
 
     let tail_start = chunks * 4;
     for i in 0..remainder {
@@ -101,8 +77,11 @@ unsafe fn dual_dot_product_sse2(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, 
 }
 
 /// SSE2 multiply-accumulate: acc[i] += a[i] * b[i]
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
 #[target_feature(enable = "sse2")]
-unsafe fn multiply_accumulate_sse2(acc: &mut [f32], a: &[f32], b: &[f32]) {
+pub unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
     let len = acc.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -128,8 +107,11 @@ unsafe fn multiply_accumulate_sse2(acc: &mut [f32], a: &[f32], b: &[f32]) {
 }
 
 /// SSE2 sum of all elements.
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
 #[target_feature(enable = "sse2")]
-unsafe fn sum_sse2(x: &[f32]) -> f32 {
+pub unsafe fn sum(x: &[f32]) -> f32 {
     let len = x.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -142,7 +124,7 @@ unsafe fn sum_sse2(x: &[f32]) -> f32 {
         acc = _mm_add_ps(acc, v);
     }
 
-    let mut result = horizontal_sum_sse2(acc);
+    let mut result = horizontal_sum(acc);
 
     let tail_start = chunks * 4;
     for i in 0..remainder {
@@ -153,12 +135,9 @@ unsafe fn sum_sse2(x: &[f32]) -> f32 {
 }
 
 /// Reduce an __m128 to a scalar sum.
-///
-/// Mirrors the SSE2 reduction pattern in the C++ code:
-/// movehl -> add -> shuffle -> add_ss -> store_ss
 #[inline(always)]
 #[target_feature(enable = "sse2")]
-unsafe fn horizontal_sum_sse2(v: __m128) -> f32 {
+unsafe fn horizontal_sum(v: __m128) -> f32 {
     let hi = _mm_movehl_ps(v, v);
     let sum = _mm_add_ps(v, hi);
     let shuf = _mm_shuffle_ps(sum, sum, 1);

@@ -9,10 +9,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-default = []
-tracing = ["dep:tracing"]
-
 [dependencies]
 webrtc-common-audio = { workspace = true }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true }
