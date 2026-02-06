@@ -19,6 +19,7 @@ pub(crate) mod echo_path_variability;
 pub(crate) mod fft_buffer;
 pub(crate) mod fft_data;
 pub(crate) mod frame_blocker;
+pub(crate) mod matched_filter;
 pub(crate) mod moving_average;
 pub(crate) mod render_buffer;
 pub(crate) mod spectrum_buffer;
