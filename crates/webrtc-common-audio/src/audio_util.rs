@@ -149,6 +149,20 @@ pub fn float_s16_to_float_slice(src: &[f32], dest: &mut [f32]) {
     }
 }
 
+/// Convert a slice of Float to FloatS16 in-place.
+pub fn float_to_float_s16_slice_inplace(data: &mut [f32]) {
+    for s in data.iter_mut() {
+        *s = float_to_float_s16(*s);
+    }
+}
+
+/// Convert a slice of FloatS16 to Float in-place.
+pub fn float_s16_to_float_slice_inplace(data: &mut [f32]) {
+    for s in data.iter_mut() {
+        *s = float_s16_to_float(*s);
+    }
+}
+
 // ── Interleave / deinterleave ───────────────────────────────────────
 
 /// Deinterleave multi-channel audio into per-channel buffers.
