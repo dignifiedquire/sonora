@@ -25,7 +25,7 @@ pub const FFT_SIZE: usize = 128;
 // but WebRTC hardcoded them for determinism and startup speed.
 
 /// Common twiddle factors shared by all paths (C, SSE2, NEON).
-const RDFT_W: [f32; 64] = [
+pub(crate) const RDFT_W: [f32; 64] = [
     1.000_000_0,
     0.000_000_0,
     0.707_106_77,
@@ -93,6 +93,7 @@ const RDFT_W: [f32; 64] = [
 ];
 
 /// Twiddle factors for the C/MIPS path (first half of k=3 factors).
+#[cfg(any(not(target_arch = "aarch64"), test))]
 const RDFT_WK3RI_FIRST: [f32; 16] = [
     1.000_000_0,
     0.000_000_0,
@@ -113,6 +114,7 @@ const RDFT_WK3RI_FIRST: [f32; 16] = [
 ];
 
 /// Twiddle factors for the C/MIPS path (second half of k=3 factors).
+#[cfg(any(not(target_arch = "aarch64"), test))]
 const RDFT_WK3RI_SECOND: [f32; 16] = [
     -0.707_106_77,
     0.707_106_77,
@@ -140,13 +142,26 @@ const RDFT_WK3RI_SECOND: [f32; 16] = [
 /// - `a[1]` = Nyquist component
 /// - `a[2k], a[2k+1]` = real/imaginary of frequency bin k
 ///
-/// Uses SSE2-accelerated butterflies on x86/x86_64, scalar otherwise.
+/// Uses SIMD-accelerated butterflies when available (SSE2 on x86, NEON on ARM),
+/// scalar otherwise.
+#[allow(
+    clippy::needless_return,
+    reason = "return needed for cfg-gated fallthrough"
+)]
 pub fn forward(a: &mut [f32; FFT_SIZE]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("sse2") {
-        return forward_sse2(a);
+        forward_sse2(a);
+        return;
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        forward_neon(a);
+        return;
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
     forward_scalar(a);
 }
 
@@ -156,17 +171,31 @@ pub fn forward(a: &mut [f32; FFT_SIZE]) {
 /// Transforms `a` in-place. To recover the original signal,
 /// multiply each output element by `2/N` (i.e., `2/128`).
 ///
-/// Uses SSE2-accelerated butterflies on x86/x86_64, scalar otherwise.
+/// Uses SIMD-accelerated butterflies when available (SSE2 on x86, NEON on ARM),
+/// scalar otherwise.
+#[allow(
+    clippy::needless_return,
+    reason = "return needed for cfg-gated fallthrough"
+)]
 pub fn inverse(a: &mut [f32; FFT_SIZE]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if is_x86_feature_detected!("sse2") {
-        return inverse_sse2(a);
+        inverse_sse2(a);
+        return;
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        inverse_neon(a);
+        return;
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
     inverse_scalar(a);
 }
 
 /// Scalar forward FFT implementation.
+#[cfg(any(not(target_arch = "aarch64"), test))]
 pub(crate) fn forward_scalar(a: &mut [f32; FFT_SIZE]) {
     bitrv2_128(a);
     cftfsub_128(a);
@@ -177,12 +206,51 @@ pub(crate) fn forward_scalar(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// Scalar inverse FFT implementation.
+#[cfg(any(not(target_arch = "aarch64"), test))]
 pub(crate) fn inverse_scalar(a: &mut [f32; FFT_SIZE]) {
     a[1] = 0.5 * (a[0] - a[1]);
     a[0] -= a[1];
     rftbsub_128(a);
     bitrv2_128(a);
     cftbsub_128(a);
+}
+
+/// NEON-accelerated forward FFT implementation.
+#[cfg(target_arch = "aarch64")]
+fn forward_neon(a: &mut [f32; FFT_SIZE]) {
+    use crate::ooura_fft_neon::{cft1st_128_neon, cftmdl_128_neon, rftfsub_128_neon};
+
+    bitrv2_128(a);
+    // SAFETY: aarch64 always has NEON.
+    unsafe {
+        cft1st_128_neon(a);
+        cftmdl_128_neon(a);
+    }
+    cftfsub_128_final(a);
+    unsafe {
+        rftfsub_128_neon(a);
+    }
+    let xi = a[0] - a[1];
+    a[0] += a[1];
+    a[1] = xi;
+}
+
+/// NEON-accelerated inverse FFT implementation.
+#[cfg(target_arch = "aarch64")]
+fn inverse_neon(a: &mut [f32; FFT_SIZE]) {
+    use crate::ooura_fft_neon::{cft1st_128_neon, cftmdl_128_neon, rftbsub_128_neon};
+
+    a[1] = 0.5 * (a[0] - a[1]);
+    a[0] -= a[1];
+    unsafe {
+        rftbsub_128_neon(a);
+    }
+    bitrv2_128(a);
+    unsafe {
+        cft1st_128_neon(a);
+        cftmdl_128_neon(a);
+    }
+    cftbsub_128_final(a);
 }
 
 /// SSE2-accelerated forward FFT implementation.
@@ -256,6 +324,7 @@ fn bitrv2_128(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// First-stage complex FFT butterfly.
+#[cfg(any(not(target_arch = "aarch64"), test))]
 fn cft1st_128(a: &mut [f32; FFT_SIZE]) {
     let n = FFT_SIZE;
 
@@ -369,6 +438,7 @@ fn cft1st_128(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// Modular complex FFT butterfly stage.
+#[cfg(any(not(target_arch = "aarch64"), test))]
 fn cftmdl_128(a: &mut [f32; FFT_SIZE]) {
     let l = 8_usize;
     let n = FFT_SIZE;
@@ -505,6 +575,7 @@ fn cftmdl_128(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// Forward complex sub-transform (radix-4 decomposition).
+#[cfg(any(not(target_arch = "aarch64"), test))]
 fn cftfsub_128(a: &mut [f32; FFT_SIZE]) {
     cft1st_128(a);
     cftmdl_128(a);
@@ -540,6 +611,7 @@ fn cftfsub_128_final(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// Backward complex sub-transform (radix-4 decomposition).
+#[cfg(any(not(target_arch = "aarch64"), test))]
 fn cftbsub_128(a: &mut [f32; FFT_SIZE]) {
     cft1st_128(a);
     cftmdl_128(a);
@@ -574,6 +646,7 @@ fn cftbsub_128_final(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// Real FFT forward post-processing (split-radix real/imaginary separation).
+#[cfg(any(not(target_arch = "aarch64"), test))]
 fn rftfsub_128(a: &mut [f32; FFT_SIZE]) {
     let c = &RDFT_W[32..];
     for j1 in 1..32_usize {
@@ -594,6 +667,7 @@ fn rftfsub_128(a: &mut [f32; FFT_SIZE]) {
 }
 
 /// Real FFT backward pre-processing (split-radix real/imaginary recombination).
+#[cfg(any(not(target_arch = "aarch64"), test))]
 fn rftbsub_128(a: &mut [f32; FFT_SIZE]) {
     let c = &RDFT_W[32..];
     a[1] = -a[1];
@@ -804,18 +878,71 @@ mod tests {
         }
     }
 
+    /// Verify NEON forward/inverse FFT produce the same output as scalar.
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn neon_matches_scalar() {
+        use std::array::from_fn;
+
+        let signals: [[f32; FFT_SIZE]; 5] = [
+            from_fn(|i| i as f32 * 0.01),
+            from_fn(|i| (i as f32 * 0.1).sin()),
+            from_fn(|i| if i % 2 == 0 { 0.5 } else { -0.3 }),
+            [0.7; FFT_SIZE],
+            {
+                let mut s = [0.0f32; FFT_SIZE];
+                s[0] = 1.0;
+                s
+            },
+        ];
+
+        for signal in &signals {
+            let mut scalar = *signal;
+            forward_scalar(&mut scalar);
+
+            let mut simd = *signal;
+            forward_neon(&mut simd);
+
+            for i in 0..FFT_SIZE {
+                assert!(
+                    (scalar[i] - simd[i]).abs() < 1e-6,
+                    "forward mismatch at {i}: scalar={}, neon={}",
+                    scalar[i],
+                    simd[i]
+                );
+            }
+
+            let mut scalar_inv = scalar;
+            inverse_scalar(&mut scalar_inv);
+
+            let mut simd_inv = scalar;
+            inverse_neon(&mut simd_inv);
+
+            for i in 0..FFT_SIZE {
+                assert!(
+                    (scalar_inv[i] - simd_inv[i]).abs() < 1e-5,
+                    "inverse mismatch at {i}: scalar={}, neon={}",
+                    scalar_inv[i],
+                    simd_inv[i]
+                );
+            }
+        }
+    }
+
     /// Verify SSE2 forward/inverse FFT produce the same output as scalar.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn sse2_matches_scalar() {
+        use std::array::from_fn;
+
         if !is_x86_feature_detected!("sse2") {
             return;
         }
 
         let signals: [[f32; FFT_SIZE]; 5] = [
-            std::array::from_fn(|i| i as f32 * 0.01),
-            std::array::from_fn(|i| (i as f32 * 0.1).sin()),
-            std::array::from_fn(|i| if i % 2 == 0 { 0.5 } else { -0.3 }),
+            from_fn(|i| i as f32 * 0.01),
+            from_fn(|i| (i as f32 * 0.1).sin()),
+            from_fn(|i| if i % 2 == 0 { 0.5 } else { -0.3 }),
             [0.7; FFT_SIZE],
             {
                 let mut s = [0.0f32; FFT_SIZE];
