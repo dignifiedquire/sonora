@@ -38,6 +38,7 @@ proptest = "1.9"
 test-strategy = "0.4"
 
 [workspace.lints.rust]
+unexpected_cfgs = "deny"
 elided_lifetimes_in_paths = "warn"
 unnameable_types = "warn"
 unreachable_pub = "warn"
