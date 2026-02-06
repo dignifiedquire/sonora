@@ -4,6 +4,7 @@
 //! canceller (AEC3), ported from the C++ source at
 //! `modules/audio_processing/aec3/`.
 
+pub(crate) mod adaptive_fir_filter;
 pub(crate) mod aec3_fft;
 pub(crate) mod alignment_mixer;
 pub(crate) mod block;
