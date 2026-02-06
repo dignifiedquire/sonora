@@ -246,7 +246,7 @@ mod tests {
         let mut queue = SwapQueue::new(10);
         let mut s = Setting {
             kind: 1,
-            value: 3.14,
+            value: 3.125,
         };
         assert!(queue.insert(&mut s));
         assert_eq!(s.kind, 0); // swapped with default
@@ -254,6 +254,6 @@ mod tests {
         let mut out = Setting::default();
         assert!(queue.remove(&mut out));
         assert_eq!(out.kind, 1);
-        assert!((out.value - 3.14).abs() < 0.001);
+        assert!((out.value - 3.125).abs() < 0.001);
     }
 }
