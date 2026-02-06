@@ -5,6 +5,7 @@
 
 pub(crate) mod audio_buffer;
 pub(crate) mod audio_converter;
+pub(crate) mod audio_processing_impl;
 pub(crate) mod audio_samples_scaler;
 pub(crate) mod capture_levels_adjuster;
 pub mod config;

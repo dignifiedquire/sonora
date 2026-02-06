@@ -1,0 +1,871 @@
+//! Core audio processing implementation.
+//!
+//! Ported from `AudioProcessingImpl` in
+//! `modules/audio_processing/audio_processing_impl.h/cc`.
+//!
+//! This module coordinates all submodules (echo cancellation, noise
+//! suppression, gain control, etc.) and manages their initialization,
+//! configuration, and audio processing lifecycle.
+
+use crate::audio_buffer::AudioBuffer;
+use crate::audio_converter::AudioConverter;
+use crate::capture_levels_adjuster::CaptureLevelsAdjuster;
+use crate::config::{self, Config, DownmixMethod, NoiseSuppressionLevel, RuntimeSetting};
+use crate::echo_canceller3::EchoCanceller3;
+use crate::gain_controller2::{
+    Agc2AdaptiveDigitalConfig, Agc2Config, Agc2InputVolumeControllerConfig, FixedDigitalConfig,
+    GainController2,
+};
+use crate::high_pass_filter::HighPassFilter;
+use crate::input_volume_controller::InputVolumeControllerConfig;
+use crate::residual_echo_detector::ResidualEchoDetector;
+use crate::stats::AudioProcessingStats;
+use crate::stream_config::StreamConfig;
+use crate::submodule_states::SubmoduleStates;
+use crate::swap_queue::SwapQueue;
+use std::collections::VecDeque;
+use webrtc_ns::config::{NsConfig, SuppressionLevel};
+use webrtc_ns::noise_suppressor::NoiseSuppressor;
+
+/// Band split rate for sub-band processing (16 kHz).
+const BAND_SPLIT_RATE: usize = 16000;
+
+/// Maximum number of frames to buffer in render queues.
+const MAX_NUM_FRAMES_TO_BUFFER: usize = 100;
+
+// ─── ProcessingConfig ────────────────────────────────────────────────
+
+/// Describes the four audio streams handled by the processing pipeline.
+#[derive(Debug, Clone)]
+pub(crate) struct ProcessingConfig {
+    pub input_stream: StreamConfig,
+    pub output_stream: StreamConfig,
+    pub reverse_input_stream: StreamConfig,
+    pub reverse_output_stream: StreamConfig,
+}
+
+impl Default for ProcessingConfig {
+    fn default() -> Self {
+        let default_stream = StreamConfig::new(16000, 1);
+        Self {
+            input_stream: default_stream,
+            output_stream: default_stream,
+            reverse_input_stream: default_stream,
+            reverse_output_stream: default_stream,
+        }
+    }
+}
+
+// ─── Submodules ──────────────────────────────────────────────────────
+
+/// Container for all optional submodule instances.
+struct Submodules {
+    high_pass_filter: Option<HighPassFilter>,
+    echo_controller: Option<EchoCanceller3>,
+    noise_suppressors: Vec<NoiseSuppressor>,
+    gain_controller2: Option<GainController2>,
+    capture_levels_adjuster: Option<CaptureLevelsAdjuster>,
+    echo_detector: Option<ResidualEchoDetector>,
+}
+
+// ─── Capture State ───────────────────────────────────────────────────
+
+struct CaptureState {
+    capture_audio: Option<AudioBuffer>,
+    capture_fullband_audio: Option<AudioBuffer>,
+    capture_output_used: bool,
+    capture_output_used_last_frame: bool,
+    echo_path_gain_change: bool,
+    prev_pre_adjustment_gain: f32,
+    playout_volume: i32,
+    prev_playout_volume: i32,
+    stats: AudioProcessingStats,
+    applied_input_volume: Option<i32>,
+    applied_input_volume_changed: bool,
+    recommended_input_volume: Option<i32>,
+}
+
+impl Default for CaptureState {
+    fn default() -> Self {
+        Self {
+            capture_audio: None,
+            capture_fullband_audio: None,
+            capture_output_used: true,
+            capture_output_used_last_frame: true,
+            echo_path_gain_change: false,
+            prev_pre_adjustment_gain: -1.0,
+            playout_volume: -1,
+            prev_playout_volume: -1,
+            stats: AudioProcessingStats::default(),
+            applied_input_volume: None,
+            applied_input_volume_changed: false,
+            recommended_input_volume: None,
+        }
+    }
+}
+
+/// State for capture-side values not guarded by the capture lock.
+struct CaptureNonlocked {
+    capture_processing_format: StreamConfig,
+}
+
+impl Default for CaptureNonlocked {
+    fn default() -> Self {
+        Self {
+            capture_processing_format: StreamConfig::new(16000, 1),
+        }
+    }
+}
+
+// ─── Render State ────────────────────────────────────────────────────
+
+struct RenderState {
+    render_audio: Option<AudioBuffer>,
+    render_converter: Option<AudioConverter>,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            render_audio: None,
+            render_converter: None,
+        }
+    }
+}
+
+// ─── Format State ────────────────────────────────────────────────────
+
+struct FormatState {
+    api_format: ProcessingConfig,
+    render_processing_format: StreamConfig,
+}
+
+impl Default for FormatState {
+    fn default() -> Self {
+        Self {
+            api_format: ProcessingConfig::default(),
+            render_processing_format: StreamConfig::new(16000, 1),
+        }
+    }
+}
+
+// ─── AudioProcessingImpl ─────────────────────────────────────────────
+
+/// The core audio processing engine.
+///
+/// Coordinates echo cancellation (AEC3), noise suppression (NS),
+/// automatic gain control (AGC2), high-pass filtering, and level
+/// adjustment across the capture and render audio paths.
+pub(crate) struct AudioProcessingImpl {
+    config: Config,
+    submodule_states: SubmoduleStates,
+    submodules: Submodules,
+    formats: FormatState,
+    capture: CaptureState,
+    capture_nonlocked: CaptureNonlocked,
+    render: RenderState,
+    capture_runtime_settings: VecDeque<RuntimeSetting>,
+    render_runtime_settings: VecDeque<RuntimeSetting>,
+    // Render queue for the residual echo detector.
+    red_render_queue: Option<SwapQueue<Vec<f32>>>,
+    red_render_queue_buffer: Vec<f32>,
+    red_capture_queue_buffer: Vec<f32>,
+}
+
+impl AudioProcessingImpl {
+    /// Creates a new audio processing instance with default configuration.
+    pub(crate) fn new() -> Self {
+        Self::with_config(Config::default())
+    }
+
+    /// Creates a new audio processing instance with the given configuration.
+    pub(crate) fn with_config(config: Config) -> Self {
+        let mut apm = Self {
+            config,
+            submodule_states: SubmoduleStates::new(),
+            submodules: Submodules {
+                high_pass_filter: None,
+                echo_controller: None,
+                noise_suppressors: Vec::new(),
+                gain_controller2: None,
+                capture_levels_adjuster: None,
+                echo_detector: Some(ResidualEchoDetector::new()),
+            },
+            formats: FormatState::default(),
+            capture: CaptureState::default(),
+            capture_nonlocked: CaptureNonlocked::default(),
+            render: RenderState::default(),
+            capture_runtime_settings: VecDeque::new(),
+            render_runtime_settings: VecDeque::new(),
+            red_render_queue: None,
+            red_render_queue_buffer: Vec::new(),
+            red_capture_queue_buffer: Vec::new(),
+        };
+        apm.initialize();
+        apm
+    }
+
+    /// Initializes or reinitializes the processing pipeline with
+    /// the current format configuration.
+    pub(crate) fn initialize(&mut self) {
+        self.initialize_locked();
+    }
+
+    /// Initializes the pipeline with new stream configurations.
+    pub(crate) fn initialize_with_config(&mut self, processing_config: ProcessingConfig) {
+        self.initialize_locked_with_config(processing_config);
+    }
+
+    /// Applies a new configuration, selectively reinitializing submodules.
+    pub(crate) fn apply_config(&mut self, config: Config) {
+        let aec_config_changed =
+            self.config.echo_canceller.enabled != config.echo_canceller.enabled;
+
+        let agc2_config_changed = self.config.gain_controller2 != config.gain_controller2;
+
+        let ns_config_changed = self.config.noise_suppression.enabled
+            != config.noise_suppression.enabled
+            || self.config.noise_suppression.level != config.noise_suppression.level;
+
+        let pre_amplifier_config_changed = self.config.pre_amplifier.enabled
+            != config.pre_amplifier.enabled
+            || self.config.pre_amplifier.fixed_gain_factor
+                != config.pre_amplifier.fixed_gain_factor;
+
+        let gain_adjustment_config_changed =
+            self.config.capture_level_adjustment != config.capture_level_adjustment;
+
+        let pipeline_config_changed = self.config.pipeline.multi_channel_render
+            != config.pipeline.multi_channel_render
+            || self.config.pipeline.multi_channel_capture != config.pipeline.multi_channel_capture
+            || self.config.pipeline.maximum_internal_processing_rate
+                != config.pipeline.maximum_internal_processing_rate
+            || self.config.pipeline.capture_downmix_method
+                != config.pipeline.capture_downmix_method;
+
+        self.config = config;
+
+        if aec_config_changed {
+            self.initialize_echo_controller();
+        }
+
+        if ns_config_changed {
+            self.initialize_noise_suppressor();
+        }
+
+        self.initialize_high_pass_filter(false);
+
+        if agc2_config_changed {
+            if !GainController2::validate(&self.agc2_config_from_api()) {
+                tracing::error!("Invalid GainController2 config; using default");
+                self.config.gain_controller2 = config::GainController2::default();
+            }
+            self.initialize_gain_controller2();
+        }
+
+        if pre_amplifier_config_changed || gain_adjustment_config_changed {
+            self.initialize_capture_levels_adjuster();
+        }
+
+        let reinitialization_needed =
+            self.update_active_submodule_states() || pipeline_config_changed;
+        if reinitialization_needed {
+            let api_format = self.formats.api_format.clone();
+            self.initialize_locked_with_config(api_format);
+        }
+    }
+
+    /// Enqueues a runtime setting for the capture path.
+    pub(crate) fn set_runtime_setting(&mut self, setting: RuntimeSetting) {
+        self.capture_runtime_settings.push_back(setting);
+    }
+
+    /// Returns current processing statistics.
+    pub(crate) fn get_statistics(&self) -> AudioProcessingStats {
+        self.capture.stats.clone()
+    }
+
+    /// Sets the applied input volume (e.g. from the OS mixer).
+    pub(crate) fn set_applied_input_volume(&mut self, volume: i32) {
+        self.capture.applied_input_volume_changed = self
+            .capture
+            .applied_input_volume
+            .is_some_and(|prev| prev != volume);
+        self.capture.applied_input_volume = Some(volume);
+    }
+
+    /// Returns the recommended input volume from AGC2.
+    pub(crate) fn recommended_input_volume(&self) -> Option<i32> {
+        self.capture.recommended_input_volume
+    }
+
+    // ─── Processing rate helpers ─────────────────────────────────
+
+    /// The capture processing sample rate.
+    pub(crate) fn proc_sample_rate_hz(&self) -> usize {
+        self.capture_nonlocked
+            .capture_processing_format
+            .sample_rate_hz()
+    }
+
+    /// The fullband capture sample rate.
+    fn proc_fullband_sample_rate_hz(&self) -> usize {
+        match &self.capture.capture_fullband_audio {
+            Some(buf) => buf.num_frames() * 100,
+            None => self.proc_sample_rate_hz(),
+        }
+    }
+
+    /// The number of reverse (render) channels.
+    fn num_reverse_channels(&self) -> usize {
+        self.formats.render_processing_format.num_channels()
+    }
+
+    /// The number of processing channels (may be 1 if AEC3 forces mono).
+    fn num_proc_channels(&self) -> usize {
+        let multi_channel_capture = self.config.pipeline.multi_channel_capture;
+        if self.submodule_states.echo_controller_enabled() && !multi_channel_capture {
+            return 1;
+        }
+        self.num_output_channels()
+    }
+
+    /// The number of output channels.
+    fn num_output_channels(&self) -> usize {
+        self.formats.api_format.output_stream.num_channels()
+    }
+
+    // ─── Initialization internals ────────────────────────────────
+
+    fn initialize_locked(&mut self) {
+        self.update_active_submodule_states();
+
+        let render_audiobuffer_sample_rate_hz =
+            if self.formats.api_format.reverse_output_stream.num_frames() == 0 {
+                self.formats.render_processing_format.sample_rate_hz()
+            } else {
+                self.formats
+                    .api_format
+                    .reverse_output_stream
+                    .sample_rate_hz()
+            };
+
+        // Set up render audio buffer.
+        if self.formats.api_format.reverse_input_stream.num_channels() > 0 {
+            self.render.render_audio = Some(AudioBuffer::new(
+                self.formats
+                    .api_format
+                    .reverse_input_stream
+                    .sample_rate_hz(),
+                self.formats.api_format.reverse_input_stream.num_channels(),
+                self.formats.render_processing_format.sample_rate_hz(),
+                self.formats.render_processing_format.num_channels(),
+                render_audiobuffer_sample_rate_hz,
+            ));
+            if self.formats.api_format.reverse_input_stream
+                != self.formats.api_format.reverse_output_stream
+            {
+                self.render.render_converter = Some(AudioConverter::new(
+                    self.formats.api_format.reverse_input_stream.num_channels(),
+                    self.formats.api_format.reverse_input_stream.num_frames(),
+                    self.formats.api_format.reverse_output_stream.num_channels(),
+                    self.formats.api_format.reverse_output_stream.num_frames(),
+                ));
+            } else {
+                self.render.render_converter = None;
+            }
+        } else {
+            self.render.render_audio = None;
+            self.render.render_converter = None;
+        }
+
+        // Set up capture audio buffer.
+        let capture_processing_rate = self
+            .capture_nonlocked
+            .capture_processing_format
+            .sample_rate_hz();
+        let input_rate = self.formats.api_format.input_stream.sample_rate_hz();
+        let input_channels = self.formats.api_format.input_stream.num_channels();
+        let output_rate = self.formats.api_format.output_stream.sample_rate_hz();
+        let output_channels = self.formats.api_format.output_stream.num_channels();
+
+        self.capture.capture_audio = Some(AudioBuffer::new(
+            input_rate,
+            input_channels,
+            capture_processing_rate,
+            output_channels,
+            output_rate,
+        ));
+        set_downmix_method(
+            self.capture.capture_audio.as_mut().unwrap(),
+            self.config.pipeline.capture_downmix_method,
+        );
+
+        // Set up fullband capture audio buffer if needed.
+        if capture_processing_rate < output_rate && output_rate == 48000 {
+            self.capture.capture_fullband_audio = Some(AudioBuffer::new(
+                input_rate,
+                input_channels,
+                output_rate,
+                output_channels,
+                output_rate,
+            ));
+            set_downmix_method(
+                self.capture.capture_fullband_audio.as_mut().unwrap(),
+                self.config.pipeline.capture_downmix_method,
+            );
+        } else {
+            self.capture.capture_fullband_audio = None;
+        }
+
+        self.allocate_render_queue();
+
+        // Initialize all submodules.
+        self.initialize_high_pass_filter(true);
+        self.initialize_residual_echo_detector();
+        self.initialize_echo_controller();
+        self.initialize_gain_controller2();
+        self.initialize_noise_suppressor();
+        self.initialize_capture_levels_adjuster();
+    }
+
+    fn initialize_locked_with_config(&mut self, config: ProcessingConfig) {
+        self.update_active_submodule_states();
+
+        self.formats.api_format = config;
+
+        // Choose maximum processing rate.
+        let max_splitting_rate = if self.config.pipeline.maximum_internal_processing_rate == 32000 {
+            32000
+        } else {
+            48000
+        };
+
+        // Determine capture processing rate.
+        let min_capture_rate = self
+            .formats
+            .api_format
+            .input_stream
+            .sample_rate_hz()
+            .min(self.formats.api_format.output_stream.sample_rate_hz());
+        let band_splitting_required = self
+            .submodule_states
+            .capture_multi_band_sub_modules_active()
+            || self.submodule_states.render_multi_band_sub_modules_active();
+        let capture_processing_rate = suitable_process_rate(
+            min_capture_rate,
+            max_splitting_rate,
+            band_splitting_required,
+        );
+
+        self.capture_nonlocked.capture_processing_format =
+            StreamConfig::new(capture_processing_rate, 1);
+
+        // Determine render processing rate.
+        let render_processing_rate = if !self.submodule_states.echo_controller_enabled() {
+            let min_render_rate = self
+                .formats
+                .api_format
+                .reverse_input_stream
+                .sample_rate_hz()
+                .min(
+                    self.formats
+                        .api_format
+                        .reverse_output_stream
+                        .sample_rate_hz(),
+                );
+            suitable_process_rate(min_render_rate, max_splitting_rate, band_splitting_required)
+        } else {
+            capture_processing_rate
+        };
+
+        // Setup render processing format.
+        if self.submodule_states.render_multi_band_sub_modules_active() {
+            let multi_channel_render = self.config.pipeline.multi_channel_render;
+            let render_processing_num_channels = if multi_channel_render {
+                self.formats.api_format.reverse_input_stream.num_channels()
+            } else {
+                1
+            };
+            self.formats.render_processing_format =
+                StreamConfig::new(render_processing_rate, render_processing_num_channels);
+        } else {
+            self.formats.render_processing_format = StreamConfig::new(
+                self.formats
+                    .api_format
+                    .reverse_input_stream
+                    .sample_rate_hz(),
+                self.formats.api_format.reverse_input_stream.num_channels(),
+            );
+        }
+
+        self.initialize_locked();
+    }
+
+    fn update_active_submodule_states(&mut self) -> bool {
+        let need_echo_controller = self.config.echo_canceller.enabled;
+        let gain_adjustment =
+            self.config.pre_amplifier.enabled || self.config.capture_level_adjustment.enabled;
+        self.submodule_states.update(
+            self.config.high_pass_filter.enabled,
+            self.submodules.noise_suppressors.is_empty().not_(),
+            self.config.gain_controller2.enabled,
+            gain_adjustment,
+            need_echo_controller,
+        )
+    }
+
+    fn initialize_high_pass_filter(&mut self, forced_reset: bool) {
+        let hpf_needed_by_aec = self.config.echo_canceller.enabled
+            && self.config.echo_canceller.enforce_high_pass_filtering;
+        if self.submodule_states.high_pass_filtering_required() || hpf_needed_by_aec {
+            let use_full_band = self.config.high_pass_filter.apply_in_full_band;
+            let rate = if use_full_band {
+                self.proc_fullband_sample_rate_hz() as i32
+            } else {
+                BAND_SPLIT_RATE as i32
+            };
+            let num_channels = if use_full_band {
+                self.num_output_channels()
+            } else {
+                self.num_proc_channels()
+            };
+
+            let need_reset = match &self.submodules.high_pass_filter {
+                Some(hpf) => {
+                    rate != hpf.sample_rate_hz()
+                        || forced_reset
+                        || num_channels != hpf.num_channels()
+                }
+                None => true,
+            };
+
+            if need_reset {
+                self.submodules.high_pass_filter = Some(HighPassFilter::new(rate, num_channels));
+            }
+        } else {
+            self.submodules.high_pass_filter = None;
+        }
+    }
+
+    fn initialize_echo_controller(&mut self) {
+        self.submodules.echo_controller = None;
+
+        if !self.config.echo_canceller.enabled {
+            return;
+        }
+
+        let sample_rate_hz = self.proc_sample_rate_hz();
+        let num_render_channels = self.num_reverse_channels();
+        let num_capture_channels = self.num_proc_channels();
+
+        let config = webrtc_aec3::config::EchoCanceller3Config::default();
+        let multichannel_config =
+            Some(webrtc_aec3::config::EchoCanceller3Config::create_default_multichannel_config());
+
+        self.submodules.echo_controller = Some(EchoCanceller3::new(
+            config,
+            multichannel_config,
+            sample_rate_hz,
+            num_render_channels,
+            num_capture_channels,
+        ));
+    }
+
+    fn initialize_noise_suppressor(&mut self) {
+        self.submodules.noise_suppressors.clear();
+
+        if !self.config.noise_suppression.enabled {
+            return;
+        }
+
+        let level = map_ns_level(self.config.noise_suppression.level);
+        let num_channels = self.num_proc_channels();
+        let ns_config = NsConfig {
+            target_level: level,
+        };
+
+        for _ in 0..num_channels {
+            self.submodules
+                .noise_suppressors
+                .push(NoiseSuppressor::new(ns_config));
+        }
+    }
+
+    fn initialize_gain_controller2(&mut self) {
+        if !self.config.gain_controller2.enabled {
+            self.submodules.gain_controller2 = None;
+            return;
+        }
+
+        let agc2_config = self.agc2_config_from_api();
+        let ivc_config = InputVolumeControllerConfig::default();
+        let sample_rate_hz = self.proc_fullband_sample_rate_hz();
+        let num_channels = self.num_output_channels();
+
+        self.submodules.gain_controller2 = Some(GainController2::new(
+            &agc2_config,
+            &ivc_config,
+            sample_rate_hz,
+            num_channels,
+            true, // use_internal_vad
+        ));
+
+        if let Some(gc2) = &mut self.submodules.gain_controller2 {
+            gc2.set_capture_output_used(self.capture.capture_output_used);
+        }
+    }
+
+    fn initialize_capture_levels_adjuster(&mut self) {
+        if self.config.pre_amplifier.enabled || self.config.capture_level_adjustment.enabled {
+            let mut pre_gain = 1.0_f32;
+            if self.config.pre_amplifier.enabled {
+                pre_gain *= self.config.pre_amplifier.fixed_gain_factor;
+            }
+            if self.config.capture_level_adjustment.enabled {
+                pre_gain *= self.config.capture_level_adjustment.pre_gain_factor;
+            }
+
+            self.submodules.capture_levels_adjuster = Some(CaptureLevelsAdjuster::new(
+                self.config
+                    .capture_level_adjustment
+                    .analog_mic_gain_emulation
+                    .enabled,
+                self.config
+                    .capture_level_adjustment
+                    .analog_mic_gain_emulation
+                    .initial_level,
+                pre_gain,
+                self.config.capture_level_adjustment.post_gain_factor,
+            ));
+        } else {
+            self.submodules.capture_levels_adjuster = None;
+        }
+    }
+
+    fn initialize_residual_echo_detector(&mut self) {
+        if let Some(red) = &mut self.submodules.echo_detector {
+            red.initialize();
+        }
+    }
+
+    fn allocate_render_queue(&mut self) {
+        if self.submodules.echo_detector.is_some() {
+            let max_frames = self
+                .formats
+                .api_format
+                .reverse_input_stream
+                .num_frames()
+                .max(1);
+            if self.red_render_queue.is_none() || self.red_render_queue_buffer.len() < max_frames {
+                let prototype = vec![0.0_f32; max_frames];
+                self.red_render_queue = Some(SwapQueue::with_prototype(
+                    MAX_NUM_FRAMES_TO_BUFFER,
+                    prototype,
+                ));
+                self.red_render_queue_buffer.resize(max_frames, 0.0);
+                self.red_capture_queue_buffer.resize(max_frames, 0.0);
+            } else if let Some(queue) = &mut self.red_render_queue {
+                queue.clear();
+            }
+        }
+    }
+
+    /// Builds an `Agc2Config` from the public API config.
+    fn agc2_config_from_api(&self) -> Agc2Config {
+        let gc2 = &self.config.gain_controller2;
+        Agc2Config {
+            fixed_digital: FixedDigitalConfig {
+                gain_db: gc2.fixed_digital.gain_db,
+            },
+            adaptive_digital: Agc2AdaptiveDigitalConfig {
+                enabled: gc2.adaptive_digital.enabled,
+                headroom_db: gc2.adaptive_digital.headroom_db,
+                max_gain_db: gc2.adaptive_digital.max_gain_db,
+                initial_gain_db: gc2.adaptive_digital.initial_gain_db,
+                max_gain_change_db_per_second: gc2.adaptive_digital.max_gain_change_db_per_second,
+                max_output_noise_level_dbfs: gc2.adaptive_digital.max_output_noise_level_dbfs,
+            },
+            input_volume_controller: Agc2InputVolumeControllerConfig {
+                enabled: gc2.input_volume_controller.enabled,
+            },
+        }
+    }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+/// Choose a suitable internal processing rate.
+fn suitable_process_rate(
+    minimum_rate: usize,
+    max_splitting_rate: usize,
+    band_splitting_required: bool,
+) -> usize {
+    let uppermost_native_rate = if band_splitting_required {
+        max_splitting_rate
+    } else {
+        48000
+    };
+    for rate in [16000, 32000, 48000] {
+        if rate >= uppermost_native_rate {
+            return uppermost_native_rate;
+        }
+        if rate >= minimum_rate {
+            return rate;
+        }
+    }
+    uppermost_native_rate
+}
+
+/// Configure the downmix method on an AudioBuffer.
+fn set_downmix_method(buffer: &mut AudioBuffer, method: DownmixMethod) {
+    match method {
+        DownmixMethod::AverageChannels => buffer.set_downmixing_by_averaging(),
+        DownmixMethod::UseFirstChannel => buffer.set_downmixing_to_specific_channel(0),
+    }
+}
+
+/// Map the public NS level to the internal suppression level.
+fn map_ns_level(level: NoiseSuppressionLevel) -> SuppressionLevel {
+    match level {
+        NoiseSuppressionLevel::Low => SuppressionLevel::K6dB,
+        NoiseSuppressionLevel::Moderate => SuppressionLevel::K12dB,
+        NoiseSuppressionLevel::High => SuppressionLevel::K18dB,
+        NoiseSuppressionLevel::VeryHigh => SuppressionLevel::K21dB,
+    }
+}
+
+/// Helper trait to negate booleans of `is_empty()` result.
+trait NotEmpty {
+    fn not_(&self) -> bool;
+}
+
+impl NotEmpty for bool {
+    fn not_(&self) -> bool {
+        !self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suitable_process_rate_basic() {
+        assert_eq!(suitable_process_rate(8000, 32000, true), 16000);
+        assert_eq!(suitable_process_rate(16000, 32000, true), 16000);
+        assert_eq!(suitable_process_rate(24000, 32000, true), 32000);
+        assert_eq!(suitable_process_rate(44100, 32000, true), 32000);
+    }
+
+    #[test]
+    fn suitable_process_rate_no_splitting() {
+        assert_eq!(suitable_process_rate(8000, 32000, false), 16000);
+        assert_eq!(suitable_process_rate(44100, 32000, false), 48000);
+    }
+
+    #[test]
+    fn suitable_process_rate_48k_max() {
+        assert_eq!(suitable_process_rate(8000, 48000, true), 16000);
+        assert_eq!(suitable_process_rate(44100, 48000, true), 48000);
+    }
+
+    #[test]
+    fn create_default() {
+        let apm = AudioProcessingImpl::new();
+        assert!(apm.capture.capture_audio.is_some());
+        assert!(apm.submodules.echo_controller.is_none());
+        assert!(apm.submodules.noise_suppressors.is_empty());
+        assert!(apm.submodules.gain_controller2.is_none());
+        assert!(apm.submodules.capture_levels_adjuster.is_none());
+    }
+
+    #[test]
+    fn create_with_echo_canceller() {
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        let apm = AudioProcessingImpl::with_config(config);
+        assert!(apm.submodules.echo_controller.is_some());
+    }
+
+    #[test]
+    fn create_with_noise_suppression() {
+        let mut config = Config::default();
+        config.noise_suppression.enabled = true;
+        let apm = AudioProcessingImpl::with_config(config);
+        assert_eq!(apm.submodules.noise_suppressors.len(), 1);
+    }
+
+    #[test]
+    fn create_with_gain_controller2() {
+        let mut config = Config::default();
+        config.gain_controller2.enabled = true;
+        let apm = AudioProcessingImpl::with_config(config);
+        assert!(apm.submodules.gain_controller2.is_some());
+    }
+
+    #[test]
+    fn create_with_capture_level_adjustment() {
+        let mut config = Config::default();
+        config.capture_level_adjustment.enabled = true;
+        config.capture_level_adjustment.pre_gain_factor = 2.0;
+        config.capture_level_adjustment.post_gain_factor = 0.5;
+        let apm = AudioProcessingImpl::with_config(config);
+        assert!(apm.submodules.capture_levels_adjuster.is_some());
+    }
+
+    #[test]
+    fn apply_config_enables_echo_canceller() {
+        let mut apm = AudioProcessingImpl::new();
+        assert!(apm.submodules.echo_controller.is_none());
+
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        apm.apply_config(config);
+        assert!(apm.submodules.echo_controller.is_some());
+    }
+
+    #[test]
+    fn apply_config_disables_noise_suppression() {
+        let mut config = Config::default();
+        config.noise_suppression.enabled = true;
+        let mut apm = AudioProcessingImpl::with_config(config);
+        assert!(!apm.submodules.noise_suppressors.is_empty());
+
+        let config2 = Config::default();
+        apm.apply_config(config2);
+        assert!(apm.submodules.noise_suppressors.is_empty());
+    }
+
+    #[test]
+    fn high_pass_filter_enforced_by_aec() {
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        config.echo_canceller.enforce_high_pass_filtering = true;
+        config.high_pass_filter.enabled = false;
+        let apm = AudioProcessingImpl::with_config(config);
+        assert!(apm.submodules.high_pass_filter.is_some());
+    }
+
+    #[test]
+    fn statistics_default() {
+        let apm = AudioProcessingImpl::new();
+        let stats = apm.get_statistics();
+        assert!(stats.echo_return_loss.is_none());
+        assert!(stats.delay_ms.is_none());
+    }
+
+    #[test]
+    fn initialize_with_different_rates() {
+        let mut apm = AudioProcessingImpl::new();
+        let config = ProcessingConfig {
+            input_stream: StreamConfig::new(48000, 2),
+            output_stream: StreamConfig::new(48000, 2),
+            reverse_input_stream: StreamConfig::new(48000, 2),
+            reverse_output_stream: StreamConfig::new(48000, 2),
+        };
+        apm.initialize_with_config(config);
+        assert!(apm.capture.capture_audio.is_some());
+        assert!(apm.render.render_audio.is_some());
+    }
+}
