@@ -7,4 +7,8 @@
 
 pub mod config;
 pub mod fast_math;
+pub mod histograms;
+pub mod ns_fft;
+pub mod prior_signal_model;
+pub mod signal_model;
 pub mod suppression_params;

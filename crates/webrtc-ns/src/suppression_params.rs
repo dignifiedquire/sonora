@@ -15,30 +15,42 @@ pub struct SuppressionParams {
     pub use_attenuation_adjustment: bool,
 }
 
+/// 6 dB suppression.
+const K6DB: SuppressionParams = SuppressionParams {
+    over_subtraction_factor: 1.0,
+    minimum_attenuating_gain: 0.5,
+    use_attenuation_adjustment: false,
+};
+
+/// 12 dB suppression.
+const K12DB: SuppressionParams = SuppressionParams {
+    over_subtraction_factor: 1.0,
+    minimum_attenuating_gain: 0.25,
+    use_attenuation_adjustment: true,
+};
+
+/// 18 dB suppression.
+const K18DB: SuppressionParams = SuppressionParams {
+    over_subtraction_factor: 1.1,
+    minimum_attenuating_gain: 0.125,
+    use_attenuation_adjustment: true,
+};
+
+/// 21 dB (20.9 dB) suppression.
+const K21DB: SuppressionParams = SuppressionParams {
+    over_subtraction_factor: 1.25,
+    minimum_attenuating_gain: 0.09,
+    use_attenuation_adjustment: true,
+};
+
 impl SuppressionParams {
-    /// Create suppression parameters for the given level.
-    pub fn new(level: SuppressionLevel) -> Self {
+    /// Get the suppression parameters for the given level.
+    pub const fn for_level(level: SuppressionLevel) -> &'static Self {
         match level {
-            SuppressionLevel::K6dB => Self {
-                over_subtraction_factor: 1.0,
-                minimum_attenuating_gain: 0.5, // 6 dB attenuation
-                use_attenuation_adjustment: false,
-            },
-            SuppressionLevel::K12dB => Self {
-                over_subtraction_factor: 1.0,
-                minimum_attenuating_gain: 0.25, // 12 dB attenuation
-                use_attenuation_adjustment: true,
-            },
-            SuppressionLevel::K18dB => Self {
-                over_subtraction_factor: 1.1,
-                minimum_attenuating_gain: 0.125, // 18 dB attenuation
-                use_attenuation_adjustment: true,
-            },
-            SuppressionLevel::K21dB => Self {
-                over_subtraction_factor: 1.25,
-                minimum_attenuating_gain: 0.09, // 20.9 dB attenuation
-                use_attenuation_adjustment: true,
-            },
+            SuppressionLevel::K6dB => &K6DB,
+            SuppressionLevel::K12dB => &K12DB,
+            SuppressionLevel::K18dB => &K18DB,
+            SuppressionLevel::K21dB => &K21DB,
         }
     }
 }
@@ -49,7 +61,7 @@ mod tests {
 
     #[test]
     fn k6db_params() {
-        let p = SuppressionParams::new(SuppressionLevel::K6dB);
+        let p = SuppressionParams::for_level(SuppressionLevel::K6dB);
         assert_eq!(p.over_subtraction_factor, 1.0);
         assert_eq!(p.minimum_attenuating_gain, 0.5);
         assert!(!p.use_attenuation_adjustment);
@@ -57,7 +69,7 @@ mod tests {
 
     #[test]
     fn k12db_params() {
-        let p = SuppressionParams::new(SuppressionLevel::K12dB);
+        let p = SuppressionParams::for_level(SuppressionLevel::K12dB);
         assert_eq!(p.over_subtraction_factor, 1.0);
         assert_eq!(p.minimum_attenuating_gain, 0.25);
         assert!(p.use_attenuation_adjustment);
@@ -65,7 +77,7 @@ mod tests {
 
     #[test]
     fn k18db_params() {
-        let p = SuppressionParams::new(SuppressionLevel::K18dB);
+        let p = SuppressionParams::for_level(SuppressionLevel::K18dB);
         assert_eq!(p.over_subtraction_factor, 1.1);
         assert_eq!(p.minimum_attenuating_gain, 0.125);
         assert!(p.use_attenuation_adjustment);
@@ -73,7 +85,7 @@ mod tests {
 
     #[test]
     fn k21db_params() {
-        let p = SuppressionParams::new(SuppressionLevel::K21dB);
+        let p = SuppressionParams::for_level(SuppressionLevel::K21dB);
         assert_eq!(p.over_subtraction_factor, 1.25);
         assert_eq!(p.minimum_attenuating_gain, 0.09);
         assert!(p.use_attenuation_adjustment);
@@ -89,7 +101,7 @@ mod tests {
         ];
         let gains: Vec<f32> = levels
             .iter()
-            .map(|l| SuppressionParams::new(*l).minimum_attenuating_gain)
+            .map(|l| SuppressionParams::for_level(*l).minimum_attenuating_gain)
             .collect();
         for w in gains.windows(2) {
             assert!(w[0] > w[1], "gain should decrease: {} > {}", w[0], w[1]);
