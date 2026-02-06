@@ -17,3 +17,4 @@ pub mod signal_model;
 pub mod signal_model_estimator;
 pub mod speech_probability_estimator;
 pub mod suppression_params;
+pub mod wiener_filter;
