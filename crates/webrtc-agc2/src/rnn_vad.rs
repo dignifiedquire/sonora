@@ -5,6 +5,8 @@
 
 pub mod activations;
 pub mod common;
+pub mod fc_layer;
+pub mod gru_layer;
 pub mod ring_buffer;
 pub mod sequence_buffer;
 pub mod symmetric_matrix_buffer;
