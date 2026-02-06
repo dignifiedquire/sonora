@@ -7,7 +7,7 @@ use std::arch::aarch64::*;
 /// # Safety
 /// Caller must ensure NEON is available (always true on aarch64).
 #[inline]
-pub unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     let len = a.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -41,7 +41,7 @@ pub unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 /// # Safety
 /// Caller must ensure NEON is available.
 #[inline]
-pub unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
+pub(crate) unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
     let len = input.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -82,7 +82,7 @@ pub unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f
 /// # Safety
 /// Caller must ensure NEON is available.
 #[inline]
-pub unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
+pub(crate) unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
     let len = acc.len();
     let chunks = len / 4;
     let remainder = len % 4;
@@ -114,7 +114,7 @@ pub unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
 /// # Safety
 /// Caller must ensure NEON is available.
 #[inline]
-pub unsafe fn sum(x: &[f32]) -> f32 {
+pub(crate) unsafe fn sum(x: &[f32]) -> f32 {
     let len = x.len();
     let chunks = len / 4;
     let remainder = len % 4;

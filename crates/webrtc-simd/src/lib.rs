@@ -147,7 +147,7 @@ pub fn detect_backend() -> SimdBackend {
             return SimdBackend::Neon;
         }
 
-        #[allow(unreachable_code)]
+        #[allow(unreachable_code, reason = "fallback for architectures without SIMD")]
         SimdBackend::Scalar
     }
 }

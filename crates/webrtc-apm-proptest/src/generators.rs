@@ -3,6 +3,7 @@
 //! Provides both strategy functions (for use with `#[strategy(...)]`) and
 //! `Arbitrary`-deriving structs for common audio test inputs.
 
+use proptest::collection::vec as prop_vec;
 use proptest::prelude::*;
 use test_strategy::Arbitrary;
 
@@ -81,19 +82,19 @@ pub struct MultiChannelFrameF32 {
 /// Generate a mono audio frame at a given sample rate (~10ms frame).
 pub fn audio_frame_f32(sample_rate: u32) -> impl Strategy<Value = Vec<f32>> {
     let frame_size = (sample_rate / 100) as usize;
-    proptest::collection::vec(-1.0f32..=1.0f32, frame_size..=frame_size)
+    prop_vec(-1.0f32..=1.0f32, frame_size..=frame_size)
 }
 
 /// Generate interleaved stereo audio (~10ms frame).
 pub fn stereo_frame_f32(sample_rate: u32) -> impl Strategy<Value = Vec<f32>> {
     let frame_size = (sample_rate / 100) as usize * 2;
-    proptest::collection::vec(-1.0f32..=1.0f32, frame_size..=frame_size)
+    prop_vec(-1.0f32..=1.0f32, frame_size..=frame_size)
 }
 
 /// Generate a mono i16 audio frame at a given sample rate (~10ms frame).
 pub fn audio_frame_i16(sample_rate: u32) -> impl Strategy<Value = Vec<i16>> {
     let frame_size = (sample_rate / 100) as usize;
-    proptest::collection::vec(i16::MIN..=i16::MAX, frame_size..=frame_size)
+    prop_vec(i16::MIN..=i16::MAX, frame_size..=frame_size)
 }
 
 /// Generate multi-channel audio frames (~10ms).
@@ -102,12 +103,12 @@ pub fn audio_frame_multichannel_f32(
     channels: usize,
 ) -> impl Strategy<Value = Vec<f32>> {
     let frame_size = (sample_rate / 100) as usize * channels;
-    proptest::collection::vec(-1.0f32..=1.0f32, frame_size..=frame_size)
+    prop_vec(-1.0f32..=1.0f32, frame_size..=frame_size)
 }
 
 /// Generate FIR filter coefficients.
 pub fn fir_coefficients(max_len: usize) -> impl Strategy<Value = Vec<f32>> {
-    proptest::collection::vec(-1.0f32..=1.0f32, 1..=max_len)
+    prop_vec(-1.0f32..=1.0f32, 1..=max_len)
 }
 
 #[cfg(test)]

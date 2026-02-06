@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # Enable cxx bridge to the C++ library. Requires the C++ library to be

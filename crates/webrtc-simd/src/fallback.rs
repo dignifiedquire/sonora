@@ -1,10 +1,10 @@
 //! Scalar fallback implementations of SIMD operations.
 
-pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
-pub fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
+pub(crate) fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
     let mut sum1 = 0.0f32;
     let mut sum2 = 0.0f32;
     for i in 0..input.len() {
@@ -14,13 +14,13 @@ pub fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
     (sum1, sum2)
 }
 
-pub fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
+pub(crate) fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
     for i in 0..acc.len() {
         acc[i] += a[i] * b[i];
     }
 }
 
-pub fn sum(x: &[f32]) -> f32 {
+pub(crate) fn sum(x: &[f32]) -> f32 {
     x.iter().sum()
 }
 

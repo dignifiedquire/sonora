@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # Enable FFI comparison tests against the C++ library.
