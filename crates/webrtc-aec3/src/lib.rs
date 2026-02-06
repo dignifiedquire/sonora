@@ -25,6 +25,8 @@ pub(crate) mod downsampled_render_buffer;
 pub(crate) mod echo_audibility;
 pub(crate) mod echo_path_delay_estimator;
 pub(crate) mod echo_path_variability;
+pub(crate) mod echo_remover;
+pub(crate) mod echo_remover_metrics;
 pub(crate) mod erl_estimator;
 pub(crate) mod erle_estimator;
 pub(crate) mod fft_buffer;
