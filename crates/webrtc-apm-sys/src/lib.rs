@@ -29,7 +29,9 @@
 //! comparison testing for new components.
 
 #[cfg(feature = "cxx-bridge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cxx-bridge")))]
 mod bridge;
 
 #[cfg(feature = "cxx-bridge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cxx-bridge")))]
 pub use bridge::*;

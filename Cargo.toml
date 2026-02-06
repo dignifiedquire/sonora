@@ -38,7 +38,7 @@ proptest = "1.9"
 test-strategy = "0.4"
 
 [workspace.lints.rust]
-unexpected_cfgs = "deny"
+unexpected_cfgs = { level = "deny", check-cfg = ["cfg(docsrs)"] }
 elided_lifetimes_in_paths = "warn"
 unnameable_types = "warn"
 unreachable_pub = "warn"
