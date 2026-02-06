@@ -1,0 +1,651 @@
+//! 128-point real FFT using the Ooura algorithm.
+//!
+//! Port of WebRTC's `OouraFft` — a fixed-size, in-place, real-valued FFT
+//! optimized for 128 samples. Originally by Takuya Ooura (1996-2001),
+//! adapted by the WebRTC project with precomputed twiddle tables.
+//!
+//! # Data format
+//!
+//! Forward transform (`fft`):
+//! - Input: 128 real-valued time-domain samples in `a[0..128]`
+//! - Output: Packed frequency-domain data. `a[0]` = DC component,
+//!   `a[1]` = Nyquist component, `a[2k], a[2k+1]` = real/imag of bin k.
+//!
+//! Inverse transform (`inverse_fft`):
+//! - Input: Packed frequency-domain data (as produced by `fft`)
+//! - Output: 128 real-valued time-domain samples (scaled by 2/N)
+
+/// Fixed 128-point real FFT size.
+pub const FFT_SIZE: usize = 128;
+
+// Precomputed cos/sin values. These were originally computed at runtime
+// but WebRTC hardcoded them for determinism and startup speed.
+
+/// Common twiddle factors shared by all paths (C, SSE2, NEON).
+const RDFT_W: [f32; 64] = [
+    1.000_000_0,
+    0.000_000_0,
+    0.707_106_77,
+    0.707_106_77,
+    0.923_879_56,
+    0.382_683_46,
+    0.382_683_46,
+    0.923_879_56,
+    0.980_785_25,
+    0.195_090_32,
+    0.555_570_24,
+    0.831_469_6,
+    0.831_469_6,
+    0.555_570_24,
+    0.195_090_32,
+    0.980_785_25,
+    0.995_184_7,
+    0.098_017_14,
+    0.634_393_33,
+    0.773_010_43,
+    0.881_921_3,
+    0.471_396_74,
+    0.290_284_66,
+    0.956_940_35,
+    0.956_940_35,
+    0.290_284_66,
+    0.471_396_74,
+    0.881_921_3,
+    0.773_010_43,
+    0.634_393_33,
+    0.098_017_14,
+    0.995_184_7,
+    0.707_106_77,
+    0.499_397_72,
+    0.497_592_36,
+    0.494_588_26,
+    0.490_392_63,
+    0.485_015_63,
+    0.478_470_18,
+    0.470_772_03,
+    0.461_939_78,
+    0.451_994_63,
+    0.440_960_65,
+    0.428_864_3,
+    0.415_734_8,
+    0.401_603_76,
+    0.386_505_22,
+    0.370_475_6,
+    0.353_553_38,
+    0.335_779_5,
+    0.317_196_67,
+    0.297_849_66,
+    0.277_785_12,
+    0.257_051_38,
+    0.235_698_37,
+    0.213_777_54,
+    0.191_341_73,
+    0.168_444_93,
+    0.145_142_33,
+    0.121_490_1,
+    0.097_545_16,
+    0.073_365_234,
+    0.049_008_57,
+    0.024_533_838,
+];
+
+/// Twiddle factors for the C/MIPS path (first half of k=3 factors).
+const RDFT_WK3RI_FIRST: [f32; 16] = [
+    1.000_000_0,
+    0.000_000_0,
+    0.382_683_46,
+    0.923_879_56,
+    0.831_469_54,
+    0.555_570_24,
+    -0.195_090_35,
+    0.980_785_25,
+    0.956_940_35,
+    0.290_284_7,
+    0.098_017_156,
+    0.995_184_7,
+    0.634_393_33,
+    0.773_010_5,
+    -0.471_396_86,
+    0.881_921_2,
+];
+
+/// Twiddle factors for the C/MIPS path (second half of k=3 factors).
+const RDFT_WK3RI_SECOND: [f32; 16] = [
+    -0.707_106_77,
+    0.707_106_77,
+    -0.923_879_56,
+    -0.382_683_46,
+    -0.980_785_25,
+    0.195_090_35,
+    -0.555_570_24,
+    -0.831_469_54,
+    -0.881_921_2,
+    0.471_396_86,
+    -0.773_010_5,
+    -0.634_393_33,
+    -0.995_184_7,
+    -0.098_017_156,
+    -0.290_284_7,
+    -0.956_940_35,
+];
+
+/// Forward 128-point real FFT (time domain → frequency domain).
+///
+/// Transforms `a` in-place. After the call:
+/// - `a[0]` = DC component
+/// - `a[1]` = Nyquist component
+/// - `a[2k], a[2k+1]` = real/imaginary of frequency bin k
+pub fn forward(a: &mut [f32; FFT_SIZE]) {
+    bitrv2_128(a);
+    cftfsub_128(a);
+    rftfsub_128(a);
+    let xi = a[0] - a[1];
+    a[0] += a[1];
+    a[1] = xi;
+}
+
+/// Inverse 128-point real FFT (frequency domain → time domain).
+///
+/// Transforms `a` in-place. To recover the original signal,
+/// multiply each output element by `2/N` (i.e., `2/128`).
+pub fn inverse(a: &mut [f32; FFT_SIZE]) {
+    a[1] = 0.5 * (a[0] - a[1]);
+    a[0] -= a[1];
+    rftbsub_128(a);
+    bitrv2_128(a);
+    cftbsub_128(a);
+}
+
+/// Bit-reversal permutation for 128-point FFT.
+fn bitrv2_128(a: &mut [f32; FFT_SIZE]) {
+    let ip: [usize; 4] = [0, 64, 32, 96];
+    for k in 0..4_usize {
+        for j in 0..k {
+            let j1 = 2 * j + ip[k];
+            let k1 = 2 * k + ip[j];
+
+            a.swap(j1, k1);
+            a.swap(j1 + 1, k1 + 1);
+
+            let j1 = j1 + 8;
+            let k1 = k1 + 16;
+            a.swap(j1, k1);
+            a.swap(j1 + 1, k1 + 1);
+
+            let j1 = j1 + 8;
+            let k1 = k1 - 8;
+            a.swap(j1, k1);
+            a.swap(j1 + 1, k1 + 1);
+
+            let j1 = j1 + 8;
+            let k1 = k1 + 16;
+            a.swap(j1, k1);
+            a.swap(j1 + 1, k1 + 1);
+        }
+        let j1 = 2 * k + 8 + ip[k];
+        let k1 = j1 + 8;
+        a.swap(j1, k1);
+        a.swap(j1 + 1, k1 + 1);
+    }
+}
+
+/// First-stage complex FFT butterfly.
+fn cft1st_128(a: &mut [f32; FFT_SIZE]) {
+    let n = FFT_SIZE;
+
+    // First 8 elements — simplified (no twiddle multiply).
+    let x0r = a[0] + a[2];
+    let x0i = a[1] + a[3];
+    let x1r = a[0] - a[2];
+    let x1i = a[1] - a[3];
+    let x2r = a[4] + a[6];
+    let x2i = a[5] + a[7];
+    let x3r = a[4] - a[6];
+    let x3i = a[5] - a[7];
+    a[0] = x0r + x2r;
+    a[1] = x0i + x2i;
+    a[4] = x0r - x2r;
+    a[5] = x0i - x2i;
+    a[2] = x1r - x3i;
+    a[3] = x1i + x3r;
+    a[6] = x1r + x3i;
+    a[7] = x1i - x3r;
+
+    // Elements 8..16 — wk1r only.
+    let wk1r = RDFT_W[2];
+    let x0r = a[8] + a[10];
+    let x0i = a[9] + a[11];
+    let x1r = a[8] - a[10];
+    let x1i = a[9] - a[11];
+    let x2r = a[12] + a[14];
+    let x2i = a[13] + a[15];
+    let x3r = a[12] - a[14];
+    let x3i = a[13] - a[15];
+    a[8] = x0r + x2r;
+    a[9] = x0i + x2i;
+    a[12] = x2i - x0i;
+    a[13] = x0r - x2r;
+    let x0r = x1r - x3i;
+    let x0i = x1i + x3r;
+    a[10] = wk1r * (x0r - x0i);
+    a[11] = wk1r * (x0r + x0i);
+    let x0r = x3i + x1r;
+    let x0i = x3r - x1i;
+    a[14] = wk1r * (x0i - x0r);
+    a[15] = wk1r * (x0i + x0r);
+
+    // Remaining elements 16..128 with full twiddle factors.
+    let mut k1 = 0_usize;
+    let mut j = 16;
+    while j < n {
+        k1 += 2;
+        let k2 = 2 * k1;
+        let wk2r = RDFT_W[k1];
+        let wk2i = RDFT_W[k1 + 1];
+        let wk1r = RDFT_W[k2];
+        let wk1i = RDFT_W[k2 + 1];
+        let wk3r = RDFT_WK3RI_FIRST[k1];
+        let wk3i = RDFT_WK3RI_FIRST[k1 + 1];
+
+        let x0r = a[j] + a[j + 2];
+        let x0i = a[j + 1] + a[j + 3];
+        let x1r = a[j] - a[j + 2];
+        let x1i = a[j + 1] - a[j + 3];
+        let x2r = a[j + 4] + a[j + 6];
+        let x2i = a[j + 5] + a[j + 7];
+        let x3r = a[j + 4] - a[j + 6];
+        let x3i = a[j + 5] - a[j + 7];
+        a[j] = x0r + x2r;
+        a[j + 1] = x0i + x2i;
+        let x0r = x0r - x2r;
+        let x0i = x0i - x2i;
+        a[j + 4] = wk2r * x0r - wk2i * x0i;
+        a[j + 5] = wk2r * x0i + wk2i * x0r;
+        let x0r = x1r - x3i;
+        let x0i = x1i + x3r;
+        a[j + 2] = wk1r * x0r - wk1i * x0i;
+        a[j + 3] = wk1r * x0i + wk1i * x0r;
+        let x0r = x1r + x3i;
+        let x0i = x1i - x3r;
+        a[j + 6] = wk3r * x0r - wk3i * x0i;
+        a[j + 7] = wk3r * x0i + wk3i * x0r;
+
+        let wk1r = RDFT_W[k2 + 2];
+        let wk1i = RDFT_W[k2 + 3];
+        let wk3r = RDFT_WK3RI_SECOND[k1];
+        let wk3i = RDFT_WK3RI_SECOND[k1 + 1];
+
+        let x0r = a[j + 8] + a[j + 10];
+        let x0i = a[j + 9] + a[j + 11];
+        let x1r = a[j + 8] - a[j + 10];
+        let x1i = a[j + 9] - a[j + 11];
+        let x2r = a[j + 12] + a[j + 14];
+        let x2i = a[j + 13] + a[j + 15];
+        let x3r = a[j + 12] - a[j + 14];
+        let x3i = a[j + 13] - a[j + 15];
+        a[j + 8] = x0r + x2r;
+        a[j + 9] = x0i + x2i;
+        let x0r = x0r - x2r;
+        let x0i = x0i - x2i;
+        a[j + 12] = -wk2i * x0r - wk2r * x0i;
+        a[j + 13] = -wk2i * x0i + wk2r * x0r;
+        let x0r = x1r - x3i;
+        let x0i = x1i + x3r;
+        a[j + 10] = wk1r * x0r - wk1i * x0i;
+        a[j + 11] = wk1r * x0i + wk1i * x0r;
+        let x0r = x1r + x3i;
+        let x0i = x1i - x3r;
+        a[j + 14] = wk3r * x0r - wk3i * x0i;
+        a[j + 15] = wk3r * x0i + wk3i * x0r;
+
+        j += 16;
+    }
+}
+
+/// Modular complex FFT butterfly stage.
+fn cftmdl_128(a: &mut [f32; FFT_SIZE]) {
+    let l = 8_usize;
+    let n = FFT_SIZE;
+    let m = 32_usize;
+
+    // First block: no twiddle factors.
+    for j0 in (0..l).step_by(2) {
+        let j1 = j0 + 8;
+        let j2 = j0 + 16;
+        let j3 = j0 + 24;
+        let x0r = a[j0] + a[j1];
+        let x0i = a[j0 + 1] + a[j1 + 1];
+        let x1r = a[j0] - a[j1];
+        let x1i = a[j0 + 1] - a[j1 + 1];
+        let x2r = a[j2] + a[j3];
+        let x2i = a[j2 + 1] + a[j3 + 1];
+        let x3r = a[j2] - a[j3];
+        let x3i = a[j2 + 1] - a[j3 + 1];
+        a[j0] = x0r + x2r;
+        a[j0 + 1] = x0i + x2i;
+        a[j2] = x0r - x2r;
+        a[j2 + 1] = x0i - x2i;
+        a[j1] = x1r - x3i;
+        a[j1 + 1] = x1i + x3r;
+        a[j3] = x1r + x3i;
+        a[j3 + 1] = x1i - x3r;
+    }
+
+    // Second block: wk1r only.
+    let wk1r = RDFT_W[2];
+    for j0 in (m..l + m).step_by(2) {
+        let j1 = j0 + 8;
+        let j2 = j0 + 16;
+        let j3 = j0 + 24;
+        let x0r = a[j0] + a[j1];
+        let x0i = a[j0 + 1] + a[j1 + 1];
+        let x1r = a[j0] - a[j1];
+        let x1i = a[j0 + 1] - a[j1 + 1];
+        let x2r = a[j2] + a[j3];
+        let x2i = a[j2 + 1] + a[j3 + 1];
+        let x3r = a[j2] - a[j3];
+        let x3i = a[j2 + 1] - a[j3 + 1];
+        a[j0] = x0r + x2r;
+        a[j0 + 1] = x0i + x2i;
+        a[j2] = x2i - x0i;
+        a[j2 + 1] = x0r - x2r;
+        let x0r = x1r - x3i;
+        let x0i = x1i + x3r;
+        a[j1] = wk1r * (x0r - x0i);
+        a[j1 + 1] = wk1r * (x0r + x0i);
+        let x0r = x3i + x1r;
+        let x0i = x3r - x1i;
+        a[j3] = wk1r * (x0i - x0r);
+        a[j3 + 1] = wk1r * (x0i + x0r);
+    }
+
+    // Remaining blocks with full twiddle factors.
+    let mut k1 = 0_usize;
+    let m2 = 2 * m;
+    let mut k = m2;
+    while k < n {
+        k1 += 2;
+        let k2 = 2 * k1;
+        let wk2r = RDFT_W[k1];
+        let wk2i = RDFT_W[k1 + 1];
+        let wk1r = RDFT_W[k2];
+        let wk1i = RDFT_W[k2 + 1];
+        let wk3r = RDFT_WK3RI_FIRST[k1];
+        let wk3i = RDFT_WK3RI_FIRST[k1 + 1];
+
+        for j0 in (k..l + k).step_by(2) {
+            let j1 = j0 + 8;
+            let j2 = j0 + 16;
+            let j3 = j0 + 24;
+            let x0r = a[j0] + a[j1];
+            let x0i = a[j0 + 1] + a[j1 + 1];
+            let x1r = a[j0] - a[j1];
+            let x1i = a[j0 + 1] - a[j1 + 1];
+            let x2r = a[j2] + a[j3];
+            let x2i = a[j2 + 1] + a[j3 + 1];
+            let x3r = a[j2] - a[j3];
+            let x3i = a[j2 + 1] - a[j3 + 1];
+            a[j0] = x0r + x2r;
+            a[j0 + 1] = x0i + x2i;
+            let x0r = x0r - x2r;
+            let x0i = x0i - x2i;
+            a[j2] = wk2r * x0r - wk2i * x0i;
+            a[j2 + 1] = wk2r * x0i + wk2i * x0r;
+            let x0r = x1r - x3i;
+            let x0i = x1i + x3r;
+            a[j1] = wk1r * x0r - wk1i * x0i;
+            a[j1 + 1] = wk1r * x0i + wk1i * x0r;
+            let x0r = x1r + x3i;
+            let x0i = x1i - x3r;
+            a[j3] = wk3r * x0r - wk3i * x0i;
+            a[j3 + 1] = wk3r * x0i + wk3i * x0r;
+        }
+
+        let wk1r = RDFT_W[k2 + 2];
+        let wk1i = RDFT_W[k2 + 3];
+        let wk3r = RDFT_WK3RI_SECOND[k1];
+        let wk3i = RDFT_WK3RI_SECOND[k1 + 1];
+
+        for j0 in (k + m..l + (k + m)).step_by(2) {
+            let j1 = j0 + 8;
+            let j2 = j0 + 16;
+            let j3 = j0 + 24;
+            let x0r = a[j0] + a[j1];
+            let x0i = a[j0 + 1] + a[j1 + 1];
+            let x1r = a[j0] - a[j1];
+            let x1i = a[j0 + 1] - a[j1 + 1];
+            let x2r = a[j2] + a[j3];
+            let x2i = a[j2 + 1] + a[j3 + 1];
+            let x3r = a[j2] - a[j3];
+            let x3i = a[j2 + 1] - a[j3 + 1];
+            a[j0] = x0r + x2r;
+            a[j0 + 1] = x0i + x2i;
+            let x0r = x0r - x2r;
+            let x0i = x0i - x2i;
+            a[j2] = -wk2i * x0r - wk2r * x0i;
+            a[j2 + 1] = -wk2i * x0i + wk2r * x0r;
+            let x0r = x1r - x3i;
+            let x0i = x1i + x3r;
+            a[j1] = wk1r * x0r - wk1i * x0i;
+            a[j1 + 1] = wk1r * x0i + wk1i * x0r;
+            let x0r = x1r + x3i;
+            let x0i = x1i - x3r;
+            a[j3] = wk3r * x0r - wk3i * x0i;
+            a[j3 + 1] = wk3r * x0i + wk3i * x0r;
+        }
+
+        k += m2;
+    }
+}
+
+/// Forward complex sub-transform (radix-4 decomposition).
+fn cftfsub_128(a: &mut [f32; FFT_SIZE]) {
+    cft1st_128(a);
+    cftmdl_128(a);
+    let l = 32_usize;
+    for j in (0..l).step_by(2) {
+        let j1 = j + l;
+        let j2 = j1 + l;
+        let j3 = j2 + l;
+        let x0r = a[j] + a[j1];
+        let x0i = a[j + 1] + a[j1 + 1];
+        let x1r = a[j] - a[j1];
+        let x1i = a[j + 1] - a[j1 + 1];
+        let x2r = a[j2] + a[j3];
+        let x2i = a[j2 + 1] + a[j3 + 1];
+        let x3r = a[j2] - a[j3];
+        let x3i = a[j2 + 1] - a[j3 + 1];
+        a[j] = x0r + x2r;
+        a[j + 1] = x0i + x2i;
+        a[j2] = x0r - x2r;
+        a[j2 + 1] = x0i - x2i;
+        a[j1] = x1r - x3i;
+        a[j1 + 1] = x1i + x3r;
+        a[j3] = x1r + x3i;
+        a[j3 + 1] = x1i - x3r;
+    }
+}
+
+/// Backward complex sub-transform (radix-4 decomposition).
+fn cftbsub_128(a: &mut [f32; FFT_SIZE]) {
+    cft1st_128(a);
+    cftmdl_128(a);
+    let l = 32_usize;
+    for j in (0..l).step_by(2) {
+        let j1 = j + l;
+        let j2 = j1 + l;
+        let j3 = j2 + l;
+        let x0r = a[j] + a[j1];
+        let x0i = -a[j + 1] - a[j1 + 1];
+        let x1r = a[j] - a[j1];
+        let x1i = -a[j + 1] + a[j1 + 1];
+        let x2r = a[j2] + a[j3];
+        let x2i = a[j2 + 1] + a[j3 + 1];
+        let x3r = a[j2] - a[j3];
+        let x3i = a[j2 + 1] - a[j3 + 1];
+        a[j] = x0r + x2r;
+        a[j + 1] = x0i - x2i;
+        a[j2] = x0r - x2r;
+        a[j2 + 1] = x0i + x2i;
+        a[j1] = x1r - x3i;
+        a[j1 + 1] = x1i - x3r;
+        a[j3] = x1r + x3i;
+        a[j3 + 1] = x1i + x3r;
+    }
+}
+
+/// Real FFT forward post-processing (split-radix real/imaginary separation).
+fn rftfsub_128(a: &mut [f32; FFT_SIZE]) {
+    let c = &RDFT_W[32..];
+    for j1 in 1..32_usize {
+        let j2 = 2 * j1;
+        let k2 = 128 - j2;
+        let k1 = 32 - j1;
+        let wkr = 0.5 - c[k1];
+        let wki = c[j1];
+        let xr = a[j2] - a[k2];
+        let xi = a[j2 + 1] + a[k2 + 1];
+        let yr = wkr * xr - wki * xi;
+        let yi = wkr * xi + wki * xr;
+        a[j2] -= yr;
+        a[j2 + 1] -= yi;
+        a[k2] += yr;
+        a[k2 + 1] -= yi;
+    }
+}
+
+/// Real FFT backward pre-processing (split-radix real/imaginary recombination).
+fn rftbsub_128(a: &mut [f32; FFT_SIZE]) {
+    let c = &RDFT_W[32..];
+    a[1] = -a[1];
+    for j1 in 1..32_usize {
+        let j2 = 2 * j1;
+        let k2 = 128 - j2;
+        let k1 = 32 - j1;
+        let wkr = 0.5 - c[k1];
+        let wki = c[j1];
+        let xr = a[j2] - a[k2];
+        let xi = a[j2 + 1] + a[k2 + 1];
+        let yr = wkr * xr + wki * xi;
+        let yi = wkr * xi - wki * xr;
+        a[j2] -= yr;
+        a[j2 + 1] = yi - a[j2 + 1];
+        a[k2] += yr;
+        a[k2 + 1] = yi - a[k2 + 1];
+    }
+    a[65] = -a[65];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forward_inverse_roundtrip() {
+        let mut a = [0.0_f32; FFT_SIZE];
+        // Fill with a known signal.
+        for (i, v) in a.iter_mut().enumerate() {
+            *v = (i as f32) * 0.01 + (-0.5_f32).powi(i as i32);
+        }
+        let original = a;
+
+        forward(&mut a);
+        inverse(&mut a);
+
+        // Ooura convention: roundtrip requires scaling by 2/N.
+        let scale = 2.0 / FFT_SIZE as f32;
+        for (i, (&o, &r)) in original.iter().zip(a.iter()).enumerate() {
+            let recovered = r * scale;
+            assert!(
+                (o - recovered).abs() < 1e-4,
+                "mismatch at index {i}: original={o}, recovered={recovered}"
+            );
+        }
+    }
+
+    #[test]
+    fn impulse_response() {
+        // Delta function at index 0.
+        let mut a = [0.0_f32; FFT_SIZE];
+        a[0] = 1.0;
+
+        forward(&mut a);
+
+        // DC component should be 1.0.
+        assert!((a[0] - 1.0).abs() < 1e-6, "DC = {}", a[0]);
+        // Nyquist should be 1.0 (all samples are +1 at even indices).
+        assert!((a[1] - 1.0).abs() < 1e-6, "Nyquist = {}", a[1]);
+        // All other real parts should be 1.0, imaginary 0.0.
+        for k in 1..64 {
+            let re = a[2 * k];
+            let im = a[2 * k + 1];
+            assert!(
+                (re - 1.0).abs() < 1e-5,
+                "bin {k} real: expected 1.0, got {re}"
+            );
+            assert!(im.abs() < 1e-5, "bin {k} imag: expected 0.0, got {im}");
+        }
+    }
+
+    #[test]
+    fn linearity() {
+        let mut signal_a = [0.0_f32; FFT_SIZE];
+        let mut signal_b = [0.0_f32; FFT_SIZE];
+        let mut signal_sum = [0.0_f32; FFT_SIZE];
+
+        for i in 0..FFT_SIZE {
+            signal_a[i] = (i as f32 * 0.1).sin();
+            signal_b[i] = (i as f32 * 0.3).cos();
+            signal_sum[i] = signal_a[i] + signal_b[i];
+        }
+
+        forward(&mut signal_a);
+        forward(&mut signal_b);
+        forward(&mut signal_sum);
+
+        // FFT(a+b) should equal FFT(a) + FFT(b).
+        for i in 0..FFT_SIZE {
+            let expected = signal_a[i] + signal_b[i];
+            assert!(
+                (signal_sum[i] - expected).abs() < 1e-4,
+                "linearity failed at index {i}: FFT(a+b)={}, FFT(a)+FFT(b)={expected}",
+                signal_sum[i]
+            );
+        }
+    }
+
+    #[test]
+    fn zero_input() {
+        let mut a = [0.0_f32; FFT_SIZE];
+        forward(&mut a);
+        for (i, &v) in a.iter().enumerate() {
+            assert_eq!(v, 0.0, "expected zero at index {i}, got {v}");
+        }
+    }
+
+    #[test]
+    fn dc_signal() {
+        let mut a = [1.0_f32; FFT_SIZE];
+        forward(&mut a);
+
+        // DC should be N (128).
+        assert!(
+            (a[0] - FFT_SIZE as f32).abs() < 1e-4,
+            "DC = {}, expected {}",
+            a[0],
+            FFT_SIZE
+        );
+        // Nyquist should be 0 (constant signal has no Nyquist content
+        // since all samples equal, alternating sum = 0? Actually for
+        // constant signal, Nyquist = sum of (-1)^n * x[n] = 0).
+        // Wait: for x[n]=1, Nyquist = sum((-1)^n) = 0.
+        // But a[1] after Ooura FFT stores Nyquist.
+        // Let's just check it's near zero.
+        assert!(a[1].abs() < 1e-4, "Nyquist = {}, expected ~0", a[1]);
+        // All other bins should be zero.
+        for k in 1..64 {
+            assert!(a[2 * k].abs() < 1e-4, "bin {k} real = {}", a[2 * k]);
+            assert!(a[2 * k + 1].abs() < 1e-4, "bin {k} imag = {}", a[2 * k + 1]);
+        }
+    }
+}
