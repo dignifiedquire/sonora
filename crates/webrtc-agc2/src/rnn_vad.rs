@@ -7,6 +7,7 @@ pub mod activations;
 pub mod auto_correlation;
 pub mod common;
 pub mod fc_layer;
+pub mod features_extraction;
 pub mod gru_layer;
 pub mod lp_residual;
 pub mod pitch_search;
