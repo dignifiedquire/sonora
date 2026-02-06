@@ -16,19 +16,26 @@ fn clamp_level_estimate_dbfs(level_estimate_dbfs: f32) -> f32 {
     level_estimate_dbfs.clamp(-90.0, 30.0)
 }
 
-/// Configuration for the adaptive digital gain controller that affects the
-/// speech level estimator.
-#[derive(Debug, Clone)]
+/// Configuration for the adaptive digital gain controller.
+///
+/// Mirrors `AudioProcessing::Config::GainController2::AdaptiveDigital` from C++.
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct AdaptiveDigitalConfig {
     pub(crate) headroom_db: f32,
+    pub(crate) max_gain_db: f32,
     pub(crate) initial_gain_db: f32,
+    pub(crate) max_gain_change_db_per_second: f32,
+    pub(crate) max_output_noise_level_dbfs: f32,
 }
 
 impl Default for AdaptiveDigitalConfig {
     fn default() -> Self {
         Self {
             headroom_db: 5.0,
+            max_gain_db: 50.0,
             initial_gain_db: 15.0,
+            max_gain_change_db_per_second: 6.0,
+            max_output_noise_level_dbfs: -50.0,
         }
     }
 }
