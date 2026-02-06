@@ -6,3 +6,4 @@
 
 pub mod common;
 pub mod rnn_vad;
+pub(crate) mod vad_wrapper;
