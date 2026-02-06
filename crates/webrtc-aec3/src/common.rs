@@ -15,13 +15,13 @@ pub(crate) const FFT_LENGTH_BY_2_MINUS_1: usize = FFT_LENGTH_BY_2 - 1;
 pub(crate) const FFT_LENGTH: usize = 2 * FFT_LENGTH_BY_2;
 pub(crate) const FFT_LENGTH_BY_2_LOG2: usize = 6;
 
-pub(crate) const RENDER_TRANSFER_QUEUE_SIZE_FRAMES: usize = 100;
+pub const RENDER_TRANSFER_QUEUE_SIZE_FRAMES: usize = 100;
 
-pub(crate) const MAX_NUM_BANDS: usize = 3;
-pub(crate) const FRAME_SIZE: usize = 160;
-pub(crate) const SUB_FRAME_LENGTH: usize = FRAME_SIZE / 2;
+pub const MAX_NUM_BANDS: usize = 3;
+pub const FRAME_SIZE: usize = 160;
+pub const SUB_FRAME_LENGTH: usize = FRAME_SIZE / 2;
 
-pub(crate) const BLOCK_SIZE: usize = FFT_LENGTH_BY_2;
+pub const BLOCK_SIZE: usize = FFT_LENGTH_BY_2;
 pub(crate) const BLOCK_SIZE_LOG2: usize = FFT_LENGTH_BY_2_LOG2;
 pub(crate) const BLOCK_SIZE_MS: usize = FFT_LENGTH_BY_2 * 1000 / 16000;
 
@@ -31,12 +31,12 @@ pub(crate) const MATCHED_FILTER_ALIGNMENT_SHIFT_SIZE_SUB_BLOCKS: usize =
     MATCHED_FILTER_WINDOW_SIZE_SUB_BLOCKS * 3 / 4;
 
 /// Returns the number of frequency bands for the given sample rate.
-pub(crate) const fn num_bands_for_rate(sample_rate_hz: usize) -> usize {
+pub const fn num_bands_for_rate(sample_rate_hz: usize) -> usize {
     sample_rate_hz / 16000
 }
 
 /// Returns whether the given sample rate is a valid full-band rate.
-pub(crate) const fn valid_full_band_rate(sample_rate_hz: usize) -> bool {
+pub const fn valid_full_band_rate(sample_rate_hz: usize) -> bool {
     matches!(sample_rate_hz, 16000 | 32000 | 48000)
 }
 

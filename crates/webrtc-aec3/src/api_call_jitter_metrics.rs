@@ -4,7 +4,7 @@
 
 /// Tracks min and max values for jitter reporting.
 #[derive(Debug, Clone)]
-pub(crate) struct Jitter {
+pub struct Jitter {
     min: i32,
     max: i32,
 }
@@ -27,11 +27,11 @@ impl Jitter {
         self.max = 0;
     }
 
-    pub(crate) fn min(&self) -> i32 {
+    pub fn min(&self) -> i32 {
         self.min
     }
 
-    pub(crate) fn max(&self) -> i32 {
+    pub fn max(&self) -> i32 {
         self.max
     }
 }
@@ -44,7 +44,7 @@ fn time_to_report_metrics(frames_since_last_report: i32) -> bool {
 }
 
 /// Stores data for reporting metrics on the API call jitter.
-pub(crate) struct ApiCallJitterMetrics {
+pub struct ApiCallJitterMetrics {
     render_jitter: Jitter,
     capture_jitter: Jitter,
     num_api_calls_in_a_row: i32,
@@ -54,7 +54,7 @@ pub(crate) struct ApiCallJitterMetrics {
 }
 
 impl ApiCallJitterMetrics {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let mut s = Self {
             render_jitter: Jitter::new(),
             capture_jitter: Jitter::new(),
@@ -68,7 +68,7 @@ impl ApiCallJitterMetrics {
     }
 
     /// Updates metrics for a render API call.
-    pub(crate) fn report_render_call(&mut self) {
+    pub fn report_render_call(&mut self) {
         if !self.last_call_was_render {
             // If the previous call was a capture and a proper call has been
             // observed, store the last number of capture calls.
@@ -83,7 +83,7 @@ impl ApiCallJitterMetrics {
     }
 
     /// Updates and periodically reports metrics for a capture API call.
-    pub(crate) fn report_capture_call(&mut self) {
+    pub fn report_capture_call(&mut self) {
         if self.last_call_was_render {
             // If the previous call was a render and a proper call has been
             // observed, store the last number of render calls.
@@ -113,17 +113,17 @@ impl ApiCallJitterMetrics {
     }
 
     /// Returns a reference to the render jitter tracker.
-    pub(crate) fn render_jitter(&self) -> &Jitter {
+    pub fn render_jitter(&self) -> &Jitter {
         &self.render_jitter
     }
 
     /// Returns a reference to the capture jitter tracker.
-    pub(crate) fn capture_jitter(&self) -> &Jitter {
+    pub fn capture_jitter(&self) -> &Jitter {
         &self.capture_jitter
     }
 
     /// Returns true if metrics will be reported at the next capture call.
-    pub(crate) fn will_report_metrics_at_next_capture(&self) -> bool {
+    pub fn will_report_metrics_at_next_capture(&self) -> bool {
         time_to_report_metrics(self.frames_since_last_report + 1)
     }
 

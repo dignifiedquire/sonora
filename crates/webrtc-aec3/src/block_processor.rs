@@ -16,7 +16,7 @@ use crate::render_delay_buffer::{BufferingEvent, RenderDelayBuffer};
 use crate::render_delay_controller::RenderDelayController;
 
 /// Block-level echo cancellation processor.
-pub(crate) struct BlockProcessor {
+pub struct BlockProcessor {
     config: EchoCanceller3Config,
     capture_properly_started: bool,
     render_properly_started: bool,
@@ -32,14 +32,14 @@ pub(crate) struct BlockProcessor {
 
 /// Metrics output from the block processor.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct BlockProcessorMetricsOutput {
+pub struct BlockProcessorMetricsOutput {
     pub echo_return_loss: f64,
     pub echo_return_loss_enhancement: f64,
     pub delay_ms: i32,
 }
 
 impl BlockProcessor {
-    pub(crate) fn new(
+    pub fn new(
         config: &EchoCanceller3Config,
         sample_rate_hz: usize,
         num_render_channels: usize,
@@ -78,7 +78,7 @@ impl BlockProcessor {
     }
 
     /// Returns current echo cancellation metrics.
-    pub(crate) fn get_metrics(&self) -> BlockProcessorMetricsOutput {
+    pub fn get_metrics(&self) -> BlockProcessorMetricsOutput {
         let echo_metrics = self.echo_remover.get_metrics();
         const BLOCK_SIZE_MS: i32 = 4;
         BlockProcessorMetricsOutput {
@@ -89,12 +89,12 @@ impl BlockProcessor {
     }
 
     /// Provides an optional external estimate of the audio buffer delay.
-    pub(crate) fn set_audio_buffer_delay(&mut self, delay_ms: i32) {
+    pub fn set_audio_buffer_delay(&mut self, delay_ms: i32) {
         self.render_buffer.set_audio_buffer_delay(delay_ms);
     }
 
     /// Processes a block of capture data.
-    pub(crate) fn process_capture(
+    pub fn process_capture(
         &mut self,
         echo_path_gain_change: bool,
         capture_signal_saturation: bool,
@@ -185,7 +185,7 @@ impl BlockProcessor {
     }
 
     /// Buffers a block of render data.
-    pub(crate) fn buffer_render(&mut self, block: &Block) {
+    pub fn buffer_render(&mut self, block: &Block) {
         debug_assert_eq!(num_bands_for_rate(self.sample_rate_hz), block.num_bands());
 
         self.render_event = self.render_buffer.insert(block);
@@ -200,13 +200,13 @@ impl BlockProcessor {
     }
 
     /// Reports whether echo leakage has been detected.
-    pub(crate) fn update_echo_leakage_status(&mut self, leakage_detected: bool) {
+    pub fn update_echo_leakage_status(&mut self, leakage_detected: bool) {
         self.echo_remover
             .update_echo_leakage_status(leakage_detected);
     }
 
     /// Specifies whether the capture output will be used.
-    pub(crate) fn set_capture_output_usage(&mut self, capture_output_used: bool) {
+    pub fn set_capture_output_usage(&mut self, capture_output_used: bool) {
         self.echo_remover
             .set_capture_output_usage(capture_output_used);
     }

@@ -20,7 +20,7 @@ pub(crate) mod circular_buffer;
 pub(crate) mod clockdrift_detector;
 pub(crate) mod coarse_filter_update_gain;
 pub(crate) mod comfort_noise_generator;
-pub(crate) mod common;
+pub mod common;
 pub mod config;
 pub(crate) mod decimator;
 pub(crate) mod delay_estimate;

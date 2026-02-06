@@ -10,7 +10,7 @@ use crate::block::Block;
 use crate::common::{BLOCK_SIZE, SUB_FRAME_LENGTH};
 
 /// Produces 64-sample blocks from 80-sample sub-frames.
-pub(crate) struct FrameBlocker {
+pub struct FrameBlocker {
     num_bands: usize,
     num_channels: usize,
     /// `buffer[band][channel]` — residual samples not yet output.
@@ -18,7 +18,7 @@ pub(crate) struct FrameBlocker {
 }
 
 impl FrameBlocker {
-    pub(crate) fn new(num_bands: usize, num_channels: usize) -> Self {
+    pub fn new(num_bands: usize, num_channels: usize) -> Self {
         debug_assert!(num_bands > 0);
         debug_assert!(num_channels > 0);
         Self {
@@ -32,7 +32,7 @@ impl FrameBlocker {
     ///
     /// `sub_frame` is indexed as `sub_frame[band][channel]`, where each inner
     /// slice has `SUB_FRAME_LENGTH` (80) samples.
-    pub(crate) fn insert_sub_frame_and_extract_block(
+    pub fn insert_sub_frame_and_extract_block(
         &mut self,
         sub_frame: &[Vec<&[f32]>],
         block: &mut Block,
@@ -65,13 +65,13 @@ impl FrameBlocker {
     }
 
     /// Returns `true` if a full 64-sample block is available for extraction.
-    pub(crate) fn is_block_available(&self) -> bool {
+    pub fn is_block_available(&self) -> bool {
         self.buffer[0][0].len() == BLOCK_SIZE
     }
 
     /// Extracts a buffered 64-sample block (only valid when `is_block_available`
     /// returns `true`).
-    pub(crate) fn extract_block(&mut self, block: &mut Block) {
+    pub fn extract_block(&mut self, block: &mut Block) {
         debug_assert_eq!(self.num_bands, block.num_bands());
         debug_assert_eq!(self.num_channels, block.num_channels());
         debug_assert!(self.is_block_available());

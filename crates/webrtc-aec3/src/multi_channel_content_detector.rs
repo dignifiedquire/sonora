@@ -23,7 +23,7 @@ fn has_stereo_content(frame: &[Vec<Vec<f32>>], detection_threshold: f32) -> bool
 
 /// Analyzes audio content to determine whether it is proper multichannel
 /// or only upmixed mono.
-pub(crate) struct MultiChannelContentDetector {
+pub struct MultiChannelContentDetector {
     detect_stereo_content: bool,
     detection_threshold: f32,
     detection_timeout_threshold_frames: Option<i64>,
@@ -35,7 +35,7 @@ pub(crate) struct MultiChannelContentDetector {
 }
 
 impl MultiChannelContentDetector {
-    pub(crate) fn new(
+    pub fn new(
         detect_stereo_content: bool,
         num_render_input_channels: usize,
         detection_threshold: f32,
@@ -67,7 +67,7 @@ impl MultiChannelContentDetector {
     /// persistent multichannel detection status changed.
     ///
     /// `frame` is indexed as `[band][channel][sample]`.
-    pub(crate) fn update_detection(&mut self, frame: &[Vec<Vec<f32>>]) -> bool {
+    pub fn update_detection(&mut self, frame: &[Vec<Vec<f32>>]) -> bool {
         if !self.detect_stereo_content {
             debug_assert_eq!(
                 frame[0].len() > 1,
@@ -112,12 +112,12 @@ impl MultiChannelContentDetector {
     }
 
     /// Returns whether persistent multichannel content has been detected.
-    pub(crate) fn is_proper_multi_channel_content_detected(&self) -> bool {
+    pub fn is_proper_multi_channel_content_detected(&self) -> bool {
         self.persistent_multichannel_content_detected
     }
 
     /// Returns whether temporary multichannel content has been detected.
-    pub(crate) fn is_temporary_multi_channel_content_detected(&self) -> bool {
+    pub fn is_temporary_multi_channel_content_detected(&self) -> bool {
         self.temporary_multichannel_content_detected
     }
 }

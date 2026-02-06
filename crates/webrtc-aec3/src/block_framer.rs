@@ -10,7 +10,7 @@ use crate::block::Block;
 use crate::common::{BLOCK_SIZE, SUB_FRAME_LENGTH};
 
 /// Produces 80-sample sub-frames from 64-sample blocks.
-pub(crate) struct BlockFramer {
+pub struct BlockFramer {
     num_bands: usize,
     num_channels: usize,
     /// `buffer[band][channel]` — residual samples from previous blocks.
@@ -18,7 +18,7 @@ pub(crate) struct BlockFramer {
 }
 
 impl BlockFramer {
-    pub(crate) fn new(num_bands: usize, num_channels: usize) -> Self {
+    pub fn new(num_bands: usize, num_channels: usize) -> Self {
         debug_assert!(num_bands > 0);
         debug_assert!(num_channels > 0);
         Self {
@@ -29,7 +29,7 @@ impl BlockFramer {
     }
 
     /// Adds a 64-sample block without extracting a sub-frame.
-    pub(crate) fn insert_block(&mut self, block: &Block) {
+    pub fn insert_block(&mut self, block: &Block) {
         debug_assert_eq!(self.num_bands, block.num_bands());
         debug_assert_eq!(self.num_channels, block.num_channels());
         for band in 0..self.num_bands {
@@ -45,7 +45,7 @@ impl BlockFramer {
     ///
     /// `sub_frame` is indexed as `sub_frame[band][channel]`, each inner `Vec`
     /// has `SUB_FRAME_LENGTH` (80) samples.
-    pub(crate) fn insert_block_and_extract_sub_frame(
+    pub fn insert_block_and_extract_sub_frame(
         &mut self,
         block: &Block,
         sub_frame: &mut [Vec<Vec<f32>>],
