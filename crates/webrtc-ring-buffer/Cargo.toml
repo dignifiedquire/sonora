@@ -1,0 +1,17 @@
+[package]
+name = "webrtc-ring-buffer"
+version = "0.1.0"
+description = "Ring buffer matching WebRTC semantics (zero-copy reads, bidirectional cursor movement)"
+keywords = ["ring-buffer", "audio", "dsp", "fifo"]
+categories = ["data-structures", "multimedia::audio"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true }
+test-strategy = { workspace = true }

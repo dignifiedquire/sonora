@@ -10,6 +10,7 @@ members = [
     "crates/webrtc-ns",
     "crates/webrtc-vad",
     "crates/webrtc-simd",
+    "crates/webrtc-ring-buffer",
     "crates/webrtc-apm-proptest",
 ]
 
@@ -30,6 +31,7 @@ webrtc-agc = { path = "crates/webrtc-agc" }
 webrtc-ns = { path = "crates/webrtc-ns" }
 webrtc-vad = { path = "crates/webrtc-vad" }
 webrtc-simd = { path = "crates/webrtc-simd" }
+webrtc-ring-buffer = { path = "crates/webrtc-ring-buffer" }
 webrtc-apm-proptest = { path = "crates/webrtc-apm-proptest" }
 
 # External dependencies
