@@ -1,0 +1,18 @@
+[package]
+name = "webrtc-common-audio"
+version = "0.1.0"
+description = "DSP primitives for WebRTC Audio Processing (resamplers, filters, FFT)"
+keywords = ["dsp", "audio", "fir-filter", "resampler", "fft"]
+categories = ["multimedia::audio", "science"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+tracing = ["dep:tracing"]
+
+[dependencies]
+webrtc-simd = { workspace = true }
+tracing = { workspace = true, optional = true }

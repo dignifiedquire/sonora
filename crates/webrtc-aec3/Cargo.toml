@@ -1,0 +1,19 @@
+[package]
+name = "webrtc-aec3"
+version = "0.1.0"
+description = "Echo Canceller 3 (AEC3) for WebRTC Audio Processing"
+keywords = ["webrtc", "audio", "echo-cancellation", "aec"]
+categories = ["multimedia::audio"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+tracing = ["dep:tracing"]
+
+[dependencies]
+webrtc-common-audio = { workspace = true }
+webrtc-simd = { workspace = true }
+tracing = { workspace = true, optional = true }

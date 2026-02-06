@@ -1,0 +1,13 @@
+[package]
+name = "webrtc-apm-proptest"
+version = "0.1.0"
+description = "Property-based test framework for WebRTC Audio Processing Rust port"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+proptest = { workspace = true }
+webrtc-apm-sys = { workspace = true }

@@ -1,0 +1,18 @@
+[package]
+name = "webrtc-aecm"
+version = "0.1.0"
+description = "Mobile Echo Control (AECM) for WebRTC Audio Processing"
+keywords = ["webrtc", "audio", "echo-cancellation", "mobile"]
+categories = ["multimedia::audio"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+tracing = ["dep:tracing"]
+
+[dependencies]
+webrtc-common-audio = { workspace = true }
+tracing = { workspace = true, optional = true }

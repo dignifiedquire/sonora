@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/webrtc-apm",
+    "crates/webrtc-apm-sys",
+    "crates/webrtc-common-audio",
+    "crates/webrtc-aec3",
+    "crates/webrtc-aecm",
+    "crates/webrtc-agc",
+    "crates/webrtc-ns",
+    "crates/webrtc-vad",
+    "crates/webrtc-simd",
+    "crates/webrtc-apm-proptest",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"
+license = "BSD-3-Clause"
+repository = "https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing"
+
+[workspace.dependencies]
+# Internal crates
+webrtc-apm = { path = "crates/webrtc-apm" }
+webrtc-apm-sys = { path = "crates/webrtc-apm-sys" }
+webrtc-common-audio = { path = "crates/webrtc-common-audio" }
+webrtc-aec3 = { path = "crates/webrtc-aec3" }
+webrtc-aecm = { path = "crates/webrtc-aecm" }
+webrtc-agc = { path = "crates/webrtc-agc" }
+webrtc-ns = { path = "crates/webrtc-ns" }
+webrtc-vad = { path = "crates/webrtc-vad" }
+webrtc-simd = { path = "crates/webrtc-simd" }
+webrtc-apm-proptest = { path = "crates/webrtc-apm-proptest" }
+
+# External dependencies
+tracing = "0.1"
+proptest = "1.9"

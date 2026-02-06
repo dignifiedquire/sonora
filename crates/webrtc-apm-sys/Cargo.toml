@@ -1,0 +1,11 @@
+[package]
+name = "webrtc-apm-sys"
+version = "0.1.0"
+description = "C++ FFI bindings to WebRTC Audio Processing for comparison testing"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]

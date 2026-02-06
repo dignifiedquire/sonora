@@ -1,0 +1,24 @@
+[package]
+name = "webrtc-apm"
+version = "0.1.0"
+description = "Rust port of WebRTC Audio Processing (echo cancellation, noise suppression, AGC)"
+keywords = ["webrtc", "audio", "echo-cancellation", "noise-suppression", "agc"]
+categories = ["multimedia::audio"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+tracing = ["dep:tracing"]
+
+[dependencies]
+webrtc-common-audio = { workspace = true }
+webrtc-aec3 = { workspace = true }
+webrtc-aecm = { workspace = true }
+webrtc-agc = { workspace = true }
+webrtc-ns = { workspace = true }
+webrtc-vad = { workspace = true }
+webrtc-simd = { workspace = true }
+tracing = { workspace = true, optional = true }
