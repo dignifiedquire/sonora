@@ -4,6 +4,7 @@
 //! detection, limiter, and clipping prediction. This is the modern AGC
 //! used by the default audio processing pipeline.
 
+pub(crate) mod biquad_filter;
 pub mod common;
 pub mod rnn_vad;
 pub(crate) mod vad_wrapper;
