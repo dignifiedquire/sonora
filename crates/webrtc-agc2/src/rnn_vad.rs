@@ -4,9 +4,11 @@
 //! analysis to estimate speech probability. Operates at 24kHz internally.
 
 pub mod activations;
+pub mod auto_correlation;
 pub mod common;
 pub mod fc_layer;
 pub mod gru_layer;
+pub mod lp_residual;
 pub mod ring_buffer;
 pub mod sequence_buffer;
 pub mod symmetric_matrix_buffer;
