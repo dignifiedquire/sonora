@@ -3,3 +3,4 @@
 //! Contains audio utilities, FIR filters, audio resamplers, and FFT wrappers.
 
 pub mod audio_util;
+pub mod channel_buffer;
