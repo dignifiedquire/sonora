@@ -14,4 +14,6 @@ pub(crate) mod delay_estimate;
 pub(crate) mod echo_path_variability;
 pub(crate) mod fft_buffer;
 pub(crate) mod fft_data;
+pub(crate) mod moving_average;
 pub(crate) mod spectrum_buffer;
+pub(crate) mod vector_math;
