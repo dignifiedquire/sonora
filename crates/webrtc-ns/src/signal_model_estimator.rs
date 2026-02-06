@@ -119,22 +119,18 @@ pub struct SignalModelEstimator {
 
 impl Default for SignalModelEstimator {
     fn default() -> Self {
-        Self::new()
+        Self {
+            diff_normalization: 0.0,
+            signal_energy_sum: 0.0,
+            histograms: Histograms::default(),
+            histogram_analysis_counter: FEATURE_UPDATE_WINDOW_SIZE,
+            prior_model_estimator: PriorSignalModelEstimator::new(LTR_FEATURE_THR),
+            features: SignalModel::default(),
+        }
     }
 }
 
 impl SignalModelEstimator {
-    pub fn new() -> Self {
-        Self {
-            diff_normalization: 0.0,
-            signal_energy_sum: 0.0,
-            histograms: Histograms::new(),
-            histogram_analysis_counter: FEATURE_UPDATE_WINDOW_SIZE,
-            prior_model_estimator: PriorSignalModelEstimator::new(LTR_FEATURE_THR),
-            features: SignalModel::new(),
-        }
-    }
-
     /// Compute signal normalization during the initial startup phase.
     pub fn adjust_normalization(&mut self, num_analyzed_frames: i32, signal_energy: f32) {
         self.diff_normalization *= num_analyzed_frames as f32;
@@ -218,7 +214,7 @@ mod tests {
 
     #[test]
     fn initial_state() {
-        let est = SignalModelEstimator::new();
+        let est = SignalModelEstimator::default();
         assert_eq!(est.diff_normalization, 0.0);
         assert_eq!(est.signal_energy_sum, 0.0);
         assert_eq!(est.histogram_analysis_counter, FEATURE_UPDATE_WINDOW_SIZE);
@@ -226,7 +222,7 @@ mod tests {
 
     #[test]
     fn adjust_normalization_accumulates() {
-        let mut est = SignalModelEstimator::new();
+        let mut est = SignalModelEstimator::default();
         est.adjust_normalization(0, 100.0);
         assert_eq!(est.diff_normalization, 100.0); // (0*0 + 100) / 1 = 100
         est.adjust_normalization(1, 200.0);
@@ -235,7 +231,7 @@ mod tests {
 
     #[test]
     fn update_decrements_histogram_counter() {
-        let mut est = SignalModelEstimator::new();
+        let mut est = SignalModelEstimator::default();
         let prior_snr = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let post_snr = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let cons_noise = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
@@ -251,7 +247,7 @@ mod tests {
 
     #[test]
     fn histogram_resets_after_window() {
-        let mut est = SignalModelEstimator::new();
+        let mut est = SignalModelEstimator::default();
         let prior_snr = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let post_snr = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let cons_noise = [1.0f32; FFT_SIZE_BY_2_PLUS_1];

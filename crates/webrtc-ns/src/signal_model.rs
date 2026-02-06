@@ -23,8 +23,8 @@ pub struct SignalModel {
 /// Spectral flatness feature threshold.
 const SF_FEATURE_THR: f32 = 0.5;
 
-impl SignalModel {
-    pub fn new() -> Self {
+impl Default for SignalModel {
+    fn default() -> Self {
         Self {
             lrt: LTR_FEATURE_THR,
             spectral_flatness: SF_FEATURE_THR,
@@ -34,19 +34,13 @@ impl SignalModel {
     }
 }
 
-impl Default for SignalModel {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn default_values() {
-        let m = SignalModel::new();
+        let m = SignalModel::default();
         assert_eq!(m.lrt, 0.5);
         assert_eq!(m.spectral_flatness, 0.5);
         assert_eq!(m.spectral_diff, 0.5);

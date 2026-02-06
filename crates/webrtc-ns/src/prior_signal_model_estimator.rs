@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn update_with_empty_histograms() {
         let mut est = PriorSignalModelEstimator::new(0.5);
-        let histograms = Histograms::new();
+        let histograms = Histograms::default();
         est.update(&histograms);
         // With empty histograms, LRT average is 0, so low_lrt_fluctuations=true → lrt=1.0.
         assert_eq!(est.prior_model().lrt, 1.0);
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn update_enables_features_with_sufficient_data() {
         let mut est = PriorSignalModelEstimator::new(0.5);
-        let mut histograms = Histograms::new();
+        let mut histograms = Histograms::default();
 
         // Build histograms with enough weight and appropriate peak positions
         // to enable both spectral flatness and spectral diff features.
@@ -236,7 +236,7 @@ mod tests {
             lrt: 0.5,
             spectral_flatness: 0.7, // > 0.6 threshold
             spectral_diff: 0.5,
-            ..SignalModel::new()
+            ..SignalModel::default()
         };
         for _ in 0..200 {
             histograms.update(&features);

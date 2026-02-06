@@ -20,16 +20,17 @@ pub struct Histograms {
     spectral_diff: [i32; HISTOGRAM_SIZE],
 }
 
-impl Histograms {
-    /// Create zero-initialized histograms.
-    pub fn new() -> Self {
+impl Default for Histograms {
+    fn default() -> Self {
         Self {
             lrt: [0; HISTOGRAM_SIZE],
             spectral_flatness: [0; HISTOGRAM_SIZE],
             spectral_diff: [0; HISTOGRAM_SIZE],
         }
     }
+}
 
+impl Histograms {
     /// Clear all histograms to zero.
     pub fn clear(&mut self) {
         self.lrt.fill(0);
@@ -79,19 +80,13 @@ impl Histograms {
     }
 }
 
-impl Default for Histograms {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn new_is_zeroed() {
-        let h = Histograms::new();
+        let h = Histograms::default();
         assert!(h.lrt().iter().all(|&v| v == 0));
         assert!(h.spectral_flatness().iter().all(|&v| v == 0));
         assert!(h.spectral_diff().iter().all(|&v| v == 0));
@@ -99,12 +94,12 @@ mod tests {
 
     #[test]
     fn update_increments_correct_bins() {
-        let mut h = Histograms::new();
+        let mut h = Histograms::default();
         let features = SignalModel {
             lrt: 0.5,                // bin = 0.5 / 0.1 = 5
             spectral_flatness: 0.25, // bin = 0.25 / 0.05 = 5
             spectral_diff: 1.0,      // bin = 1.0 / 0.1 = 10
-            ..SignalModel::new()
+            ..SignalModel::default()
         };
         h.update(&features);
 
@@ -119,12 +114,12 @@ mod tests {
 
     #[test]
     fn update_accumulates() {
-        let mut h = Histograms::new();
+        let mut h = Histograms::default();
         let features = SignalModel {
             lrt: 0.5,
             spectral_flatness: 0.25,
             spectral_diff: 1.0,
-            ..SignalModel::new()
+            ..SignalModel::default()
         };
         h.update(&features);
         h.update(&features);
@@ -135,12 +130,12 @@ mod tests {
 
     #[test]
     fn out_of_range_ignored() {
-        let mut h = Histograms::new();
+        let mut h = Histograms::default();
         let features = SignalModel {
             lrt: -1.0,
             spectral_flatness: 1000.0,
             spectral_diff: -0.1,
-            ..SignalModel::new()
+            ..SignalModel::default()
         };
         h.update(&features);
 
@@ -151,8 +146,8 @@ mod tests {
 
     #[test]
     fn clear_resets() {
-        let mut h = Histograms::new();
-        let features = SignalModel::new();
+        let mut h = Histograms::default();
+        let features = SignalModel::default();
         h.update(&features);
         h.clear();
         assert!(h.lrt().iter().all(|&v| v == 0));

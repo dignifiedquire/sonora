@@ -139,7 +139,7 @@ struct ChannelState {
 impl ChannelState {
     fn new(suppression_params: &'static SuppressionParams) -> Self {
         Self {
-            speech_probability_estimator: SpeechProbabilityEstimator::new(),
+            speech_probability_estimator: SpeechProbabilityEstimator::default(),
             wiener_filter: WienerFilter::new(suppression_params),
             noise_estimator: NoiseEstimator::new(suppression_params),
             prev_analysis_signal_spectrum: [1.0; FFT_SIZE_BY_2_PLUS_1],
@@ -180,7 +180,7 @@ impl NoiseSuppressor {
         let suppression_params = SuppressionParams::for_level(config.target_level);
         Self {
             num_analyzed_frames: -1,
-            fft: NsFft::new(),
+            fft: NsFft::default(),
             channel: ChannelState::new(suppression_params),
         }
     }

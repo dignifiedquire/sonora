@@ -34,12 +34,6 @@ pub struct QuantileNoiseEstimator {
 
 impl Default for QuantileNoiseEstimator {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl QuantileNoiseEstimator {
-    pub fn new() -> Self {
         let one_by_simult = 1.0 / SIMULT as f32;
         let mut counter = [0i32; SIMULT];
         for (i, c) in counter.iter_mut().enumerate() {
@@ -55,7 +49,9 @@ impl QuantileNoiseEstimator {
             num_updates: 1,
         }
     }
+}
 
+impl QuantileNoiseEstimator {
     /// Estimate the noise spectrum from the current signal spectrum.
     ///
     /// Updates the internal quantile trackers and writes the noise estimate
@@ -137,7 +133,7 @@ mod tests {
 
     #[test]
     fn initial_state() {
-        let qne = QuantileNoiseEstimator::new();
+        let qne = QuantileNoiseEstimator::default();
         assert_eq!(qne.num_updates, 1);
         assert_eq!(qne.quantile, [0.0; FFT_SIZE_BY_2_PLUS_1]);
         // Counters should be staggered fractions of LONG_STARTUP_PHASE_BLOCKS
@@ -148,7 +144,7 @@ mod tests {
 
     #[test]
     fn estimate_produces_nonzero_after_first_call() {
-        let mut qne = QuantileNoiseEstimator::new();
+        let mut qne = QuantileNoiseEstimator::default();
         let signal = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let mut noise = [0.0f32; FFT_SIZE_BY_2_PLUS_1];
         qne.estimate(&signal, &mut noise);
@@ -158,7 +154,7 @@ mod tests {
 
     #[test]
     fn estimate_converges_on_constant_signal() {
-        let mut qne = QuantileNoiseEstimator::new();
+        let mut qne = QuantileNoiseEstimator::default();
         let signal = [10.0f32; FFT_SIZE_BY_2_PLUS_1];
         let mut noise = [0.0f32; FFT_SIZE_BY_2_PLUS_1];
 
@@ -178,7 +174,7 @@ mod tests {
 
     #[test]
     fn estimate_tracks_noise_floor() {
-        let mut qne = QuantileNoiseEstimator::new();
+        let mut qne = QuantileNoiseEstimator::default();
         let mut noise = [0.0f32; FFT_SIZE_BY_2_PLUS_1];
 
         // Feed alternating low and high levels (simulating speech + noise).

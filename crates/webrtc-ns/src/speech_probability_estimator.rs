@@ -20,19 +20,15 @@ pub struct SpeechProbabilityEstimator {
 
 impl Default for SpeechProbabilityEstimator {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SpeechProbabilityEstimator {
-    pub fn new() -> Self {
         Self {
-            signal_model_estimator: SignalModelEstimator::new(),
+            signal_model_estimator: SignalModelEstimator::default(),
             prior_speech_prob: 0.5,
             speech_probability: [0.0; FFT_SIZE_BY_2_PLUS_1],
         }
     }
+}
 
+impl SpeechProbabilityEstimator {
     /// Compute speech probability for the current frame.
     #[allow(clippy::too_many_arguments, reason = "matches C++ API signature")]
     pub fn update(
@@ -140,14 +136,14 @@ mod tests {
 
     #[test]
     fn initial_state() {
-        let est = SpeechProbabilityEstimator::new();
+        let est = SpeechProbabilityEstimator::default();
         assert_eq!(est.prior_probability(), 0.5);
         assert_eq!(est.probability(), &[0.0; FFT_SIZE_BY_2_PLUS_1]);
     }
 
     #[test]
     fn update_produces_valid_probabilities() {
-        let mut est = SpeechProbabilityEstimator::new();
+        let mut est = SpeechProbabilityEstimator::default();
         let prior_snr = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let post_snr = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let cons_noise = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
@@ -170,7 +166,7 @@ mod tests {
 
     #[test]
     fn high_snr_gives_high_speech_probability() {
-        let mut est = SpeechProbabilityEstimator::new();
+        let mut est = SpeechProbabilityEstimator::default();
         let signal = [100.0f32; FFT_SIZE_BY_2_PLUS_1];
         let noise = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let sum: f32 = signal.iter().sum();
@@ -193,7 +189,7 @@ mod tests {
 
     #[test]
     fn low_snr_gives_low_speech_probability() {
-        let mut est = SpeechProbabilityEstimator::new();
+        let mut est = SpeechProbabilityEstimator::default();
         let signal = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let noise = [1.0f32; FFT_SIZE_BY_2_PLUS_1];
         let sum: f32 = signal.iter().sum();

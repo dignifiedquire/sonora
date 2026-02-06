@@ -19,18 +19,13 @@ pub struct NsFft {
 
 impl Default for NsFft {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl NsFft {
-    /// Create a new FFT instance with pre-computed tables.
-    pub fn new() -> Self {
         Self {
             fft: Fft4g::new(FFT_SIZE),
         }
     }
+}
 
+impl NsFft {
     /// Forward FFT: time domain -> split real/imaginary arrays.
     ///
     /// `time_data` is transformed in-place (used as scratch), then the
@@ -87,7 +82,7 @@ mod tests {
 
     #[test]
     fn fft_ifft_roundtrip() {
-        let mut fft = NsFft::new();
+        let mut fft = NsFft::default();
         let mut time_data = [0.0_f32; FFT_SIZE];
         for (i, v) in time_data.iter_mut().enumerate() {
             *v = (i as f32 * 0.05).sin();
@@ -115,7 +110,7 @@ mod tests {
 
     #[test]
     fn fft_dc_signal() {
-        let mut fft = NsFft::new();
+        let mut fft = NsFft::default();
         let mut time_data = [1.0_f32; FFT_SIZE];
         let mut real = [0.0_f32; FFT_SIZE];
         let mut imag = [0.0_f32; FFT_SIZE];
@@ -142,7 +137,7 @@ mod tests {
 
     #[test]
     fn fft_impulse() {
-        let mut fft = NsFft::new();
+        let mut fft = NsFft::default();
         let mut time_data = [0.0_f32; FFT_SIZE];
         time_data[0] = 1.0;
         let mut real = [0.0_f32; FFT_SIZE];

@@ -62,7 +62,7 @@ impl NoiseEstimator {
             conservative_noise_spectrum: [0.0; FFT_SIZE_BY_2_PLUS_1],
             parametric_noise_spectrum: [0.0; FFT_SIZE_BY_2_PLUS_1],
             noise_spectrum: [0.0; FFT_SIZE_BY_2_PLUS_1],
-            quantile_noise_estimator: QuantileNoiseEstimator::new(),
+            quantile_noise_estimator: QuantileNoiseEstimator::default(),
         }
     }
 
