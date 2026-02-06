@@ -13,6 +13,7 @@ pub mod lp_residual;
 pub mod pitch_search;
 pub mod pitch_search_internal;
 pub mod ring_buffer;
+pub mod rnn;
 pub mod sequence_buffer;
 pub mod spectral_features;
 pub mod spectral_features_internal;
