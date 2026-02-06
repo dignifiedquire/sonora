@@ -155,11 +155,7 @@ impl<T: Sample> PushResampler<T> {
             let dst_start = ch * self.dst_samples_per_channel;
             let dst_end = dst_start + self.dst_samples_per_channel;
 
-            // We need non-overlapping borrows, so split the dest buffer.
             let src_slice = &self.source_buf[src_start..src_end];
-
-            // Copy source to a temp so we can borrow dest_buf mutably.
-            // (source_buf and dest_buf are separate fields, so this is fine.)
             let n = T::resample_channel(
                 &mut self.resamplers[ch],
                 src_slice,

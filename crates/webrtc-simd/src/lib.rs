@@ -61,10 +61,13 @@ impl SimdBackend {
         match self {
             Self::Scalar => fallback::dot_product(a, b),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Sse2 after confirming sse2 support.
             Self::Sse2 => unsafe { sse2::dot_product(a, b) },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma support.
             Self::Avx2 => unsafe { avx2::dot_product(a, b) },
             #[cfg(target_arch = "aarch64")]
+            // SAFETY: NEON is always available on aarch64.
             Self::Neon => unsafe { neon::dot_product(a, b) },
         }
     }
@@ -79,10 +82,13 @@ impl SimdBackend {
         match self {
             Self::Scalar => fallback::dual_dot_product(input, k1, k2),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Sse2 after confirming sse2 support.
             Self::Sse2 => unsafe { sse2::dual_dot_product(input, k1, k2) },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma support.
             Self::Avx2 => unsafe { avx2::dual_dot_product(input, k1, k2) },
             #[cfg(target_arch = "aarch64")]
+            // SAFETY: NEON is always available on aarch64.
             Self::Neon => unsafe { neon::dual_dot_product(input, k1, k2) },
         }
     }
@@ -96,10 +102,13 @@ impl SimdBackend {
         match self {
             Self::Scalar => fallback::multiply_accumulate(acc, a, b),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Sse2 after confirming sse2 support.
             Self::Sse2 => unsafe { sse2::multiply_accumulate(acc, a, b) },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma support.
             Self::Avx2 => unsafe { avx2::multiply_accumulate(acc, a, b) },
             #[cfg(target_arch = "aarch64")]
+            // SAFETY: NEON is always available on aarch64.
             Self::Neon => unsafe { neon::multiply_accumulate(acc, a, b) },
         }
     }
@@ -109,10 +118,13 @@ impl SimdBackend {
         match self {
             Self::Scalar => fallback::sum(x),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Sse2 after confirming sse2 support.
             Self::Sse2 => unsafe { sse2::sum(x) },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma support.
             Self::Avx2 => unsafe { avx2::sum(x) },
             #[cfg(target_arch = "aarch64")]
+            // SAFETY: NEON is always available on aarch64.
             Self::Neon => unsafe { neon::sum(x) },
         }
     }

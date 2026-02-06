@@ -57,7 +57,10 @@ impl SincResamplerCallback for SliceCallback<'_> {
 #[derive(Debug)]
 pub struct PushSincResampler {
     resampler: SincResampler,
-    float_buffer: Vec<f32>,
+    /// Reusable buffer for i16→f32 source conversion.
+    source_float_buffer: Vec<f32>,
+    /// Reusable buffer for f32 destination in i16 path.
+    dest_float_buffer: Vec<f32>,
     destination_frames: usize,
     first_pass: bool,
 }
@@ -75,7 +78,8 @@ impl PushSincResampler {
         let ratio = source_frames as f64 / destination_frames as f64;
         Self {
             resampler: SincResampler::new(ratio, source_frames),
-            float_buffer: Vec::new(),
+            source_float_buffer: vec![0.0; source_frames],
+            dest_float_buffer: Vec::new(),
             destination_frames,
             first_pass: true,
         }
@@ -126,24 +130,28 @@ impl PushSincResampler {
         assert_eq!(source.len(), self.resampler.request_frames());
         assert!(destination.len() >= self.destination_frames);
 
-        // Convert i16 → f32 for the sinc resampler.
-        let float_source: Vec<f32> = source.iter().map(|&s| s as f32).collect();
-
-        // Take float_buffer out to avoid double-borrow of self.
-        let mut float_buf = mem::take(&mut self.float_buffer);
-        if float_buf.len() < self.destination_frames {
-            float_buf.resize(self.destination_frames, 0.0);
+        // Convert i16 → f32 into reusable buffer (no allocation).
+        for (d, &s) in self.source_float_buffer.iter_mut().zip(source) {
+            *d = s as f32;
         }
 
-        self.resample(&float_source, &mut float_buf);
+        // Take dest buffer out to avoid double-borrow of self.
+        let mut dest_buf = mem::take(&mut self.dest_float_buffer);
+        if dest_buf.len() < self.destination_frames {
+            dest_buf.resize(self.destination_frames, 0.0);
+        }
+
+        // Take source buffer out too — resample borrows &mut self.
+        let source_buf = mem::take(&mut self.source_float_buffer);
+        self.resample(&source_buf, &mut dest_buf);
+        self.source_float_buffer = source_buf;
 
         audio_util::float_s16_to_s16_slice(
-            &float_buf[..self.destination_frames],
+            &dest_buf[..self.destination_frames],
             &mut destination[..self.destination_frames],
         );
 
-        // Put it back.
-        self.float_buffer = float_buf;
+        self.dest_float_buffer = dest_buf;
         self.destination_frames
     }
 

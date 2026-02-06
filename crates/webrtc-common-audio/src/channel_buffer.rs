@@ -10,7 +10,7 @@
 //! - **By band then channel:** `channel(band, ch)` — used for per-band processing
 //! - **By channel then band:** `band(ch, band)` — used for per-channel frequency access
 
-use std::fmt;
+use derive_more::Debug;
 
 /// Multi-channel, optionally multi-band audio buffer.
 ///
@@ -18,7 +18,9 @@ use std::fmt;
 /// - 8 kHz / 16 kHz: 1 band
 /// - 32 kHz: 2 bands
 /// - 48 kHz: 3 bands
+#[derive(Debug)]
 pub struct ChannelBuffer<T> {
+    #[debug(skip)]
     data: Vec<T>,
     num_frames: usize,
     num_frames_per_band: usize,
@@ -165,17 +167,6 @@ impl<T> ChannelBuffer<T> {
     #[inline]
     pub fn data_mut(&mut self) -> &mut [T] {
         &mut self.data
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for ChannelBuffer<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ChannelBuffer")
-            .field("num_frames", &self.num_frames)
-            .field("num_channels", &self.num_channels)
-            .field("num_bands", &self.num_bands)
-            .field("num_allocated_channels", &self.num_allocated_channels)
-            .finish()
     }
 }
 

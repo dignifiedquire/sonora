@@ -78,48 +78,72 @@ pub fn db_to_ratio(v: f32) -> f32 {
 // ── Slice conversions ───────────────────────────────────────────────
 
 /// Convert a slice of S16 samples to Float in-place into `dest`.
+///
+/// # Panics
+///
+/// Panics if `src` and `dest` have different lengths.
 pub fn s16_to_float_slice(src: &[i16], dest: &mut [f32]) {
-    debug_assert_eq!(src.len(), dest.len());
+    assert_eq!(src.len(), dest.len(), "slice length mismatch");
     for (d, &s) in dest.iter_mut().zip(src) {
         *d = s16_to_float(s);
     }
 }
 
 /// Convert a slice of Float samples to S16 in-place into `dest`.
+///
+/// # Panics
+///
+/// Panics if `src` and `dest` have different lengths.
 pub fn float_to_s16_slice(src: &[f32], dest: &mut [i16]) {
-    debug_assert_eq!(src.len(), dest.len());
+    assert_eq!(src.len(), dest.len(), "slice length mismatch");
     for (d, &s) in dest.iter_mut().zip(src) {
         *d = float_to_s16(s);
     }
 }
 
 /// Convert a slice of S16 to FloatS16 (just widen to f32).
+///
+/// # Panics
+///
+/// Panics if `src` and `dest` have different lengths.
 pub fn s16_to_float_s16_slice(src: &[i16], dest: &mut [f32]) {
-    debug_assert_eq!(src.len(), dest.len());
+    assert_eq!(src.len(), dest.len(), "slice length mismatch");
     for (d, &s) in dest.iter_mut().zip(src) {
         *d = f32::from(s);
     }
 }
 
 /// Convert a slice of FloatS16 to S16 with rounding.
+///
+/// # Panics
+///
+/// Panics if `src` and `dest` have different lengths.
 pub fn float_s16_to_s16_slice(src: &[f32], dest: &mut [i16]) {
-    debug_assert_eq!(src.len(), dest.len());
+    assert_eq!(src.len(), dest.len(), "slice length mismatch");
     for (d, &s) in dest.iter_mut().zip(src) {
         *d = float_s16_to_s16(s);
     }
 }
 
 /// Convert a slice of Float to FloatS16.
+///
+/// # Panics
+///
+/// Panics if `src` and `dest` have different lengths.
 pub fn float_to_float_s16_slice(src: &[f32], dest: &mut [f32]) {
-    debug_assert_eq!(src.len(), dest.len());
+    assert_eq!(src.len(), dest.len(), "slice length mismatch");
     for (d, &s) in dest.iter_mut().zip(src) {
         *d = float_to_float_s16(s);
     }
 }
 
 /// Convert a slice of FloatS16 to Float.
+///
+/// # Panics
+///
+/// Panics if `src` and `dest` have different lengths.
 pub fn float_s16_to_float_slice(src: &[f32], dest: &mut [f32]) {
-    debug_assert_eq!(src.len(), dest.len());
+    assert_eq!(src.len(), dest.len(), "slice length mismatch");
     for (d, &s) in dest.iter_mut().zip(src) {
         *d = float_s16_to_float(s);
     }
@@ -137,11 +161,18 @@ pub fn deinterleave<T: Copy>(
     samples_per_channel: usize,
     num_channels: usize,
 ) {
-    debug_assert_eq!(interleaved.len(), samples_per_channel * num_channels);
-    debug_assert_eq!(deinterleaved.len(), num_channels);
+    assert_eq!(
+        interleaved.len(),
+        samples_per_channel * num_channels,
+        "interleaved length mismatch"
+    );
+    assert_eq!(deinterleaved.len(), num_channels, "channel count mismatch");
 
     for (ch, channel_buf) in deinterleaved.iter_mut().enumerate() {
-        debug_assert!(channel_buf.len() >= samples_per_channel);
+        assert!(
+            channel_buf.len() >= samples_per_channel,
+            "channel {ch} buffer too short"
+        );
         let mut idx = ch;
         for slot in channel_buf.iter_mut().take(samples_per_channel) {
             *slot = interleaved[idx];
@@ -157,11 +188,18 @@ pub fn interleave<T: Copy>(
     samples_per_channel: usize,
     num_channels: usize,
 ) {
-    debug_assert_eq!(interleaved.len(), samples_per_channel * num_channels);
-    debug_assert_eq!(deinterleaved.len(), num_channels);
+    assert_eq!(
+        interleaved.len(),
+        samples_per_channel * num_channels,
+        "interleaved length mismatch"
+    );
+    assert_eq!(deinterleaved.len(), num_channels, "channel count mismatch");
 
     for (ch, channel_buf) in deinterleaved.iter().enumerate() {
-        debug_assert!(channel_buf.len() >= samples_per_channel);
+        assert!(
+            channel_buf.len() >= samples_per_channel,
+            "channel {ch} buffer too short"
+        );
         let mut idx = ch;
         for j in 0..samples_per_channel {
             interleaved[idx] = channel_buf[j];
@@ -179,18 +217,17 @@ pub fn downmix_interleaved_to_mono_i16(
     num_channels: usize,
     mono: &mut [i16],
 ) {
-    debug_assert!(num_channels > 0);
-    debug_assert!(num_frames > 0);
-    debug_assert_eq!(interleaved.len(), num_frames * num_channels);
-    debug_assert!(mono.len() >= num_frames);
+    assert!(num_channels > 0, "num_channels must be > 0");
+    assert!(num_frames > 0, "num_frames must be > 0");
+    assert_eq!(
+        interleaved.len(),
+        num_frames * num_channels,
+        "interleaved length mismatch"
+    );
+    assert!(mono.len() >= num_frames, "mono buffer too short");
 
-    let mut src = 0;
-    for slot in mono.iter_mut().take(num_frames) {
-        let mut acc: i32 = 0;
-        for _ in 0..num_channels {
-            acc += i32::from(interleaved[src]);
-            src += 1;
-        }
+    for (slot, frame) in mono.iter_mut().zip(interleaved.chunks(num_channels)) {
+        let acc: i32 = frame.iter().map(|&s| i32::from(s)).sum();
         *slot = (acc / num_channels as i32) as i16;
     }
 }
@@ -202,18 +239,17 @@ pub fn downmix_interleaved_to_mono_f32(
     num_channels: usize,
     mono: &mut [f32],
 ) {
-    debug_assert!(num_channels > 0);
-    debug_assert!(num_frames > 0);
-    debug_assert_eq!(interleaved.len(), num_frames * num_channels);
-    debug_assert!(mono.len() >= num_frames);
+    assert!(num_channels > 0, "num_channels must be > 0");
+    assert!(num_frames > 0, "num_frames must be > 0");
+    assert_eq!(
+        interleaved.len(),
+        num_frames * num_channels,
+        "interleaved length mismatch"
+    );
+    assert!(mono.len() >= num_frames, "mono buffer too short");
 
-    let mut src = 0;
-    for slot in mono.iter_mut().take(num_frames) {
-        let mut acc: f32 = 0.0;
-        for _ in 0..num_channels {
-            acc += interleaved[src];
-            src += 1;
-        }
+    for (slot, frame) in mono.iter_mut().zip(interleaved.chunks(num_channels)) {
+        let acc: f32 = frame.iter().sum();
         *slot = acc / num_channels as f32;
     }
 }
@@ -422,5 +458,90 @@ mod tests {
         let mut mono = vec![0_i16; 3];
         downmix_interleaved_to_mono_i16(interleaved, 3, 3, &mut mono);
         assert_eq!(&mono, &[28000, -11, -30333]);
+    }
+
+    // ── FloatToS16 ──────────────────────────────────────────────────
+
+    #[test]
+    fn float_to_s16_known_values() {
+        let input: &[f32] = &[0.0, 1.0, -1.0, 0.5, -0.5, 1.5, -1.5];
+        let output: Vec<i16> = input.iter().map(|&v| float_to_s16(v)).collect();
+        // 0.0 -> 0, 1.0 -> clamped to 32767, -1.0 -> -32768
+        // 0.5 -> 16384, -0.5 -> -16384, 1.5 -> clamped to 32767, -1.5 -> clamped to -32768
+        assert_eq!(output[0], 0);
+        assert_eq!(output[1], 32767);
+        assert_eq!(output[2], -32768);
+        assert_eq!(output[3], 16384);
+        assert_eq!(output[4], -16384);
+        assert_eq!(output[5], 32767);
+        assert_eq!(output[6], -32768);
+    }
+
+    // ── Additional slice conversion tests ───────────────────────────
+
+    #[test]
+    fn float_to_s16_slice_matches_scalar() {
+        let input: &[f32] = &[0.0, 0.5, -0.5, 1.0, -1.0];
+        let mut output = vec![0_i16; input.len()];
+        float_to_s16_slice(input, &mut output);
+        let expected: Vec<i16> = input.iter().map(|&v| float_to_s16(v)).collect();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn s16_to_float_s16_slice_widens() {
+        let input: &[i16] = &[0, 1, -1, 32767, -32768];
+        let mut output = vec![0.0_f32; input.len()];
+        s16_to_float_s16_slice(input, &mut output);
+        assert_eq!(output, &[0.0, 1.0, -1.0, 32767.0, -32768.0]);
+    }
+
+    #[test]
+    fn float_to_float_s16_slice_matches_scalar() {
+        let input: &[f32] = &[0.0, 0.5, -0.5, 1.0, -1.0];
+        let mut output = vec![0.0_f32; input.len()];
+        float_to_float_s16_slice(input, &mut output);
+        let expected: Vec<f32> = input.iter().map(|&v| float_to_float_s16(v)).collect();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn float_s16_to_float_slice_matches_scalar() {
+        let input: &[f32] = &[0.0, 16384.0, -16384.0, 32767.0, -32768.0];
+        let mut output = vec![0.0_f32; input.len()];
+        float_s16_to_float_slice(input, &mut output);
+        let expected: Vec<f32> = input.iter().map(|&v| float_s16_to_float(v)).collect();
+        assert_eq!(output, expected);
+    }
+
+    // ── Downmix f32 ─────────────────────────────────────────────────
+
+    #[test]
+    fn downmix_f32_mono_is_identity() {
+        let interleaved: &[f32] = &[0.1, 0.2, -0.1, -0.3];
+        let mut mono = vec![0.0_f32; 4];
+        downmix_interleaved_to_mono_f32(interleaved, 4, 1, &mut mono);
+        assert_eq!(&mono, interleaved);
+    }
+
+    #[test]
+    fn downmix_f32_stereo() {
+        let interleaved: &[f32] = &[0.2, 0.4, -0.6, -0.8];
+        let mut mono = vec![0.0_f32; 2];
+        downmix_interleaved_to_mono_f32(interleaved, 2, 2, &mut mono);
+        assert!((mono[0] - 0.3).abs() < 1e-7);
+        assert!((mono[1] - (-0.7)).abs() < 1e-7);
+    }
+
+    // ── S16 -> Float -> S16 roundtrip ───────────────────────────────
+
+    #[test]
+    fn s16_float_roundtrip() {
+        // Converting S16 -> Float -> S16 should be lossless for most values
+        for v in [-32768_i16, -16384, -1, 0, 1, 16384, 32767] {
+            let f = s16_to_float(v);
+            let back = float_to_s16(f);
+            assert_eq!(v, back, "roundtrip failed for {v}");
+        }
     }
 }

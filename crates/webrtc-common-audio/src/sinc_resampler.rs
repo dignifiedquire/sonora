@@ -10,11 +10,11 @@
 //! [`SincResamplerCallback`] trait.
 //!
 //! For a **push** model (provide input, get output), see
-//! [`PushSincResampler`](super::push_sinc_resampler) (to be ported).
+//! [`PushSincResampler`](super::push_sinc_resampler).
 
 use std::f64::consts::PI;
-use std::fmt;
 
+use derive_more::Debug;
 use webrtc_simd::SimdBackend;
 
 /// Callback for providing input data to the resampler.
@@ -25,38 +25,43 @@ pub trait SincResamplerCallback {
 }
 
 /// High-quality single-channel sample-rate converter.
+#[derive(Debug)]
 pub struct SincResampler {
     io_sample_rate_ratio: f64,
+    #[debug(skip)]
     virtual_source_idx: f64,
+    #[debug(skip)]
     buffer_primed: bool,
 
     request_frames: usize,
     block_size: usize,
 
-    // Kernel storage: kKernelOffsetCount+1 kernels of kKernelSize each.
+    /// Kernel storage: `KERNEL_OFFSET_COUNT + 1` kernels of `KERNEL_SIZE` each.
+    #[debug(skip)]
     kernel_storage: Vec<f32>,
+    #[debug(skip)]
     kernel_pre_sinc_storage: Vec<f32>,
+    #[debug(skip)]
     kernel_window_storage: Vec<f32>,
 
-    // Input buffer with region pointers stored as offsets.
+    /// Input buffer with region pointers stored as offsets.
+    #[debug(skip)]
     input_buffer: Vec<f32>,
-    r0: usize, // offset into input_buffer
-    r1: usize, // always 0
-    r2: usize, // kKernelSize / 2
+    /// Offset into `input_buffer` where new input is written.
+    #[debug(skip)]
+    r0: usize,
+    /// Start of the input region (always 0).
+    #[debug(skip)]
+    r1: usize,
+    /// Half-kernel offset (`KERNEL_SIZE / 2`).
+    #[debug(skip)]
+    r2: usize,
+    #[debug(skip)]
     r3: usize,
+    #[debug(skip)]
     r4: usize,
 
     simd: SimdBackend,
-}
-
-impl fmt::Debug for SincResampler {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SincResampler")
-            .field("io_sample_rate_ratio", &self.io_sample_rate_ratio)
-            .field("request_frames", &self.request_frames)
-            .field("block_size", &self.block_size)
-            .finish()
-    }
 }
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -89,7 +94,11 @@ impl SincResampler {
     /// - `io_sample_rate_ratio`: input / output sample rate ratio
     /// - `request_frames`: number of input frames requested per callback (must be > `KERNEL_SIZE`)
     pub fn new(io_sample_rate_ratio: f64, request_frames: usize) -> Self {
-        assert!(request_frames > 0);
+        assert!(
+            io_sample_rate_ratio > 0.0 && io_sample_rate_ratio.is_finite(),
+            "io_sample_rate_ratio must be positive and finite, got {io_sample_rate_ratio}"
+        );
+        assert!(request_frames > 0, "request_frames must be > 0");
         let simd = webrtc_simd::detect_backend();
 
         let mut resampler = Self {
@@ -135,7 +144,15 @@ impl SincResampler {
     }
 
     /// Update the sample rate ratio (reconstructs kernels).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ratio is not positive and finite.
     pub fn set_ratio(&mut self, io_sample_rate_ratio: f64) {
+        assert!(
+            io_sample_rate_ratio > 0.0 && io_sample_rate_ratio.is_finite(),
+            "io_sample_rate_ratio must be positive and finite, got {io_sample_rate_ratio}"
+        );
         if (self.io_sample_rate_ratio - io_sample_rate_ratio).abs() < f64::EPSILON {
             return;
         }
@@ -165,7 +182,11 @@ impl SincResampler {
         destination: &mut [f32],
         callback: &mut dyn SincResamplerCallback,
     ) {
-        debug_assert!(destination.len() >= frames);
+        assert!(
+            destination.len() >= frames,
+            "destination too short: {} < {frames}",
+            destination.len()
+        );
         let mut remaining = frames;
         let mut dest_idx = 0;
 

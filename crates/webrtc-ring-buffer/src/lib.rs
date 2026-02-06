@@ -7,6 +7,8 @@
 //!
 //! This is a faithful port of `webrtc/common_audio/ring_buffer.c`.
 
+#![deny(unsafe_code)]
+
 use std::num::NonZero;
 
 /// A fixed-capacity ring buffer with WebRTC-compatible semantics.
@@ -227,6 +229,7 @@ impl<T> ZeroCopyResult<'_, T> {
 mod tests {
     use std::num::NonZero;
 
+    use proptest::collection::vec as pvec;
     use proptest::prelude::*;
     use test_strategy::proptest;
 
@@ -462,7 +465,7 @@ mod tests {
     #[proptest]
     fn available_read_plus_write_equals_capacity(
         #[strategy(1..=500usize)] capacity: usize,
-        #[strategy(proptest::collection::vec(any::<i32>(), 0..500))] data: Vec<i32>,
+        #[strategy(pvec(any::<i32>(), 0..500))] data: Vec<i32>,
     ) {
         let mut buf = rb(capacity);
         buf.write(&data);
@@ -472,7 +475,7 @@ mod tests {
     #[proptest]
     fn write_then_read_roundtrips(
         #[strategy(1..=500usize)] capacity: usize,
-        #[strategy(proptest::collection::vec(any::<i32>(), 0..=#capacity))] data: Vec<i32>,
+        #[strategy(pvec(any::<i32>(), 0..=#capacity))] data: Vec<i32>,
     ) {
         let mut buf = rb(capacity);
         let written = buf.write(&data);
@@ -485,7 +488,7 @@ mod tests {
     #[proptest]
     fn move_read_ptr_preserves_invariants(
         #[strategy(1..=200usize)] capacity: usize,
-        #[strategy(proptest::collection::vec(any::<i32>(), 0..200))] data: Vec<i32>,
+        #[strategy(pvec(any::<i32>(), 0..200))] data: Vec<i32>,
         #[strategy(-200isize..=200)] offset: isize,
     ) {
         let mut buf = rb(capacity);
