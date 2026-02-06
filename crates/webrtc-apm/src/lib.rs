@@ -4,6 +4,7 @@
 //! and other audio processing capabilities.
 
 pub(crate) mod audio_buffer;
+pub(crate) mod audio_converter;
 pub(crate) mod audio_samples_scaler;
 pub(crate) mod capture_levels_adjuster;
 pub(crate) mod config_selector;
