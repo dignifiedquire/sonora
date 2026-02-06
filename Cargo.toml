@@ -39,6 +39,7 @@ webrtc-apm-proptest = { path = "crates/webrtc-apm-proptest" }
 # External dependencies
 derive_more = { version = "2", features = ["debug"] }
 tracing = "0.1"
+bytemuck = { version = "1", features = ["derive"] }
 proptest = "1.9"
 test-strategy = "0.4"
 

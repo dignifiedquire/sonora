@@ -16,6 +16,7 @@ workspace = true
 webrtc-common-audio = { workspace = true }
 webrtc-fft = { workspace = true }
 webrtc-simd = { workspace = true }
+bytemuck = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

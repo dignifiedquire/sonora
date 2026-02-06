@@ -94,51 +94,16 @@ mod tests {
             .join("../../tests/resources/audio_processing/agc2/rnn_vad")
     }
 
-    /// Reads chunks of float data from a binary file.
-    struct ChunksReader {
-        data: Vec<f32>,
-        offset: usize,
-        chunk_size: usize,
-    }
-
-    impl ChunksReader {
-        fn open(path: &Path, chunk_size: usize) -> Self {
-            let mut file = File::open(path)
-                .unwrap_or_else(|e| panic!("Failed to open {}: {e}", path.display()));
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes).unwrap();
-            let data: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-                .collect();
-            Self {
-                data,
-                offset: 0,
-                chunk_size,
-            }
-        }
-
-        fn num_chunks(&self) -> usize {
-            self.data.len() / self.chunk_size
-        }
-
-        fn read_chunk(&mut self, buf: &mut [f32]) -> bool {
-            if self.offset + buf.len() > self.data.len() {
-                return false;
-            }
-            buf.copy_from_slice(&self.data[self.offset..self.offset + buf.len()]);
-            self.offset += buf.len();
-            true
-        }
-
-        fn read_value(&mut self) -> Option<f32> {
-            if self.offset >= self.data.len() {
-                return None;
-            }
-            let val = self.data[self.offset];
-            self.offset += 1;
-            Some(val)
-        }
+    /// Loads a binary file as a Vec of little-endian f32 values.
+    fn read_f32_le(path: &Path) -> Vec<f32> {
+        let mut file =
+            File::open(path).unwrap_or_else(|e| panic!("Failed to open {}: {e}", path.display()));
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+        bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
     }
 
     #[test]
@@ -154,22 +119,18 @@ mod tests {
         };
 
         let path = test_resources_dir().join(resource_name);
-        let mut reader = ChunksReader::open(&path, chunk_size);
-        let num_frames = reader.num_chunks().min(300); // Max 3 s.
+        let data = read_f32_le(&path);
 
         let backend = webrtc_simd::detect_backend();
         let mut pitch_estimator = PitchEstimator::new(backend);
-        let mut lp_residual = vec![0.0_f32; BUF_SIZE_24K_HZ];
 
-        for i in 0..num_frames {
-            assert!(
-                reader.read_chunk(&mut lp_residual),
-                "Failed to read LP residual at frame {i}"
-            );
-            let expected_pitch_period = reader.read_value().unwrap();
-            let expected_pitch_strength = reader.read_value().unwrap();
+        // Max 3 s (300 frames).
+        for (i, chunk) in data.chunks_exact(chunk_size).take(300).enumerate() {
+            let lp_residual = &chunk[..BUF_SIZE_24K_HZ];
+            let expected_pitch_period = chunk[BUF_SIZE_24K_HZ];
+            let expected_pitch_strength = chunk[BUF_SIZE_24K_HZ + 1];
 
-            let pitch_period = pitch_estimator.estimate(&lp_residual);
+            let pitch_period = pitch_estimator.estimate(lp_residual);
             assert_eq!(
                 expected_pitch_period, pitch_period as f32,
                 "Pitch period mismatch at frame {i}"

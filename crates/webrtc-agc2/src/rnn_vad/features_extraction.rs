@@ -3,8 +3,8 @@
 //! Ported from `webrtc/modules/audio_processing/agc2/rnn_vad/features_extraction.cc`.
 
 use super::common::{
-    BUF_SIZE_24K_HZ, FEATURE_VECTOR_SIZE, FRAME_SIZE_10MS_24K_HZ, FRAME_SIZE_20MS_24K_HZ,
-    MAX_PITCH_24K_HZ, NUM_BANDS, NUM_LOWER_BANDS,
+    BUF_SIZE_24K_HZ, FRAME_SIZE_10MS_24K_HZ, FRAME_SIZE_20MS_24K_HZ, FeatureVector,
+    MAX_PITCH_24K_HZ,
 };
 use super::lp_residual::{
     NUM_LPC_COEFFICIENTS, compute_and_post_process_lpc_coefficients, compute_lp_residual,
@@ -52,10 +52,9 @@ impl FeaturesExtractor {
     pub fn check_silence_compute_features(
         &mut self,
         samples: &[f32],
-        feature_vector: &mut [f32],
+        feature_vector: &mut FeatureVector,
     ) -> bool {
         debug_assert_eq!(samples.len(), FRAME_SIZE_10MS_24K_HZ);
-        debug_assert_eq!(feature_vector.len(), FEATURE_VECTOR_SIZE);
 
         // Feed buffer with samples (HPF disabled, matching C++ default).
         let samples_arr: &[f32; FRAME_SIZE_10MS_24K_HZ] = samples.try_into().unwrap();
@@ -68,10 +67,9 @@ impl FeaturesExtractor {
         compute_lp_residual(&lpc_coeffs, pitch_buf_view, &mut self.lp_residual);
 
         // Estimate pitch on the LP-residual and write the normalized pitch
-        // period into the output vector (normalization based on training data
-        // stats).
+        // period (normalization based on training data stats).
         self.pitch_period_48k_hz = self.pitch_estimator.estimate(&self.lp_residual);
-        feature_vector[FEATURE_VECTOR_SIZE - 2] = 0.01 * (self.pitch_period_48k_hz - 300) as f32;
+        feature_vector.pitch_period = 0.01 * (self.pitch_period_48k_hz - 300) as f32;
 
         // Extract lagged frame (according to the estimated pitch period).
         debug_assert!(self.pitch_period_48k_hz / 2 <= MAX_PITCH_24K_HZ as i32);
@@ -83,72 +81,23 @@ impl FeaturesExtractor {
             self.pitch_buf_24k_hz.get_most_recent_values_view();
 
         // Analyze reference and lagged frames, check silence, write features.
-        // Feature vector layout:
-        //   [0..NUM_LOWER_BANDS]                              = average
-        //   [NUM_LOWER_BANDS..NUM_BANDS]                      = higher_bands_cepstrum
-        //   [NUM_BANDS..NUM_BANDS+NUM_LOWER_BANDS]            = first_derivative
-        //   [NUM_BANDS+NUM_LOWER_BANDS..NUM_BANDS+2*NLB]      = second_derivative
-        //   [NUM_BANDS+2*NUM_LOWER_BANDS..NUM_BANDS+3*NLB]    = bands_cross_corr
-        //   [FEATURE_VECTOR_SIZE-2]                           = pitch_period (already set)
-        //   [FEATURE_VECTOR_SIZE-1]                           = variability
-        let higher_bands_start = NUM_LOWER_BANDS;
-        let higher_bands_end = NUM_BANDS;
-        let avg_start = 0;
-        let avg_end = NUM_LOWER_BANDS;
-        let d1_start = NUM_BANDS;
-        let d1_end = NUM_BANDS + NUM_LOWER_BANDS;
-        let d2_start = NUM_BANDS + NUM_LOWER_BANDS;
-        let d2_end = NUM_BANDS + 2 * NUM_LOWER_BANDS;
-        let cross_start = NUM_BANDS + 2 * NUM_LOWER_BANDS;
-        let cross_end = NUM_BANDS + 3 * NUM_LOWER_BANDS;
-        let var_idx = FEATURE_VECTOR_SIZE - 1;
-
-        // We need to split `feature_vector` into non-overlapping mutable slices.
-        // The layout in order from the C++ code is:
-        //   higher_bands_cepstrum = [NUM_LOWER_BANDS..NUM_BANDS]
-        //   average               = [0..NUM_LOWER_BANDS]
-        //   first_derivative      = [NUM_BANDS..NUM_BANDS+NUM_LOWER_BANDS]
-        //   second_derivative     = [NUM_BANDS+NUM_LOWER_BANDS..NUM_BANDS+2*NLB]
-        //   bands_cross_corr      = [NUM_BANDS+2*NLB..NUM_BANDS+3*NLB]
-        //   variability           = [FEATURE_VECTOR_SIZE-1]
-
-        // Use a temporary buffer to avoid borrow checker issues with
-        // non-overlapping mutable slices from the same array.
-        let mut higher = [0.0_f32; NUM_BANDS - NUM_LOWER_BANDS];
-        let mut avg = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d1 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d2 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut cross = [0.0_f32; NUM_LOWER_BANDS];
-        let mut variability = 0.0_f32;
-
-        let is_silence = self
-            .spectral_features_extractor
+        self.spectral_features_extractor
             .check_silence_compute_features(
                 reference_frame,
                 lagged_frame,
-                &mut higher,
-                &mut avg,
-                &mut d1,
-                &mut d2,
-                &mut cross,
-                &mut variability,
-            );
-
-        if !is_silence {
-            feature_vector[higher_bands_start..higher_bands_end].copy_from_slice(&higher);
-            feature_vector[avg_start..avg_end].copy_from_slice(&avg);
-            feature_vector[d1_start..d1_end].copy_from_slice(&d1);
-            feature_vector[d2_start..d2_end].copy_from_slice(&d2);
-            feature_vector[cross_start..cross_end].copy_from_slice(&cross);
-            feature_vector[var_idx] = variability;
-        }
-
-        is_silence
+                &mut feature_vector.higher_bands_cepstrum,
+                &mut feature_vector.average,
+                &mut feature_vector.first_derivative,
+                &mut feature_vector.second_derivative,
+                &mut feature_vector.bands_cross_correlation,
+                &mut feature_vector.spectral_variability,
+            )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::common::SAMPLE_RATE_24K_HZ;
     use super::*;
     use std::f32::consts::TAU;
 
@@ -162,8 +111,6 @@ mod tests {
         (INITIAL_MIN_PITCH_24K_HZ..=MAX_PITCH_24K_HZ).contains(&pitch_period)
     }
 
-    use super::super::common::SAMPLE_RATE_24K_HZ;
-
     fn create_pure_tone(amplitude: f32, freq_hz: f32, dst: &mut [f32]) {
         for (i, s) in dst.iter_mut().enumerate() {
             *s = amplitude * (TAU * freq_hz * i as f32 / SAMPLE_RATE_24K_HZ as f32).sin();
@@ -174,7 +121,7 @@ mod tests {
     fn feed_test_data(
         features_extractor: &mut FeaturesExtractor,
         samples: &[f32],
-        feature_vector: &mut [f32; FEATURE_VECTOR_SIZE],
+        feature_vector: &mut FeatureVector,
     ) -> bool {
         let mut is_silence = true;
         let num_frames = samples.len() / FRAME_SIZE_10MS_24K_HZ;
@@ -198,9 +145,7 @@ mod tests {
         let backend = webrtc_simd::detect_backend();
         let mut features_extractor = FeaturesExtractor::new(backend);
         let mut samples = vec![0.0_f32; NUM_TEST_DATA_SIZE];
-        let mut feature_vector = [0.0_f32; FEATURE_VECTOR_SIZE];
-
-        let pitch_feature_index = FEATURE_VECTOR_SIZE - 2;
+        let mut feature_vector = FeatureVector::default();
 
         // Low frequency tone → high period.
         create_pure_tone(amplitude, low_pitch_hz, &mut samples);
@@ -209,7 +154,7 @@ mod tests {
             &samples,
             &mut feature_vector
         ));
-        let high_pitch_period = feature_vector[pitch_feature_index];
+        let high_pitch_period = feature_vector.pitch_period;
 
         // High frequency tone → low period.
         features_extractor.reset();
@@ -219,7 +164,7 @@ mod tests {
             &samples,
             &mut feature_vector
         ));
-        let low_pitch_period = feature_vector[pitch_feature_index];
+        let low_pitch_period = feature_vector.pitch_period;
 
         assert!(
             low_pitch_period < high_pitch_period,
