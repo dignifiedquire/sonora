@@ -6,7 +6,7 @@ members = [
     "crates/webrtc-common-audio",
     "crates/webrtc-aec3",
     "crates/webrtc-aecm",
-    "crates/webrtc-agc",
+    "crates/webrtc-agc2",
     "crates/webrtc-ns",
     "crates/webrtc-vad",
     "crates/webrtc-simd",
@@ -28,7 +28,7 @@ webrtc-apm-sys = { path = "crates/webrtc-apm-sys" }
 webrtc-common-audio = { path = "crates/webrtc-common-audio" }
 webrtc-aec3 = { path = "crates/webrtc-aec3" }
 webrtc-aecm = { path = "crates/webrtc-aecm" }
-webrtc-agc = { path = "crates/webrtc-agc" }
+webrtc-agc2 = { path = "crates/webrtc-agc2" }
 webrtc-ns = { path = "crates/webrtc-ns" }
 webrtc-vad = { path = "crates/webrtc-vad" }
 webrtc-simd = { path = "crates/webrtc-simd" }
