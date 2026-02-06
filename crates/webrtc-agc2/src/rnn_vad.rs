@@ -11,6 +11,8 @@ pub mod gru_layer;
 pub mod lp_residual;
 pub mod ring_buffer;
 pub mod sequence_buffer;
+pub mod spectral_features;
+pub mod spectral_features_internal;
 pub mod symmetric_matrix_buffer;
 pub mod vector_math;
 pub mod weights;
