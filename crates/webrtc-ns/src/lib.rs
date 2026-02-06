@@ -9,6 +9,7 @@ pub mod config;
 pub mod fast_math;
 pub mod histograms;
 pub mod noise_estimator;
+pub mod noise_suppressor;
 pub mod ns_fft;
 pub mod prior_signal_model;
 pub mod prior_signal_model_estimator;
