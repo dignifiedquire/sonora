@@ -6,6 +6,10 @@
 
 pub(crate) mod adaptive_digital_gain_controller;
 pub(crate) mod biquad_filter;
+#[allow(dead_code, reason = "consumed by gain_controller2 in Phase 7")]
+pub(crate) mod clipping_predictor;
+#[allow(dead_code, reason = "consumed by clipping_predictor")]
+pub(crate) mod clipping_predictor_level_buffer;
 pub mod common;
 pub(crate) mod fixed_digital_level_estimator;
 pub(crate) mod gain_applier;
