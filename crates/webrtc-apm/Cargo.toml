@@ -1,0 +1,25 @@
+[package]
+name = "webrtc-apm"
+version = "0.1.0"
+description = "WebRTC Audio Processing Module — Rust port"
+keywords = ["audio", "echo-cancellation", "noise-suppression", "agc"]
+categories = ["multimedia::audio"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+webrtc-common-audio = { workspace = true }
+webrtc-aec3 = { workspace = true }
+webrtc-agc2 = { workspace = true }
+webrtc-ns = { workspace = true }
+webrtc-simd = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+test-strategy = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/webrtc-apm",
     "crates/webrtc-apm-sys",
     "crates/webrtc-common-audio",
     "crates/webrtc-aec3",
@@ -20,6 +21,7 @@ repository = "https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing"
 
 [workspace.dependencies]
 # Internal crates
+webrtc-apm = { path = "crates/webrtc-apm" }
 webrtc-apm-sys = { path = "crates/webrtc-apm-sys" }
 webrtc-common-audio = { path = "crates/webrtc-common-audio" }
 webrtc-aec3 = { path = "crates/webrtc-aec3" }
