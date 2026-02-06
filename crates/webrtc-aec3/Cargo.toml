@@ -9,6 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+webrtc-common-audio = { workspace = true }
 webrtc-fft = { workspace = true }
 webrtc-simd = { workspace = true }
 tracing = { workspace = true }
