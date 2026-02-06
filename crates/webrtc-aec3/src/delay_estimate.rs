@@ -10,7 +10,7 @@ pub(crate) enum DelayEstimateQuality {
 }
 
 /// Stores a delay estimate with associated metadata.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct DelayEstimate {
     pub quality: DelayEstimateQuality,
     pub delay: usize,
