@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+default = []
+# Enable FFI comparison tests against the C++ library.
+cpp-comparison = ["dep:webrtc-apm-sys", "webrtc-apm-sys/cxx-bridge"]
+
 [dependencies]
 proptest = { workspace = true }
-webrtc-apm-sys = { workspace = true }
+webrtc-apm-sys = { workspace = true, optional = true }
