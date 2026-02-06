@@ -35,7 +35,7 @@ const GAIN_MAP: [i32; 256] = [
 
 /// Clipping predictor mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ClippingPredictorMode {
+pub enum ClippingPredictorMode {
     /// Crest factor-based clipping event prediction.
     ClippingEvent,
     /// Crest factor-based clipping peak prediction with adaptive step estimation.
@@ -46,7 +46,7 @@ pub(crate) enum ClippingPredictorMode {
 
 /// Configuration for the clipping predictor.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ClippingPredictorConfig {
+pub struct ClippingPredictorConfig {
     pub enabled: bool,
     pub mode: ClippingPredictorMode,
     pub window_length: i32,
@@ -109,7 +109,7 @@ fn compute_crest_factor(level: &Level) -> f32 {
 ///
 /// Analyzes 10 ms multi-channel frames and estimates an analog mic level
 /// decrease step to possibly avoid clipping when predicted.
-pub(crate) enum ClippingPredictor {
+pub enum ClippingPredictor {
     /// Crest factor-based clipping event prediction.
     Event(ClippingEventPredictor),
     /// Crest factor-based clipping peak prediction.
@@ -118,7 +118,7 @@ pub(crate) enum ClippingPredictor {
 
 impl ClippingPredictor {
     /// Resets the internal state.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         match self {
             Self::Event(p) => p.reset(),
             Self::Peak(p) => p.reset(),
@@ -127,7 +127,7 @@ impl ClippingPredictor {
 
     /// Analyzes a 10 ms multi-channel audio frame.
     /// `frame` is a slice of channel slices (each channel has `samples_per_channel` samples).
-    pub(crate) fn analyze(&mut self, frame: &[&[f32]]) {
+    pub fn analyze(&mut self, frame: &[&[f32]]) {
         match self {
             Self::Event(p) => p.analyze(frame),
             Self::Peak(p) => p.analyze(frame),
@@ -137,7 +137,7 @@ impl ClippingPredictor {
     /// Predicts if clipping is going to occur for the specified `channel` and,
     /// if so, returns a recommended analog mic level decrease step.
     /// Returns `None` if clipping is not predicted.
-    pub(crate) fn estimate_clipped_level_step(
+    pub fn estimate_clipped_level_step(
         &self,
         channel: usize,
         level: i32,
@@ -166,7 +166,7 @@ impl ClippingPredictor {
 
 /// Creates a [`ClippingPredictor`] based on the provided config.
 /// Returns `None` if the config is disabled.
-pub(crate) fn create_clipping_predictor(
+pub fn create_clipping_predictor(
     num_channels: usize,
     config: &ClippingPredictorConfig,
 ) -> Option<ClippingPredictor> {
@@ -208,7 +208,7 @@ pub(crate) fn create_clipping_predictor(
 }
 
 /// Crest factor-based clipping event prediction.
-pub(crate) struct ClippingEventPredictor {
+pub struct ClippingEventPredictor {
     ch_buffers: Vec<ClippingPredictorLevelBuffer>,
     window_length: i32,
     reference_window_length: i32,
@@ -318,7 +318,7 @@ impl ClippingEventPredictor {
 }
 
 /// Crest factor-based clipping peak prediction.
-pub(crate) struct ClippingPeakPredictor {
+pub struct ClippingPeakPredictor {
     ch_buffers: Vec<ClippingPredictorLevelBuffer>,
     window_length: i32,
     reference_window_length: i32,
