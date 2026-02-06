@@ -4,7 +4,7 @@
 
 /// Configuration for the Echo Canceller 3.
 #[derive(Debug, Clone)]
-pub(crate) struct EchoCanceller3Config {
+pub struct EchoCanceller3Config {
     pub buffering: Buffering,
     pub delay: Delay,
     pub filter: Filter,
@@ -41,7 +41,7 @@ impl Default for EchoCanceller3Config {
 impl EchoCanceller3Config {
     /// Validates and clamps config parameters to reasonable ranges.
     /// Returns `true` if no changes were needed.
-    pub(crate) fn validate(&mut self) -> bool {
+    pub fn validate(&mut self) -> bool {
         let mut ok = true;
 
         if self.delay.down_sampling_factor != 4 && self.delay.down_sampling_factor != 8 {
@@ -306,7 +306,7 @@ impl EchoCanceller3Config {
     }
 
     /// Creates the default configuration tuned for multichannel.
-    pub(crate) fn create_default_multichannel_config() -> Self {
+    pub fn create_default_multichannel_config() -> Self {
         let mut cfg = Self::default();
         cfg.filter.coarse.length_blocks = 11;
         cfg.filter.coarse.rate = 0.95;
@@ -365,7 +365,7 @@ fn floor_limit_usize(value: &mut usize, min: usize) -> bool {
 // --- Sub-config structs ---
 
 #[derive(Debug, Clone)]
-pub(crate) struct Buffering {
+pub struct Buffering {
     pub excess_render_detection_interval_blocks: usize,
     pub max_allowed_excess_render_blocks: usize,
 }
@@ -380,13 +380,13 @@ impl Default for Buffering {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct DelaySelectionThresholds {
+pub struct DelaySelectionThresholds {
     pub initial: i32,
     pub converged: i32,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AlignmentMixing {
+pub struct AlignmentMixing {
     pub downmix: bool,
     pub adaptive_selection: bool,
     pub activity_power_threshold: f32,
@@ -394,7 +394,7 @@ pub(crate) struct AlignmentMixing {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Delay {
+pub struct Delay {
     pub default_delay: usize,
     pub down_sampling_factor: usize,
     pub num_filters: usize,
@@ -448,7 +448,7 @@ impl Default for Delay {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RefinedConfiguration {
+pub struct RefinedConfiguration {
     pub length_blocks: usize,
     pub leakage_converged: f32,
     pub leakage_diverged: f32,
@@ -458,14 +458,14 @@ pub(crate) struct RefinedConfiguration {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CoarseConfiguration {
+pub struct CoarseConfiguration {
     pub length_blocks: usize,
     pub rate: f32,
     pub noise_gate: f32,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Filter {
+pub struct Filter {
     pub refined: RefinedConfiguration,
     pub coarse: CoarseConfiguration,
     pub refined_initial: RefinedConfiguration,
@@ -522,7 +522,7 @@ impl Default for Filter {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Erle {
+pub struct Erle {
     pub min: f32,
     pub max_l: f32,
     pub max_h: f32,
@@ -547,7 +547,7 @@ impl Default for Erle {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct EpStrength {
+pub struct EpStrength {
     pub default_gain: f32,
     pub default_len: f32,
     pub nearend_len: f32,
@@ -572,7 +572,7 @@ impl Default for EpStrength {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct EchoAudibility {
+pub struct EchoAudibility {
     pub low_render_limit: f32,
     pub normal_render_limit: f32,
     pub floor_power: f32,
@@ -599,7 +599,7 @@ impl Default for EchoAudibility {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RenderLevels {
+pub struct RenderLevels {
     pub active_render_limit: f32,
     pub poor_excitation_render_limit: f32,
     pub poor_excitation_render_limit_ds8: f32,
@@ -618,7 +618,7 @@ impl Default for RenderLevels {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct EchoRemovalControl {
+pub struct EchoRemovalControl {
     pub has_clock_drift: bool,
     pub linear_and_stable_echo_path: bool,
 }
@@ -633,7 +633,7 @@ impl Default for EchoRemovalControl {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct EchoModel {
+pub struct EchoModel {
     pub noise_floor_hold: usize,
     pub min_noise_floor_power: f32,
     pub stationary_gate_slope: f32,
@@ -660,7 +660,7 @@ impl Default for EchoModel {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ComfortNoise {
+pub struct ComfortNoise {
     pub noise_floor_dbfs: f32,
 }
 
@@ -673,14 +673,14 @@ impl Default for ComfortNoise {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct MaskingThresholds {
+pub struct MaskingThresholds {
     pub enr_transparent: f32,
     pub enr_suppress: f32,
     pub emr_transparent: f32,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Tuning {
+pub struct Tuning {
     pub mask_lf: MaskingThresholds,
     pub mask_hf: MaskingThresholds,
     pub max_inc_factor: f32,
@@ -688,7 +688,7 @@ pub(crate) struct Tuning {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct DominantNearendDetection {
+pub struct DominantNearendDetection {
     pub enr_threshold: f32,
     pub enr_exit_threshold: f32,
     pub snr_threshold: f32,
@@ -713,13 +713,13 @@ impl Default for DominantNearendDetection {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SubbandRegion {
+pub struct SubbandRegion {
     pub low: usize,
     pub high: usize,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SubbandNearendDetection {
+pub struct SubbandNearendDetection {
     pub nearend_average_blocks: usize,
     pub subband1: SubbandRegion,
     pub subband2: SubbandRegion,
@@ -740,7 +740,7 @@ impl Default for SubbandNearendDetection {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct HighBandsSuppression {
+pub struct HighBandsSuppression {
     pub enr_threshold: f32,
     pub max_gain_during_echo: f32,
     pub anti_howling_activation_threshold: f32,
@@ -759,7 +759,7 @@ impl Default for HighBandsSuppression {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct HighFrequencySuppression {
+pub struct HighFrequencySuppression {
     pub limiting_gain_band: i32,
     pub bands_in_limiting_gain: i32,
 }
@@ -774,7 +774,7 @@ impl Default for HighFrequencySuppression {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Suppressor {
+pub struct Suppressor {
     pub nearend_average_blocks: usize,
     pub normal_tuning: Tuning,
     pub nearend_tuning: Tuning,
@@ -841,7 +841,7 @@ impl Default for Suppressor {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct MultiChannel {
+pub struct MultiChannel {
     pub detect_stereo_content: bool,
     pub stereo_detection_threshold: f32,
     pub stereo_detection_timeout_threshold_seconds: i32,
