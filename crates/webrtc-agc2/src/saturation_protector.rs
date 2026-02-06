@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/saturation_protector.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{FRAME_DURATION_MS, MIN_LEVEL_DBFS, VAD_CONFIDENCE_THRESHOLD};
 use crate::saturation_protector_buffer::SaturationProtectorBuffer;
 
@@ -69,7 +67,7 @@ fn update_saturation_protector_state(
 }
 
 /// Saturation protector which recommends a headroom based on the recent peaks.
-pub(crate) struct SaturationProtector {
+pub struct SaturationProtector {
     initial_headroom_db: f32,
     adjacent_speech_frames_threshold: i32,
     num_adjacent_speech_frames: i32,
@@ -80,7 +78,7 @@ pub(crate) struct SaturationProtector {
 
 impl SaturationProtector {
     /// Creates a new saturation protector that starts at `initial_headroom_db`.
-    pub(crate) fn new(initial_headroom_db: f32, adjacent_speech_frames_threshold: i32) -> Self {
+    pub fn new(initial_headroom_db: f32, adjacent_speech_frames_threshold: i32) -> Self {
         let mut sp = Self {
             initial_headroom_db,
             adjacent_speech_frames_threshold,
@@ -104,18 +102,13 @@ impl SaturationProtector {
     }
 
     /// Returns the recommended headroom in dB.
-    pub(crate) fn headroom_db(&self) -> f32 {
+    pub fn headroom_db(&self) -> f32 {
         self.headroom_db
     }
 
     /// Analyzes the peak level of a 10 ms frame along with its speech probability
     /// and the current speech level estimate to update the recommended headroom.
-    pub(crate) fn analyze(
-        &mut self,
-        speech_probability: f32,
-        peak_dbfs: f32,
-        speech_level_dbfs: f32,
-    ) {
+    pub fn analyze(&mut self, speech_probability: f32, peak_dbfs: f32, speech_level_dbfs: f32) {
         if speech_probability < VAD_CONFIDENCE_THRESHOLD {
             // Not a speech frame.
             if self.adjacent_speech_frames_threshold > 1 {
@@ -149,7 +142,7 @@ impl SaturationProtector {
     }
 
     /// Resets the internal state.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.num_adjacent_speech_frames = 0;
         self.headroom_db = self.initial_headroom_db;
         reset_saturation_protector_state(self.initial_headroom_db, &mut self.preliminary_state);

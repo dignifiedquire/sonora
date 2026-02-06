@@ -54,20 +54,17 @@ pub const LIMITER_COMPRESSION_RATIO: f64 = 5.0;
 // Audio utility functions ported from common_audio/include/audio_util.h.
 
 /// Converts a dB value to a linear ratio: `10^(v/20)`.
-#[allow(dead_code, reason = "used by later AGC2 modules")]
-pub(crate) fn db_to_ratio(v: f32) -> f32 {
+pub fn db_to_ratio(v: f32) -> f32 {
     10.0_f32.powf(v / 20.0)
 }
 
 /// Converts a dBFS value to a float S16 linear value.
-#[allow(dead_code, reason = "used by later AGC2 modules")]
-pub(crate) fn dbfs_to_float_s16(v: f32) -> f32 {
+pub fn dbfs_to_float_s16(v: f32) -> f32 {
     db_to_ratio(v) * MAX_ABS_FLOAT_S16_VALUE
 }
 
 /// Converts a float S16 linear value to dBFS.
-#[allow(dead_code, reason = "used by later AGC2 modules")]
-pub(crate) fn float_s16_to_dbfs(v: f32) -> f32 {
+pub fn float_s16_to_dbfs(v: f32) -> f32 {
     debug_assert!(v >= 0.0);
     // kMinDbfs is equal to -20.0 * log10(-limits_int16::min())
     const MIN_DBFS: f32 = -90.309;
@@ -79,12 +76,12 @@ pub(crate) fn float_s16_to_dbfs(v: f32) -> f32 {
 }
 
 /// Converts a dBFS value to a float S16 linear value (f64 version).
-pub(crate) fn dbfs_to_float_s16_f64(v: f64) -> f64 {
+pub fn dbfs_to_float_s16_f64(v: f64) -> f64 {
     10.0_f64.powf(v / 20.0) * MAX_ABS_FLOAT_S16_VALUE as f64
 }
 
 /// Converts a float S16 linear value to dBFS (f64 version).
-pub(crate) fn float_s16_to_dbfs_f64(v: f64) -> f64 {
+pub fn float_s16_to_dbfs_f64(v: f64) -> f64 {
     debug_assert!(v >= 0.0);
     const MIN_DBFS: f64 = -90.308_998_699_194_36;
     if v <= 1.0 {

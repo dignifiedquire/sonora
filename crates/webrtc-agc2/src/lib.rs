@@ -6,7 +6,6 @@
 
 pub mod adaptive_digital_gain_controller;
 pub mod biquad_filter;
-#[allow(dead_code, reason = "consumed by gain_controller2 in Phase 7")]
 pub mod clipping_predictor;
 #[allow(dead_code, reason = "consumed by clipping_predictor")]
 pub mod clipping_predictor_level_buffer;

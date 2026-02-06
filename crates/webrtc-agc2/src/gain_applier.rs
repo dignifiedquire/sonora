@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/gain_applier.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{MAX_FLOAT_S16_VALUE, MIN_FLOAT_S16_VALUE};
 
 /// Returns true when the gain factor is so close to 1 that it would
@@ -57,7 +55,7 @@ fn apply_gain_with_ramping(
 
 /// Applies a gain factor to multi-channel audio with linear ramping between
 /// frames and optional hard clipping.
-pub(crate) struct GainApplier {
+pub struct GainApplier {
     hard_clip_samples: bool,
     last_gain_factor: f32,
     current_gain_factor: f32,
@@ -66,7 +64,7 @@ pub(crate) struct GainApplier {
 }
 
 impl GainApplier {
-    pub(crate) fn new(hard_clip_samples: bool, initial_gain_factor: f32) -> Self {
+    pub fn new(hard_clip_samples: bool, initial_gain_factor: f32) -> Self {
         Self {
             hard_clip_samples,
             last_gain_factor: initial_gain_factor,
@@ -77,7 +75,7 @@ impl GainApplier {
     }
 
     /// Applies gain to the signal with linear ramping between frames.
-    pub(crate) fn apply_gain(&mut self, signal: &mut [&mut [f32]]) {
+    pub fn apply_gain(&mut self, signal: &mut [&mut [f32]]) {
         let spc = signal.first().map_or(0, |ch| ch.len()) as i32;
         if spc != self.samples_per_channel {
             self.initialize(spc);
@@ -98,12 +96,12 @@ impl GainApplier {
     }
 
     /// Sets the target gain factor for the next frame.
-    pub(crate) fn set_gain_factor(&mut self, gain_factor: f32) {
+    pub fn set_gain_factor(&mut self, gain_factor: f32) {
         debug_assert!(gain_factor > 0.0);
         self.current_gain_factor = gain_factor;
     }
 
-    pub(crate) fn get_gain_factor(&self) -> f32 {
+    pub fn get_gain_factor(&self) -> f32 {
         self.current_gain_factor
     }
 

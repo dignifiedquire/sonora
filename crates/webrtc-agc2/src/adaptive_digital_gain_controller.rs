@@ -5,8 +5,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/adaptive_digital_gain_controller.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{
     FRAME_DURATION_MS, LIMITER_THRESHOLD_FOR_AGC_GAIN_DBFS, VAD_CONFIDENCE_THRESHOLD, db_to_ratio,
 };
@@ -14,19 +12,19 @@ use crate::gain_applier::GainApplier;
 use crate::speech_level_estimator::AdaptiveDigitalConfig;
 
 /// Information about a frame to process.
-pub(crate) struct FrameInfo {
+pub struct FrameInfo {
     /// Probability of speech in the [0, 1] range.
-    pub(crate) speech_probability: f32,
+    pub speech_probability: f32,
     /// Estimated speech level (dBFS).
-    pub(crate) speech_level_dbfs: f32,
+    pub speech_level_dbfs: f32,
     /// True with reliable speech level estimation.
-    pub(crate) speech_level_reliable: bool,
+    pub speech_level_reliable: bool,
     /// Estimated noise RMS level (dBFS).
-    pub(crate) noise_rms_dbfs: f32,
+    pub noise_rms_dbfs: f32,
     /// Headroom (dB).
-    pub(crate) headroom_db: f32,
+    pub headroom_db: f32,
     /// Envelope level from the limiter (dBFS).
-    pub(crate) limiter_envelope_dbfs: f32,
+    pub limiter_envelope_dbfs: f32,
 }
 
 /// Computes the gain for `input_level_dbfs` to reach `-config.headroom_db`.
@@ -92,7 +90,7 @@ fn compute_gain_change_this_frame_db(
 }
 
 /// Adaptive digital gain controller.
-pub(crate) struct AdaptiveDigitalGainController {
+pub struct AdaptiveDigitalGainController {
     gain_applier: GainApplier,
     config: AdaptiveDigitalConfig,
     adjacent_speech_frames_threshold: i32,
@@ -102,10 +100,7 @@ pub(crate) struct AdaptiveDigitalGainController {
 }
 
 impl AdaptiveDigitalGainController {
-    pub(crate) fn new(
-        config: AdaptiveDigitalConfig,
-        adjacent_speech_frames_threshold: i32,
-    ) -> Self {
+    pub fn new(config: AdaptiveDigitalConfig, adjacent_speech_frames_threshold: i32) -> Self {
         let max_gain_change_db_per_10ms =
             config.max_gain_change_db_per_second * FRAME_DURATION_MS as f32 / 1000.0;
         debug_assert!(max_gain_change_db_per_10ms > 0.0);
@@ -123,7 +118,7 @@ impl AdaptiveDigitalGainController {
     }
 
     /// Analyzes `info`, updates the digital gain and applies it to a 10 ms frame.
-    pub(crate) fn process(&mut self, info: &FrameInfo, frame: &mut [&mut [f32]]) {
+    pub fn process(&mut self, info: &FrameInfo, frame: &mut [&mut [f32]]) {
         debug_assert!(info.speech_level_dbfs >= -150.0);
         debug_assert!(!frame.is_empty());
 
@@ -259,10 +254,8 @@ mod tests {
             max_output_noise_level_dbfs: -40.0,
             ..config
         };
-        let mut controller = AdaptiveDigitalGainController::new(
-            high_noise_config,
-            ADJACENT_SPEECH_FRAMES_THRESHOLD,
-        );
+        let mut controller =
+            AdaptiveDigitalGainController::new(high_noise_config, ADJACENT_SPEECH_FRAMES_THRESHOLD);
         let mut info = get_frame_info_to_not_adapt(&high_noise_config);
         info.speech_level_dbfs = -60.0;
         let mut applied_gain = 0.0_f32;

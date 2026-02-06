@@ -3,7 +3,6 @@
 //! Ported from `webrtc/modules/audio_processing/agc2/vad_wrapper.cc`.
 
 // Used by adaptive_digital_gain_controller (Step 8).
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
 
 use crate::common::{FRAME_DURATION_MS, VAD_RESET_PERIOD_MS};
 use crate::rnn_vad::common::{FRAME_SIZE_10MS_24K_HZ, FeatureVector, SAMPLE_RATE_24K_HZ};
@@ -18,7 +17,7 @@ const NUM_FRAMES_PER_SECOND: i32 = 100;
 ///
 /// The default implementation uses the RNN VAD. A mock can be injected for
 /// testing.
-pub(crate) trait MonoVad {
+pub trait MonoVad {
     /// Returns the sample rate (Hz) required for input frames.
     fn sample_rate_hz(&self) -> i32;
     /// Resets the internal state.
@@ -68,7 +67,7 @@ impl MonoVad for RnnMonoVad {
 /// Analyzes the first channel of input audio frames, resampling to the
 /// VAD's expected sample rate if necessary.
 #[derive(derive_more::Debug)]
-pub(crate) struct VoiceActivityDetectorWrapper {
+pub struct VoiceActivityDetectorWrapper {
     vad_reset_period_frames: i32,
     frame_size: usize,
     time_to_vad_reset: i32,
@@ -83,13 +82,13 @@ pub(crate) struct VoiceActivityDetectorWrapper {
 impl VoiceActivityDetectorWrapper {
     /// Creates a new wrapper using the default RNN VAD and default reset
     /// period.
-    pub(crate) fn new(backend: SimdBackend, sample_rate_hz: i32) -> Self {
+    pub fn new(backend: SimdBackend, sample_rate_hz: i32) -> Self {
         Self::with_reset_period(VAD_RESET_PERIOD_MS, backend, sample_rate_hz)
     }
 
     /// Creates a new wrapper using the default RNN VAD with a custom reset
     /// period.
-    pub(crate) fn with_reset_period(
+    pub fn with_reset_period(
         vad_reset_period_ms: i32,
         backend: SimdBackend,
         sample_rate_hz: i32,
@@ -102,7 +101,7 @@ impl VoiceActivityDetectorWrapper {
     }
 
     /// Creates a new wrapper with a custom VAD implementation.
-    pub(crate) fn with_vad(
+    pub fn with_vad(
         vad_reset_period_ms: i32,
         mut vad: Box<dyn MonoVad>,
         sample_rate_hz: i32,
@@ -131,7 +130,7 @@ impl VoiceActivityDetectorWrapper {
     ///
     /// `frame` must contain at least `frame_size` samples (the first channel
     /// of a 10 ms frame at the configured sample rate).
-    pub(crate) fn analyze(&mut self, frame: &[f32]) -> f32 {
+    pub fn analyze(&mut self, frame: &[f32]) -> f32 {
         // Periodically reset the VAD.
         self.time_to_vad_reset -= 1;
         if self.time_to_vad_reset <= 0 {

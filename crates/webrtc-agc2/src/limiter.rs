@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/limiter.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{
     MAX_FLOAT_S16_VALUE, MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL, MIN_FLOAT_S16_VALUE,
     SUB_FRAMES_IN_FRAME,
@@ -66,7 +64,7 @@ fn scale_samples(per_sample_scaling_factors: &[f32], signal: &mut [&mut [f32]]) 
 }
 
 /// Output limiter that applies gain curve compression and hard clipping.
-pub(crate) struct Limiter {
+pub struct Limiter {
     interp_gain_curve: InterpolatedGainCurve,
     level_estimator: FixedDigitalLevelEstimator,
     scaling_factors: [f32; SUB_FRAMES_IN_FRAME as usize + 1],
@@ -79,7 +77,7 @@ impl Limiter {
     ///
     /// `samples_per_channel` must be <= `MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL`
     /// and divisible by `SUB_FRAMES_IN_FRAME`.
-    pub(crate) fn new(samples_per_channel: usize) -> Self {
+    pub fn new(samples_per_channel: usize) -> Self {
         debug_assert!(samples_per_channel <= MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL);
         Self {
             interp_gain_curve: InterpolatedGainCurve::default(),
@@ -91,7 +89,7 @@ impl Limiter {
     }
 
     /// Applies limiter and hard-clipping to the signal.
-    pub(crate) fn process(&mut self, signal: &mut [&mut [f32]]) {
+    pub fn process(&mut self, signal: &mut [&mut [f32]]) {
         let samples_per_channel = signal.first().map_or(0, |ch| ch.len());
         debug_assert!(samples_per_channel <= MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL);
 
@@ -118,19 +116,19 @@ impl Limiter {
     }
 
     /// Changes the sample rate.
-    pub(crate) fn set_samples_per_channel(&mut self, samples_per_channel: usize) {
+    pub fn set_samples_per_channel(&mut self, samples_per_channel: usize) {
         debug_assert!(samples_per_channel <= MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL);
         self.level_estimator
             .set_samples_per_channel(samples_per_channel);
     }
 
     /// Resets the internal state.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.level_estimator.reset();
     }
 
     /// Returns the last audio level from the level estimator.
-    pub(crate) fn last_audio_level(&self) -> f32 {
+    pub fn last_audio_level(&self) -> f32 {
         self.level_estimator.last_audio_level()
     }
 }

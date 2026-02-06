@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/noise_level_estimator.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 const FRAMES_PER_SECOND: i32 = 100;
 
 /// Update the noise floor every 5 seconds.
@@ -45,7 +43,7 @@ fn smooth_noise_floor_estimate(current_estimate: f32, new_estimate: f32) -> f32 
 }
 
 /// Noise level estimator based on noise floor detection.
-pub(crate) struct NoiseLevelEstimator {
+pub struct NoiseLevelEstimator {
     sample_rate_hz: i32,
     min_noise_energy: f32,
     first_period: bool,
@@ -76,7 +74,7 @@ impl Default for NoiseLevelEstimator {
 impl NoiseLevelEstimator {
     /// Analyzes a 10 ms frame, updates the noise level estimation and returns
     /// the value for the latter in dBFS.
-    pub(crate) fn analyze(&mut self, frame: &[&[f32]]) -> f32 {
+    pub fn analyze(&mut self, frame: &[&[f32]]) -> f32 {
         debug_assert!(!frame.is_empty());
         let samples_per_channel = frame[0].len();
 

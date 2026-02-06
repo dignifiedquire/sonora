@@ -5,8 +5,6 @@
 //! The C++ code has a factory pattern with a field trial for an experimental
 //! implementation. We port only the default `SpeechLevelEstimatorImpl`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{
     FRAME_DURATION_MS, LEVEL_ESTIMATOR_LEAK_FACTOR, LEVEL_ESTIMATOR_TIME_TO_CONFIDENCE_MS,
     SATURATION_PROTECTOR_INITIAL_HEADROOM_DB, VAD_CONFIDENCE_THRESHOLD,
@@ -20,12 +18,12 @@ fn clamp_level_estimate_dbfs(level_estimate_dbfs: f32) -> f32 {
 ///
 /// Mirrors `AudioProcessing::Config::GainController2::AdaptiveDigital` from C++.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct AdaptiveDigitalConfig {
-    pub(crate) headroom_db: f32,
-    pub(crate) max_gain_db: f32,
-    pub(crate) initial_gain_db: f32,
-    pub(crate) max_gain_change_db_per_second: f32,
-    pub(crate) max_output_noise_level_dbfs: f32,
+pub struct AdaptiveDigitalConfig {
+    pub headroom_db: f32,
+    pub max_gain_db: f32,
+    pub initial_gain_db: f32,
+    pub max_gain_change_db_per_second: f32,
+    pub max_output_noise_level_dbfs: f32,
 }
 
 impl Default for AdaptiveDigitalConfig {
@@ -71,7 +69,7 @@ impl Ratio {
 
 /// Active speech level estimator based on the analysis of the following
 /// framewise properties: RMS level (dBFS), speech probability.
-pub(crate) struct SpeechLevelEstimator {
+pub struct SpeechLevelEstimator {
     initial_speech_level_dbfs: f32,
     adjacent_speech_frames_threshold: i32,
     preliminary_state: LevelEstimatorState,
@@ -83,10 +81,7 @@ pub(crate) struct SpeechLevelEstimator {
 
 impl SpeechLevelEstimator {
     /// Creates a new speech level estimator.
-    pub(crate) fn new(
-        config: &AdaptiveDigitalConfig,
-        adjacent_speech_frames_threshold: i32,
-    ) -> Self {
+    pub fn new(config: &AdaptiveDigitalConfig, adjacent_speech_frames_threshold: i32) -> Self {
         debug_assert!(adjacent_speech_frames_threshold >= 1);
         let initial_speech_level_dbfs = get_initial_speech_level_estimate_dbfs(config);
         let mut est = Self {
@@ -115,7 +110,7 @@ impl SpeechLevelEstimator {
     }
 
     /// Updates the level estimation.
-    pub(crate) fn update(&mut self, rms_dbfs: f32, speech_probability: f32) {
+    pub fn update(&mut self, rms_dbfs: f32, speech_probability: f32) {
         debug_assert!(rms_dbfs > -150.0);
         debug_assert!(rms_dbfs < 50.0);
         debug_assert!(speech_probability >= 0.0);
@@ -172,17 +167,17 @@ impl SpeechLevelEstimator {
     }
 
     /// Returns the estimated speech plus noise level.
-    pub(crate) fn level_dbfs(&self) -> f32 {
+    pub fn level_dbfs(&self) -> f32 {
         self.level_dbfs
     }
 
     /// Returns true if the estimator is confident on its current estimate.
-    pub(crate) fn is_confident(&self) -> bool {
+    pub fn is_confident(&self) -> bool {
         self.is_confident
     }
 
     /// Resets the estimator.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.reset_level_estimator_state(&mut self.preliminary_state.clone());
         let preliminary = self.make_initial_state();
         self.preliminary_state = preliminary;
