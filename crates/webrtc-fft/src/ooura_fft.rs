@@ -139,7 +139,35 @@ const RDFT_WK3RI_SECOND: [f32; 16] = [
 /// - `a[0]` = DC component
 /// - `a[1]` = Nyquist component
 /// - `a[2k], a[2k+1]` = real/imaginary of frequency bin k
+///
+/// Uses SSE2-accelerated butterflies on x86/x86_64, scalar otherwise.
 pub fn forward(a: &mut [f32; FFT_SIZE]) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("sse2") {
+        return forward_sse2(a);
+    }
+
+    forward_scalar(a);
+}
+
+/// Inverse 128-point real FFT (frequency domain → time domain)
+/// (C: `WebRtc_rdft(128, -1, ...)`).
+///
+/// Transforms `a` in-place. To recover the original signal,
+/// multiply each output element by `2/N` (i.e., `2/128`).
+///
+/// Uses SSE2-accelerated butterflies on x86/x86_64, scalar otherwise.
+pub fn inverse(a: &mut [f32; FFT_SIZE]) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if is_x86_feature_detected!("sse2") {
+        return inverse_sse2(a);
+    }
+
+    inverse_scalar(a);
+}
+
+/// Scalar forward FFT implementation.
+pub(crate) fn forward_scalar(a: &mut [f32; FFT_SIZE]) {
     bitrv2_128(a);
     cftfsub_128(a);
     rftfsub_128(a);
@@ -148,17 +176,50 @@ pub fn forward(a: &mut [f32; FFT_SIZE]) {
     a[1] = xi;
 }
 
-/// Inverse 128-point real FFT (frequency domain → time domain)
-/// (C: `WebRtc_rdft(128, -1, ...)`).
-///
-/// Transforms `a` in-place. To recover the original signal,
-/// multiply each output element by `2/N` (i.e., `2/128`).
-pub fn inverse(a: &mut [f32; FFT_SIZE]) {
+/// Scalar inverse FFT implementation.
+pub(crate) fn inverse_scalar(a: &mut [f32; FFT_SIZE]) {
     a[1] = 0.5 * (a[0] - a[1]);
     a[0] -= a[1];
     rftbsub_128(a);
     bitrv2_128(a);
     cftbsub_128(a);
+}
+
+/// SSE2-accelerated forward FFT implementation.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn forward_sse2(a: &mut [f32; FFT_SIZE]) {
+    bitrv2_128(a);
+    // SAFETY: caller guarantees SSE2 is available (checked in `forward`).
+    unsafe {
+        crate::ooura_fft_sse2::cft1st_128_sse2(a);
+        crate::ooura_fft_sse2::cftmdl_128_sse2(a);
+    }
+    cftfsub_128_final(a);
+    // SAFETY: SSE2 available.
+    unsafe {
+        crate::ooura_fft_sse2::rftfsub_128_sse2(a);
+    }
+    let xi = a[0] - a[1];
+    a[0] += a[1];
+    a[1] = xi;
+}
+
+/// SSE2-accelerated inverse FFT implementation.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn inverse_sse2(a: &mut [f32; FFT_SIZE]) {
+    a[1] = 0.5 * (a[0] - a[1]);
+    a[0] -= a[1];
+    // SAFETY: caller guarantees SSE2 is available (checked in `inverse`).
+    unsafe {
+        crate::ooura_fft_sse2::rftbsub_128_sse2(a);
+    }
+    bitrv2_128(a);
+    // SAFETY: SSE2 available.
+    unsafe {
+        crate::ooura_fft_sse2::cft1st_128_sse2(a);
+        crate::ooura_fft_sse2::cftmdl_128_sse2(a);
+    }
+    cftbsub_128_final(a);
 }
 
 /// Bit-reversal permutation for 128-point FFT.
@@ -447,6 +508,13 @@ fn cftmdl_128(a: &mut [f32; FFT_SIZE]) {
 fn cftfsub_128(a: &mut [f32; FFT_SIZE]) {
     cft1st_128(a);
     cftmdl_128(a);
+    cftfsub_128_final(a);
+}
+
+/// Final radix-4 pass of the forward complex sub-transform.
+/// Shared between scalar and SIMD paths (only `cft1st_128` and `cftmdl_128`
+/// are replaced by SIMD — this final pass is always scalar).
+fn cftfsub_128_final(a: &mut [f32; FFT_SIZE]) {
     let l = 32_usize;
     for j in (0..l).step_by(2) {
         let j1 = j + l;
@@ -475,6 +543,12 @@ fn cftfsub_128(a: &mut [f32; FFT_SIZE]) {
 fn cftbsub_128(a: &mut [f32; FFT_SIZE]) {
     cft1st_128(a);
     cftmdl_128(a);
+    cftbsub_128_final(a);
+}
+
+/// Final radix-4 pass of the backward complex sub-transform.
+/// Shared between scalar and SIMD paths.
+fn cftbsub_128_final(a: &mut [f32; FFT_SIZE]) {
     let l = 32_usize;
     for j in (0..l).step_by(2) {
         let j1 = j + l;
@@ -727,6 +801,59 @@ mod tests {
                 (freq_energy - expected).abs() / expected < 1e-3,
                 "Parseval: freq_energy={freq_energy}, expected={expected}"
             );
+        }
+    }
+
+    /// Verify SSE2 forward/inverse FFT produce the same output as scalar.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn sse2_matches_scalar() {
+        if !is_x86_feature_detected!("sse2") {
+            return;
+        }
+
+        let signals: [[f32; FFT_SIZE]; 5] = [
+            std::array::from_fn(|i| i as f32 * 0.01),
+            std::array::from_fn(|i| (i as f32 * 0.1).sin()),
+            std::array::from_fn(|i| if i % 2 == 0 { 0.5 } else { -0.3 }),
+            [0.7; FFT_SIZE],
+            {
+                let mut s = [0.0f32; FFT_SIZE];
+                s[0] = 1.0;
+                s
+            },
+        ];
+
+        for signal in &signals {
+            let mut scalar = *signal;
+            forward_scalar(&mut scalar);
+
+            let mut simd = *signal;
+            forward_sse2(&mut simd);
+
+            for i in 0..FFT_SIZE {
+                assert!(
+                    (scalar[i] - simd[i]).abs() < 1e-6,
+                    "forward mismatch at {i}: scalar={}, sse2={}",
+                    scalar[i],
+                    simd[i]
+                );
+            }
+
+            let mut scalar_inv = scalar;
+            inverse_scalar(&mut scalar_inv);
+
+            let mut simd_inv = scalar;
+            inverse_sse2(&mut simd_inv);
+
+            for i in 0..FFT_SIZE {
+                assert!(
+                    (scalar_inv[i] - simd_inv[i]).abs() < 1e-5,
+                    "inverse mismatch at {i}: scalar={}, sse2={}",
+                    scalar_inv[i],
+                    simd_inv[i]
+                );
+            }
         }
     }
 }
