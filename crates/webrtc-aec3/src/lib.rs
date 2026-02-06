@@ -4,7 +4,9 @@
 //! canceller (AEC3), ported from the C++ source at
 //! `modules/audio_processing/aec3/`.
 
+pub(crate) mod aec3_fft;
 pub(crate) mod common;
 pub(crate) mod config;
 pub(crate) mod delay_estimate;
 pub(crate) mod echo_path_variability;
+pub(crate) mod fft_data;
