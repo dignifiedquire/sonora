@@ -128,6 +128,69 @@ impl SimdBackend {
             Self::Neon => unsafe { neon::sum(x) },
         }
     }
+
+    /// Elementwise square root: x[i] = sqrt(x[i])
+    pub fn elementwise_sqrt(self, x: &mut [f32]) {
+        match self {
+            Self::Scalar => fallback::elementwise_sqrt(x),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => unsafe { sse2::elementwise_sqrt(x) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Avx2 => unsafe { avx2::elementwise_sqrt(x) },
+            #[cfg(target_arch = "aarch64")]
+            Self::Neon => unsafe { neon::elementwise_sqrt(x) },
+        }
+    }
+
+    /// Elementwise vector multiplication: z[i] = x[i] * y[i]
+    ///
+    /// `x`, `y`, and `z` must have the same length.
+    pub fn elementwise_multiply(self, x: &[f32], y: &[f32], z: &mut [f32]) {
+        debug_assert_eq!(x.len(), y.len());
+        debug_assert_eq!(x.len(), z.len());
+        match self {
+            Self::Scalar => fallback::elementwise_multiply(x, y, z),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => unsafe { sse2::elementwise_multiply(x, y, z) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Avx2 => unsafe { avx2::elementwise_multiply(x, y, z) },
+            #[cfg(target_arch = "aarch64")]
+            Self::Neon => unsafe { neon::elementwise_multiply(x, y, z) },
+        }
+    }
+
+    /// Elementwise accumulate: z[i] += x[i]
+    ///
+    /// `x` and `z` must have the same length.
+    pub fn elementwise_accumulate(self, x: &[f32], z: &mut [f32]) {
+        debug_assert_eq!(x.len(), z.len());
+        match self {
+            Self::Scalar => fallback::elementwise_accumulate(x, z),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => unsafe { sse2::elementwise_accumulate(x, z) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Avx2 => unsafe { avx2::elementwise_accumulate(x, z) },
+            #[cfg(target_arch = "aarch64")]
+            Self::Neon => unsafe { neon::elementwise_accumulate(x, z) },
+        }
+    }
+
+    /// Compute the power spectrum: out[i] = re[i]^2 + im[i]^2
+    ///
+    /// `re`, `im`, and `out` must have the same length.
+    pub fn power_spectrum(self, re: &[f32], im: &[f32], out: &mut [f32]) {
+        debug_assert_eq!(re.len(), im.len());
+        debug_assert_eq!(re.len(), out.len());
+        match self {
+            Self::Scalar => fallback::power_spectrum(re, im, out),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => unsafe { sse2::power_spectrum(re, im, out) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Avx2 => unsafe { avx2::power_spectrum(re, im, out) },
+            #[cfg(target_arch = "aarch64")]
+            Self::Neon => unsafe { neon::power_spectrum(re, im, out) },
+        }
+    }
 }
 
 /// Detect the best available SIMD backend for the current CPU.
@@ -298,6 +361,156 @@ mod tests {
                     "Mismatch at index {i} for size {size}: scalar={}, simd={}",
                     acc_scalar[i],
                     acc_simd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_elementwise_sqrt_simple() {
+        let ops = detect_backend();
+        let mut x = [4.0f32, 9.0, 16.0, 25.0, 36.0];
+        ops.elementwise_sqrt(&mut x);
+        assert!((x[0] - 2.0).abs() < 1e-6);
+        assert!((x[1] - 3.0).abs() < 1e-6);
+        assert!((x[2] - 4.0).abs() < 1e-6);
+        assert!((x[3] - 5.0).abs() < 1e-6);
+        assert!((x[4] - 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_elementwise_sqrt_matches_scalar() {
+        let scalar = SimdBackend::Scalar;
+        let simd = detect_backend();
+
+        for size in [0, 1, 4, 7, 8, 15, 16, 31, 64, 65, 128] {
+            let mut x_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.5 + 0.1).collect();
+            let mut x_simd = x_scalar.clone();
+
+            scalar.elementwise_sqrt(&mut x_scalar);
+            simd.elementwise_sqrt(&mut x_simd);
+
+            for i in 0..size {
+                assert!(
+                    (x_scalar[i] - x_simd[i]).abs() < 1e-6,
+                    "sqrt mismatch at index {i} for size {size}: scalar={}, simd={}",
+                    x_scalar[i],
+                    x_simd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_elementwise_multiply_simple() {
+        let ops = detect_backend();
+        let x = [1.0f32, 2.0, 3.0, 4.0, 5.0];
+        let y = [5.0f32, 4.0, 3.0, 2.0, 1.0];
+        let mut z = [0.0f32; 5];
+        ops.elementwise_multiply(&x, &y, &mut z);
+        assert!((z[0] - 5.0).abs() < 1e-6);
+        assert!((z[1] - 8.0).abs() < 1e-6);
+        assert!((z[2] - 9.0).abs() < 1e-6);
+        assert!((z[3] - 8.0).abs() < 1e-6);
+        assert!((z[4] - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_elementwise_multiply_matches_scalar() {
+        let scalar = SimdBackend::Scalar;
+        let simd = detect_backend();
+
+        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+            let x: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+            let y: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
+            let mut z_scalar = vec![0.0f32; size];
+            let mut z_simd = vec![0.0f32; size];
+
+            scalar.elementwise_multiply(&x, &y, &mut z_scalar);
+            simd.elementwise_multiply(&x, &y, &mut z_simd);
+
+            for i in 0..size {
+                assert!(
+                    (z_scalar[i] - z_simd[i]).abs() < 1e-6,
+                    "multiply mismatch at index {i} for size {size}: scalar={}, simd={}",
+                    z_scalar[i],
+                    z_simd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_elementwise_accumulate_simple() {
+        let ops = detect_backend();
+        let x = [1.0f32, 2.0, 3.0, 4.0, 5.0];
+        let mut z = [10.0f32, 20.0, 30.0, 40.0, 50.0];
+        ops.elementwise_accumulate(&x, &mut z);
+        assert!((z[0] - 11.0).abs() < 1e-6);
+        assert!((z[1] - 22.0).abs() < 1e-6);
+        assert!((z[2] - 33.0).abs() < 1e-6);
+        assert!((z[3] - 44.0).abs() < 1e-6);
+        assert!((z[4] - 55.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_elementwise_accumulate_matches_scalar() {
+        let scalar = SimdBackend::Scalar;
+        let simd = detect_backend();
+
+        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+            let x: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+            let mut z_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1).collect();
+            let mut z_simd = z_scalar.clone();
+
+            scalar.elementwise_accumulate(&x, &mut z_scalar);
+            simd.elementwise_accumulate(&x, &mut z_simd);
+
+            for i in 0..size {
+                assert!(
+                    (z_scalar[i] - z_simd[i]).abs() < 1e-6,
+                    "accumulate mismatch at index {i} for size {size}: scalar={}, simd={}",
+                    z_scalar[i],
+                    z_simd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_power_spectrum_simple() {
+        let ops = detect_backend();
+        let re = [3.0f32, 0.0, 1.0, 2.0, 5.0];
+        let im = [4.0f32, 1.0, 0.0, 3.0, 12.0];
+        let mut out = [0.0f32; 5];
+        ops.power_spectrum(&re, &im, &mut out);
+        assert!((out[0] - 25.0).abs() < 1e-6); // 9 + 16
+        assert!((out[1] - 1.0).abs() < 1e-6); // 0 + 1
+        assert!((out[2] - 1.0).abs() < 1e-6); // 1 + 0
+        assert!((out[3] - 13.0).abs() < 1e-6); // 4 + 9
+        assert!((out[4] - 169.0).abs() < 1e-6); // 25 + 144
+    }
+
+    #[test]
+    fn test_power_spectrum_matches_scalar() {
+        let scalar = SimdBackend::Scalar;
+        let simd = detect_backend();
+
+        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+            let re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+            let im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+            let mut out_scalar = vec![0.0f32; size];
+            let mut out_simd = vec![0.0f32; size];
+
+            scalar.power_spectrum(&re, &im, &mut out_scalar);
+            simd.power_spectrum(&re, &im, &mut out_simd);
+
+            for i in 0..size {
+                assert!(
+                    (out_scalar[i] - out_simd[i]).abs() < 1e-4,
+                    "power_spectrum mismatch at index {i} for size {size}: scalar={}, simd={}",
+                    out_scalar[i],
+                    out_simd[i]
                 );
             }
         }

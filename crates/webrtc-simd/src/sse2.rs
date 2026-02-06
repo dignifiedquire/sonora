@@ -134,6 +134,118 @@ pub(crate) unsafe fn sum(x: &[f32]) -> f32 {
     result
 }
 
+/// SSE2 elementwise square root: x[i] = sqrt(x[i])
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn elementwise_sqrt(x: &mut [f32]) {
+    let len = x.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+    let ptr = x.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let v = _mm_loadu_ps(ptr.add(offset));
+        let result = _mm_sqrt_ps(v);
+        _mm_storeu_ps(ptr.add(offset), result);
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        x[tail_start + i] = x[tail_start + i].sqrt();
+    }
+}
+
+/// SSE2 elementwise multiply: z[i] = x[i] * y[i]
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn elementwise_multiply(x: &[f32], y: &[f32], z: &mut [f32]) {
+    let len = z.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let x_ptr = x.as_ptr();
+    let y_ptr = y.as_ptr();
+    let z_ptr = z.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let vx = _mm_loadu_ps(x_ptr.add(offset));
+        let vy = _mm_loadu_ps(y_ptr.add(offset));
+        let result = _mm_mul_ps(vx, vy);
+        _mm_storeu_ps(z_ptr.add(offset), result);
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        z[idx] = x[idx] * y[idx];
+    }
+}
+
+/// SSE2 elementwise accumulate: z[i] += x[i]
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn elementwise_accumulate(x: &[f32], z: &mut [f32]) {
+    let len = z.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let x_ptr = x.as_ptr();
+    let z_ptr = z.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let vx = _mm_loadu_ps(x_ptr.add(offset));
+        let vz = _mm_loadu_ps(z_ptr.add(offset));
+        let result = _mm_add_ps(vz, vx);
+        _mm_storeu_ps(z_ptr.add(offset), result);
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        z[idx] += x[idx];
+    }
+}
+
+/// SSE2 power spectrum: out[i] = re[i]^2 + im[i]^2
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
+    let len = out.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let re_ptr = re.as_ptr();
+    let im_ptr = im.as_ptr();
+    let out_ptr = out.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let vr = _mm_loadu_ps(re_ptr.add(offset));
+        let vi = _mm_loadu_ps(im_ptr.add(offset));
+        let rr = _mm_mul_ps(vr, vr);
+        let ii = _mm_mul_ps(vi, vi);
+        let result = _mm_add_ps(rr, ii);
+        _mm_storeu_ps(out_ptr.add(offset), result);
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        out[idx] = re[idx] * re[idx] + im[idx] * im[idx];
+    }
+}
+
 /// Reduce an __m128 to a scalar sum.
 #[inline(always)]
 #[target_feature(enable = "sse2")]

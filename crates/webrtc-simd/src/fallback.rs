@@ -24,6 +24,30 @@ pub(crate) fn sum(x: &[f32]) -> f32 {
     x.iter().sum()
 }
 
+pub(crate) fn elementwise_sqrt(x: &mut [f32]) {
+    for v in x.iter_mut() {
+        *v = v.sqrt();
+    }
+}
+
+pub(crate) fn elementwise_multiply(x: &[f32], y: &[f32], z: &mut [f32]) {
+    for i in 0..z.len() {
+        z[i] = x[i] * y[i];
+    }
+}
+
+pub(crate) fn elementwise_accumulate(x: &[f32], z: &mut [f32]) {
+    for i in 0..z.len() {
+        z[i] += x[i];
+    }
+}
+
+pub(crate) fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
+    for i in 0..out.len() {
+        out[i] = re[i] * re[i] + im[i] * im[i];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
