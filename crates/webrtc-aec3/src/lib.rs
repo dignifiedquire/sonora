@@ -26,5 +26,8 @@ pub(crate) mod matched_filter;
 pub(crate) mod matched_filter_lag_aggregator;
 pub(crate) mod moving_average;
 pub(crate) mod render_buffer;
+pub(crate) mod render_delay_buffer;
+pub(crate) mod render_delay_controller;
+pub(crate) mod render_delay_controller_metrics;
 pub(crate) mod spectrum_buffer;
 pub(crate) mod vector_math;

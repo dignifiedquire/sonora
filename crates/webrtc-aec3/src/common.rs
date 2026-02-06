@@ -23,6 +23,7 @@ pub(crate) const SUB_FRAME_LENGTH: usize = FRAME_SIZE / 2;
 
 pub(crate) const BLOCK_SIZE: usize = FFT_LENGTH_BY_2;
 pub(crate) const BLOCK_SIZE_LOG2: usize = FFT_LENGTH_BY_2_LOG2;
+pub(crate) const BLOCK_SIZE_MS: usize = FFT_LENGTH_BY_2 * 1000 / 16000;
 
 pub(crate) const EXTENDED_BLOCK_SIZE: usize = 2 * FFT_LENGTH_BY_2;
 pub(crate) const MATCHED_FILTER_WINDOW_SIZE_SUB_BLOCKS: usize = 32;
