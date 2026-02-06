@@ -4,15 +4,18 @@
 //! optimized for 128 samples. Originally by Takuya Ooura (1996-2001),
 //! adapted by the WebRTC project with precomputed twiddle tables.
 //!
+//! C source: `webrtc/common_audio/third_party/ooura/fft_size_128/ooura_fft.cc`
+//! (scalar path). Tables from `ooura_fft_tables_common.h`.
+//!
 //! # Data format
 //!
-//! Forward transform (`fft`):
+//! Forward transform ([`forward`]):
 //! - Input: 128 real-valued time-domain samples in `a[0..128]`
 //! - Output: Packed frequency-domain data. `a[0]` = DC component,
 //!   `a[1]` = Nyquist component, `a[2k], a[2k+1]` = real/imag of bin k.
 //!
-//! Inverse transform (`inverse_fft`):
-//! - Input: Packed frequency-domain data (as produced by `fft`)
+//! Inverse transform ([`inverse`]):
+//! - Input: Packed frequency-domain data (as produced by [`forward`])
 //! - Output: 128 real-valued time-domain samples (scaled by 2/N)
 
 /// Fixed 128-point real FFT size.
@@ -129,7 +132,8 @@ const RDFT_WK3RI_SECOND: [f32; 16] = [
     -0.956_940_35,
 ];
 
-/// Forward 128-point real FFT (time domain → frequency domain).
+/// Forward 128-point real FFT (time domain → frequency domain)
+/// (C: `WebRtc_rdft(128, 1, ...)`).
 ///
 /// Transforms `a` in-place. After the call:
 /// - `a[0]` = DC component
@@ -144,7 +148,8 @@ pub fn forward(a: &mut [f32; FFT_SIZE]) {
     a[1] = xi;
 }
 
-/// Inverse 128-point real FFT (frequency domain → time domain).
+/// Inverse 128-point real FFT (frequency domain → time domain)
+/// (C: `WebRtc_rdft(128, -1, ...)`).
 ///
 /// Transforms `a` in-place. To recover the original signal,
 /// multiply each output element by `2/N` (i.e., `2/128`).
@@ -538,6 +543,9 @@ fn rftbsub_128(a: &mut [f32; FFT_SIZE]) {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use test_strategy::proptest;
+
     use super::*;
 
     #[test]
@@ -628,24 +636,97 @@ mod tests {
         let mut a = [1.0_f32; FFT_SIZE];
         forward(&mut a);
 
-        // DC should be N (128).
+        // DC = sum of all samples = N.
         assert!(
             (a[0] - FFT_SIZE as f32).abs() < 1e-4,
             "DC = {}, expected {}",
             a[0],
             FFT_SIZE
         );
-        // Nyquist should be 0 (constant signal has no Nyquist content
-        // since all samples equal, alternating sum = 0? Actually for
-        // constant signal, Nyquist = sum of (-1)^n * x[n] = 0).
-        // Wait: for x[n]=1, Nyquist = sum((-1)^n) = 0.
-        // But a[1] after Ooura FFT stores Nyquist.
-        // Let's just check it's near zero.
+        // Nyquist = sum((-1)^n * x[n]) = 0 for constant signal.
         assert!(a[1].abs() < 1e-4, "Nyquist = {}, expected ~0", a[1]);
         // All other bins should be zero.
         for k in 1..64 {
             assert!(a[2 * k].abs() < 1e-4, "bin {k} real = {}", a[2 * k]);
             assert!(a[2 * k + 1].abs() < 1e-4, "bin {k} imag = {}", a[2 * k + 1]);
+        }
+    }
+
+    // -- Property tests --
+
+    #[proptest]
+    fn roundtrip_recovers_signal(
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 128))] signal: Vec<f32>,
+    ) {
+        let mut a = [0.0f32; FFT_SIZE];
+        a.copy_from_slice(&signal);
+        let original = a;
+
+        forward(&mut a);
+        inverse(&mut a);
+
+        let scale = 2.0 / FFT_SIZE as f32;
+        for (i, (&o, &r)) in original.iter().zip(a.iter()).enumerate() {
+            prop_assert!(
+                (o - r * scale).abs() < 1e-4,
+                "mismatch at {i}: original={o}, recovered={}",
+                r * scale
+            );
+        }
+    }
+
+    #[proptest]
+    fn linearity_holds(
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 128))] sig_a: Vec<f32>,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 128))] sig_b: Vec<f32>,
+    ) {
+        let mut a = [0.0f32; FFT_SIZE];
+        let mut b = [0.0f32; FFT_SIZE];
+        let mut sum = [0.0f32; FFT_SIZE];
+        a.copy_from_slice(&sig_a);
+        b.copy_from_slice(&sig_b);
+        for i in 0..FFT_SIZE {
+            sum[i] = a[i] + b[i];
+        }
+
+        forward(&mut a);
+        forward(&mut b);
+        forward(&mut sum);
+
+        for i in 0..FFT_SIZE {
+            let expected = a[i] + b[i];
+            prop_assert!(
+                (sum[i] - expected).abs() < 1e-3,
+                "linearity failed at {i}: FFT(a+b)={}, FFT(a)+FFT(b)={expected}",
+                sum[i]
+            );
+        }
+    }
+
+    #[proptest]
+    fn parseval_energy_conservation(
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 128))] signal: Vec<f32>,
+    ) {
+        let mut a = [0.0f32; FFT_SIZE];
+        a.copy_from_slice(&signal);
+        let time_energy: f32 = a.iter().map(|x| x * x).sum();
+
+        forward(&mut a);
+
+        let dc_sq = a[0] * a[0];
+        let nyq_sq = a[1] * a[1];
+        let mut freq_energy = dc_sq + nyq_sq;
+        for k in 1..FFT_SIZE / 2 {
+            freq_energy += 2.0 * (a[2 * k] * a[2 * k] + a[2 * k + 1] * a[2 * k + 1]);
+        }
+
+        let expected = FFT_SIZE as f32 * time_energy;
+        // Use relative tolerance; skip near-zero energy to avoid division issues.
+        if expected > 1e-6 {
+            prop_assert!(
+                (freq_energy - expected).abs() / expected < 1e-3,
+                "Parseval: freq_energy={freq_energy}, expected={expected}"
+            );
         }
     }
 }

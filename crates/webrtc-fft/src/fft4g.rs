@@ -22,12 +22,20 @@ use std::f32::consts::FRAC_PI_4;
 ///
 /// Supports power-of-2 sizes (`n >= 2`). Twiddle tables and bit-reversal
 /// indices are eagerly computed during construction.
+///
+/// C source: `webrtc/common_audio/third_party/ooura/fft_size_256/fft4g.cc`
+/// (`rdft` function).
 #[derive(Debug, Clone)]
 pub struct Fft4g {
     n: usize,
-    /// Bit-reversal work area. `ip[0]` = nw, `ip[1]` = nc.
-    /// `ip[2..]` holds the bit-reversal permutation indices.
-    ip: Vec<usize>,
+    nw: usize,
+    nc: usize,
+    /// Precomputed bit-reversal permutation indices.
+    bitrv_ip: Vec<usize>,
+    /// Precomputed m value for bit-reversal (determines loop bounds).
+    bitrv_m: usize,
+    /// Whether to use the 4-group swap pattern (true) or 2-group (false).
+    bitrv_long: bool,
     /// Twiddle factor table: `w[0..nw-1]` = cos/sin for complex FFT,
     /// `w[nw..nw+nc-1]` = cos/sin for real FFT post-processing.
     w: Vec<f32>,
@@ -48,11 +56,11 @@ impl Fft4g {
 
         // Allocate work arrays with sizes matching the C implementation.
         let nw = n >> 2;
-        let ip_len = 2 + (1 << (((n as f64 / 2.0 + 0.5).ln() / 2.0_f64.ln()) as usize / 2));
+        let ip_len = 2 + (1 << ((n / 2).ilog2() as usize / 2));
         let mut ip = vec![0_usize; ip_len.max(4)];
         let mut w = vec![0.0_f32; n / 2];
 
-        // Initialize tables eagerly (C++ does this lazily on first call).
+        // Initialize twiddle tables eagerly (C++ does this lazily on first call).
         if nw > 0 {
             makewt(nw, &mut ip, &mut w);
         }
@@ -61,10 +69,21 @@ impl Fft4g {
             makect(nc, &mut ip, &mut w[nw..]);
         }
 
-        Self { n, ip, w }
+        // Precompute the bit-reversal index table (C rebuilds this every call).
+        let (bitrv_ip, bitrv_m, bitrv_long) = build_bitrv_table(n);
+
+        Self {
+            n,
+            nw,
+            nc,
+            bitrv_ip,
+            bitrv_m,
+            bitrv_long,
+            w,
+        }
     }
 
-    /// Forward real DFT in-place.
+    /// Forward real DFT in-place (C: `rdft` with `isgn=1`).
     ///
     /// `a` must have length `n`. After the call:
     /// - `a[0]` = DC component
@@ -74,16 +93,14 @@ impl Fft4g {
     /// # Panics
     ///
     /// Panics if `a.len() != n`.
-    pub fn rdft(&mut self, a: &mut [f32]) {
+    pub fn rdft(&self, a: &mut [f32]) {
         assert_eq!(a.len(), self.n, "input length must be {}", self.n);
         let n = self.n;
-        let nw = self.ip[0];
-        let nc = self.ip[1];
 
         if n > 4 {
-            bitrv2(n, &mut self.ip[2..], a);
+            apply_bitrv2(&self.bitrv_ip, self.bitrv_m, self.bitrv_long, a);
             cftfsub(n, a, &self.w);
-            rftfsub(n, a, nc, &self.w[nw..]);
+            rftfsub(n, a, self.nc, &self.w[self.nw..]);
         } else if n == 4 {
             cftfsub(n, a, &self.w);
         }
@@ -92,7 +109,7 @@ impl Fft4g {
         a[1] = xi;
     }
 
-    /// Inverse real DFT in-place.
+    /// Inverse real DFT in-place (C: `rdft` with `isgn=-1`).
     ///
     /// `a` must have length `n`. To recover the original signal,
     /// multiply each output element by `2/n`.
@@ -100,17 +117,15 @@ impl Fft4g {
     /// # Panics
     ///
     /// Panics if `a.len() != n`.
-    pub fn irdft(&mut self, a: &mut [f32]) {
+    pub fn irdft(&self, a: &mut [f32]) {
         assert_eq!(a.len(), self.n, "input length must be {}", self.n);
         let n = self.n;
-        let nw = self.ip[0];
-        let nc = self.ip[1];
 
         a[1] = 0.5 * (a[0] - a[1]);
         a[0] -= a[1];
         if n > 4 {
-            rftbsub(n, a, nc, &self.w[nw..]);
-            bitrv2(n, &mut self.ip[2..], a);
+            rftbsub(n, a, self.nc, &self.w[self.nw..]);
+            apply_bitrv2(&self.bitrv_ip, self.bitrv_m, self.bitrv_long, a);
             cftbsub(n, a, &self.w);
         } else if n == 4 {
             cftfsub(n, a, &self.w);
@@ -158,7 +173,73 @@ fn makect(nc: usize, ip: &mut [usize], c: &mut [f32]) {
     }
 }
 
-/// Build the bit-reversal index table and perform permutation.
+/// Build the bit-reversal index table for size `n`.
+///
+/// Returns `(ip, m, use_long_swap)` where `ip` is the index table, `m`
+/// determines the loop bounds, and `use_long_swap` selects between the
+/// 4-group and 2-group swap patterns. Called once during construction.
+fn build_bitrv_table(n: usize) -> (Vec<usize>, usize, bool) {
+    let mut ip = vec![0_usize; n];
+    ip[0] = 0;
+    let mut l = n;
+    let mut m = 1_usize;
+    while (m << 3) < l {
+        l >>= 1;
+        for j in 0..m {
+            ip[m + j] = ip[j] + l;
+        }
+        m <<= 1;
+    }
+    let use_long_swap = (m << 3) == l;
+    ip.truncate(2 * m); // only need up to 2*m entries
+    (ip, m, use_long_swap)
+}
+
+/// Apply precomputed bit-reversal permutation to `a`.
+fn apply_bitrv2(ip: &[usize], m: usize, use_long_swap: bool, a: &mut [f32]) {
+    let m2 = 2 * m;
+    if use_long_swap {
+        for k in 0..m {
+            for j in 0..k {
+                let j1 = 2 * j + ip[k];
+                let k1 = 2 * k + ip[j];
+                a.swap(j1, k1);
+                a.swap(j1 + 1, k1 + 1);
+                let j1 = j1 + m2;
+                let k1 = k1 + 2 * m2;
+                a.swap(j1, k1);
+                a.swap(j1 + 1, k1 + 1);
+                let j1 = j1 + m2;
+                let k1 = k1 - m2;
+                a.swap(j1, k1);
+                a.swap(j1 + 1, k1 + 1);
+                let j1 = j1 + m2;
+                let k1 = k1 + 2 * m2;
+                a.swap(j1, k1);
+                a.swap(j1 + 1, k1 + 1);
+            }
+            let j1 = 2 * k + m2 + ip[k];
+            let k1 = j1 + m2;
+            a.swap(j1, k1);
+            a.swap(j1 + 1, k1 + 1);
+        }
+    } else {
+        for k in 1..m {
+            for j in 0..k {
+                let j1 = 2 * j + ip[k];
+                let k1 = 2 * k + ip[j];
+                a.swap(j1, k1);
+                a.swap(j1 + 1, k1 + 1);
+                let j1 = j1 + m2;
+                let k1 = k1 + m2;
+                a.swap(j1, k1);
+                a.swap(j1 + 1, k1 + 1);
+            }
+        }
+    }
+}
+
+/// Build bit-reversal table and apply permutation in one pass (used during init).
 fn bitrv2(n: usize, ip: &mut [usize], a: &mut [f32]) {
     ip[0] = 0;
     let mut l = n;
@@ -593,11 +674,14 @@ fn rftbsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use test_strategy::proptest;
+
     use super::*;
 
     #[test]
     fn roundtrip_256() {
-        let mut fft = Fft4g::new(256);
+        let fft = Fft4g::new(256);
         let mut a: Vec<f32> = (0..256).map(|i| (i as f32 * 0.05).sin()).collect();
         let original = a.clone();
 
@@ -617,7 +701,7 @@ mod tests {
     #[test]
     fn roundtrip_multiple_sizes() {
         for &n in &[4, 8, 16, 32, 64, 128, 256, 512] {
-            let mut fft = Fft4g::new(n);
+            let fft = Fft4g::new(n);
             let mut a: Vec<f32> = (0..n).map(|i| (i as f32 * 0.1).cos()).collect();
             let original = a.clone();
 
@@ -637,7 +721,7 @@ mod tests {
 
     #[test]
     fn impulse_256() {
-        let mut fft = Fft4g::new(256);
+        let fft = Fft4g::new(256);
         let mut a = vec![0.0_f32; 256];
         a[0] = 1.0;
 
@@ -657,7 +741,7 @@ mod tests {
     #[test]
     fn parseval_energy() {
         let n = 256;
-        let mut fft = Fft4g::new(n);
+        let fft = Fft4g::new(n);
         let mut a: Vec<f32> = (0..n).map(|i| (i as f32 * 0.2).sin()).collect();
         let time_energy: f32 = a.iter().map(|x| x * x).sum();
 
@@ -682,7 +766,7 @@ mod tests {
 
     #[test]
     fn zero_input() {
-        let mut fft = Fft4g::new(64);
+        let fft = Fft4g::new(64);
         let mut a = vec![0.0_f32; 64];
         fft.rdft(&mut a);
         for (i, &v) in a.iter().enumerate() {
@@ -700,5 +784,88 @@ mod tests {
     #[should_panic(expected = ">= 2")]
     fn rejects_size_one() {
         let _ = Fft4g::new(1);
+    }
+
+    // -- Property tests --
+
+    /// Map a small integer exponent to a power-of-2 FFT size (4..=512).
+    fn fft_size_from_exp(exp: u32) -> usize {
+        1 << exp
+    }
+
+    #[proptest]
+    fn roundtrip_recovers_signal(
+        #[strategy(2..=9u32)] exp: u32,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 1 << #exp as usize))] signal: Vec<f32>,
+    ) {
+        let n = fft_size_from_exp(exp);
+        let fft = Fft4g::new(n);
+        let mut a = signal.clone();
+
+        fft.rdft(&mut a);
+        fft.irdft(&mut a);
+
+        let scale = 2.0 / n as f32;
+        for (i, (&o, &r)) in signal.iter().zip(a.iter()).enumerate() {
+            prop_assert!(
+                (o - r * scale).abs() < 1e-3,
+                "size {n}, index {i}: original={o}, recovered={}",
+                r * scale
+            );
+        }
+    }
+
+    #[proptest]
+    fn linearity_holds(
+        #[strategy(2..=9u32)] exp: u32,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 1 << #exp as usize))] sig_a: Vec<f32>,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 1 << #exp as usize))] sig_b: Vec<f32>,
+    ) {
+        let n = fft_size_from_exp(exp);
+        let fft = Fft4g::new(n);
+
+        let mut a = sig_a.clone();
+        let mut b = sig_b.clone();
+        let mut sum: Vec<f32> = sig_a.iter().zip(sig_b.iter()).map(|(x, y)| x + y).collect();
+
+        fft.rdft(&mut a);
+        fft.rdft(&mut b);
+        fft.rdft(&mut sum);
+
+        for (i, ((&fa, &fb), &fs)) in a.iter().zip(b.iter()).zip(sum.iter()).enumerate() {
+            let expected = fa + fb;
+            prop_assert!(
+                (fs - expected).abs() < 1e-3,
+                "size {n}, index {i}: FFT(a+b)={fs}, FFT(a)+FFT(b)={expected}"
+            );
+        }
+    }
+
+    #[proptest]
+    fn parseval_energy_conservation(
+        #[strategy(2..=9u32)] exp: u32,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, 1 << #exp as usize))] signal: Vec<f32>,
+    ) {
+        let n = fft_size_from_exp(exp);
+        let fft = Fft4g::new(n);
+        let time_energy: f32 = signal.iter().map(|x| x * x).sum();
+
+        let mut a = signal;
+        fft.rdft(&mut a);
+
+        let dc_sq = a[0] * a[0];
+        let nyq_sq = a[1] * a[1];
+        let mut freq_energy = dc_sq + nyq_sq;
+        for k in 1..n / 2 {
+            freq_energy += 2.0 * (a[2 * k] * a[2 * k] + a[2 * k + 1] * a[2 * k + 1]);
+        }
+
+        let expected = n as f32 * time_energy;
+        if expected > 1e-6 {
+            prop_assert!(
+                (freq_energy - expected).abs() / expected < 1e-3,
+                "Parseval: freq_energy={freq_energy}, expected={expected}"
+            );
+        }
     }
 }

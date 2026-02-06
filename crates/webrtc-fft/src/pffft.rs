@@ -17,6 +17,24 @@
 use std::f32::consts::SQRT_2;
 use std::f64::consts::PI;
 
+// Trigonometric constants for FFTPACK radix-3 and radix-5 butterflies.
+// Named after the C FFTPACK variables they replace.
+
+/// cos(2π/5) ≈ 0.309017
+const TR11: f32 = 0.309_017_f32;
+/// sin(2π/5) ≈ 0.951057
+const TI11: f32 = 0.951_056_5_f32;
+/// cos(4π/5) ≈ −0.809017
+const TR12: f32 = -0.809_017_f32;
+/// sin(4π/5) ≈ 0.587785
+const TI12: f32 = 0.587_785_25_f32;
+/// cos(2π/3) = −1/2
+const TAUR: f32 = -0.5_f32;
+/// sin(π/3) = √3/2 ≈ 0.866025
+const TAUI: f32 = 0.866_025_4_f32;
+/// −1/√2 ≈ −0.707107
+const MINUS_HSQT2: f32 = -0.707_106_77_f32;
+
 /// FFT transform type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FftType {
@@ -33,6 +51,9 @@ pub enum FftType {
 /// for complex transforms (when using scalar mode with `SIMD_SZ = 1`, the
 /// minimums are `a >= 1` for real and `a >= 0` for complex, but we keep
 /// the original PFFFT minimum sizes for API compatibility).
+///
+/// C sources: `webrtc/third_party/pffft/src/pffft.c` (algorithm),
+/// `webrtc/modules/audio_processing/utility/pffft_wrapper.cc` (C++ wrapper).
 #[derive(Debug, Clone)]
 pub struct Pffft {
     n: usize,
@@ -40,6 +61,9 @@ pub struct Pffft {
     fft_type: FftType,
     ifac: [i32; 15],
     twiddle: Vec<f32>,
+    /// Pre-allocated scratch buffer, reused across transforms
+    /// (matches C++ `PffftWrapper::scratch_buffer_`).
+    scratch: Vec<f32>,
 }
 
 /// Buffer for PFFFT I/O data.
@@ -61,7 +85,8 @@ impl PffftBuffer {
 }
 
 impl Pffft {
-    /// Create a new FFT setup for the given size and type.
+    /// Create a new FFT setup for the given size and type
+    /// (C: `pffft_new_setup`, C++: `PffftWrapper` constructor).
     ///
     /// # Panics
     ///
@@ -107,16 +132,25 @@ impl Pffft {
             "FFT size {n} cannot be decomposed into factors of 2, 3, 5"
         );
 
+        // Pre-allocate scratch buffer (C++ wrapper does this in constructor).
+        let buf_len = match fft_type {
+            FftType::Real => n,
+            FftType::Complex => n * 2,
+        };
+        let scratch = vec![0.0_f32; buf_len];
+
         Self {
             n,
             ncvec,
             fft_type,
             ifac,
             twiddle,
+            scratch,
         }
     }
 
-    /// Check if the given FFT size is valid for the given type.
+    /// Check if the given FFT size is valid for the given type
+    /// (C: `pffft_is_valid_size`).
     ///
     /// Valid sizes are of the form `N = 2^a * 3^b * 5^c` where:
     /// - Real: minimum N = 32 (effectively `a >= 1` with scalar, but kept >= 32 for compat)
@@ -156,7 +190,8 @@ impl Pffft {
         n == 1
     }
 
-    /// Create a buffer suitable for this FFT's I/O.
+    /// Create a buffer suitable for this FFT's I/O
+    /// (C++: `CreateBuffer`, C: `pffft_aligned_malloc`).
     pub fn create_buffer(&self) -> PffftBuffer {
         let size = match self.fft_type {
             FftType::Real => self.n,
@@ -167,24 +202,25 @@ impl Pffft {
         }
     }
 
-    /// Forward FFT.
+    /// Forward FFT (C++: `ForwardTransform`, C: `pffft_transform`/`pffft_transform_ordered`).
     ///
     /// If `ordered` is true, the output is in standard frequency-domain order.
     /// If false, the output is in FFTPACK internal order (suitable for
     /// `convolve_accumulate`).
-    pub fn forward(&self, input: &PffftBuffer, output: &mut PffftBuffer, ordered: bool) {
+    pub fn forward(&mut self, input: &PffftBuffer, output: &mut PffftBuffer, ordered: bool) {
         self.transform_internal(input, output, Direction::Forward, ordered);
     }
 
-    /// Backward (inverse) FFT.
+    /// Backward (inverse) FFT (C++: `BackwardTransform`, C: `pffft_transform`/`pffft_transform_ordered`).
     ///
     /// The output is NOT scaled by `1/N`. To recover the original signal,
     /// divide each output element by `N`.
-    pub fn backward(&self, input: &PffftBuffer, output: &mut PffftBuffer, ordered: bool) {
+    pub fn backward(&mut self, input: &PffftBuffer, output: &mut PffftBuffer, ordered: bool) {
         self.transform_internal(input, output, Direction::Backward, ordered);
     }
 
-    /// Frequency-domain convolution with accumulation.
+    /// Frequency-domain convolution with accumulation
+    /// (C++: `FrequencyDomainConvolution`, C: `pffft_zconvolve_accumulate`).
     ///
     /// Computes `out += scaling * (x * y)` where `x` and `y` are in
     /// unordered FFTPACK layout (from `forward(..., ordered=false)`).
@@ -228,7 +264,7 @@ impl Pffft {
     }
 
     fn transform_internal(
-        &self,
+        &mut self,
         input: &PffftBuffer,
         output: &mut PffftBuffer,
         direction: Direction,
@@ -236,10 +272,7 @@ impl Pffft {
     ) {
         let ncvec = self.ncvec;
         let nf_odd = (self.ifac[1] & 1) != 0;
-
-        // buff[0] = output.data, buff[1] = scratch
         let buf_len = output.data.len();
-        let mut scratch = vec![0.0_f32; buf_len];
 
         let ordered_flag = if self.fft_type == FftType::Complex {
             false // Complex transforms are always ordered in scalar mode.
@@ -250,6 +283,8 @@ impl Pffft {
         // C: ib = (nf_odd ^ ordered ? 1 : 0)
         let ib: bool = nf_odd ^ ordered_flag;
 
+        self.scratch[..buf_len].fill(0.0);
+
         match direction {
             Direction::Forward => {
                 let result = if self.fft_type == FftType::Real {
@@ -257,7 +292,7 @@ impl Pffft {
                         ncvec * 2,
                         &input.data,
                         &mut output.data,
-                        &mut scratch,
+                        &mut self.scratch,
                         &self.twiddle,
                         &self.ifac,
                         ib,
@@ -267,7 +302,7 @@ impl Pffft {
                         ncvec,
                         &input.data,
                         &mut output.data,
-                        &mut scratch,
+                        &mut self.scratch,
                         &self.twiddle,
                         &self.ifac,
                         -1,
@@ -276,43 +311,48 @@ impl Pffft {
                 };
 
                 if result == BufferIndex::Scratch {
-                    output.data.copy_from_slice(&scratch[..buf_len]);
+                    output.data.copy_from_slice(&self.scratch[..buf_len]);
                 }
 
                 if ordered_flag {
-                    let tmp = output.data.clone();
+                    // Reorder in-place: copy output to scratch, then reorder back.
+                    self.scratch[..buf_len].copy_from_slice(&output.data[..buf_len]);
                     zreorder(
                         self.n,
                         self.fft_type,
-                        &tmp,
+                        &self.scratch,
                         &mut output.data,
                         Direction::Forward,
                     );
                 }
             }
             Direction::Backward => {
-                let src = if ordered_flag {
-                    // Reorder from standard to fftpack order into scratch.
+                // For ordered backward, reorder from standard to FFTPACK order.
+                // We allocate a temporary buffer here because rfftb1/cfftf1 use
+                // both output.data and self.scratch as work buffers, leaving no
+                // pre-allocated buffer free to hold the reordered input.
+                let reordered_buf;
+                let src: &[f32] = if ordered_flag {
+                    let mut tmp = vec![0.0_f32; buf_len];
                     zreorder(
                         self.n,
                         self.fft_type,
                         &input.data,
-                        &mut scratch,
+                        &mut tmp,
                         Direction::Backward,
                     );
-                    let reordered = scratch.clone();
-                    scratch.fill(0.0);
-                    reordered
+                    reordered_buf = tmp;
+                    &reordered_buf
                 } else {
-                    input.data.clone()
+                    &input.data
                 };
 
                 let result = if self.fft_type == FftType::Real {
                     rfftb1(
                         ncvec * 2,
-                        &src,
+                        src,
                         &mut output.data,
-                        &mut scratch,
+                        &mut self.scratch,
                         &self.twiddle,
                         &self.ifac,
                         ib,
@@ -320,9 +360,9 @@ impl Pffft {
                 } else {
                     cfftf1(
                         ncvec,
-                        &src,
+                        src,
                         &mut output.data,
-                        &mut scratch,
+                        &mut self.scratch,
                         &self.twiddle,
                         &self.ifac,
                         1,
@@ -331,7 +371,7 @@ impl Pffft {
                 };
 
                 if result == BufferIndex::Scratch {
-                    output.data.copy_from_slice(&scratch[..buf_len]);
+                    output.data.copy_from_slice(&self.scratch[..buf_len]);
                 }
             }
         }
@@ -510,8 +550,7 @@ fn passf2(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], fsign:
 
 /// Complex radix-3 butterfly pass.
 fn passf3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[f32], fsign: f32) {
-    let taur = -0.5_f32;
-    let taui = 0.866_025_4_f32 * fsign;
+    let taui = TAUI * fsign;
     let l1ido = l1 * ido;
 
     assert!(ido > 2);
@@ -520,10 +559,10 @@ fn passf3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &
     for _k in (0..l1ido).step_by(ido) {
         for i in (0..ido - 1).step_by(2) {
             let tr2 = cc[cc_off + i + ido] + cc[cc_off + i + 2 * ido];
-            let cr2 = cc[cc_off + i] + taur * tr2;
+            let cr2 = cc[cc_off + i] + TAUR * tr2;
             ch[ch_off + i] = cc[cc_off + i] + tr2;
             let ti2 = cc[cc_off + i + ido + 1] + cc[cc_off + i + 2 * ido + 1];
-            let ci2 = cc[cc_off + i + 1] + taur * ti2;
+            let ci2 = cc[cc_off + i + 1] + TAUR * ti2;
             ch[ch_off + i + 1] = cc[cc_off + i + 1] + ti2;
             let cr3 = taui * (cc[cc_off + i + ido] - cc[cc_off + i + 2 * ido]);
             let ci3 = taui * (cc[cc_off + i + ido + 1] - cc[cc_off + i + 2 * ido + 1]);
@@ -652,10 +691,8 @@ fn passf5(
     wa4: &[f32],
     fsign: f32,
 ) {
-    let tr11 = 0.309_017_f32;
-    let ti11 = 0.951_056_5_f32 * fsign;
-    let tr12 = -0.809_017_f32;
-    let ti12 = 0.587_785_25_f32 * fsign;
+    let ti11 = TI11 * fsign;
+    let ti12 = TI12 * fsign;
 
     // C macros (with +1 offset baked in):
     //   cc_ref(a_1, a_2) = cc[(a_2-1)*ido + a_1 + 1]
@@ -683,10 +720,10 @@ fn passf5(
 
             ch[ch_off + i] = cc[cc_off + i] + tr2 + tr3;
             ch[ch_off + i + 1] = cc[cc_off + i + 1] + ti2 + ti3;
-            let cr2 = cc[cc_off + i] + tr11 * tr2 + tr12 * tr3;
-            let ci2 = cc[cc_off + i + 1] + tr11 * ti2 + tr12 * ti3;
-            let cr3 = cc[cc_off + i] + tr12 * tr2 + tr11 * tr3;
-            let ci3 = cc[cc_off + i + 1] + tr12 * ti2 + tr11 * ti3;
+            let cr2 = cc[cc_off + i] + TR11 * tr2 + TR12 * tr3;
+            let ci2 = cc[cc_off + i + 1] + TR11 * ti2 + TR12 * ti3;
+            let cr3 = cc[cc_off + i] + TR12 * tr2 + TR11 * tr3;
+            let ci3 = cc[cc_off + i + 1] + TR12 * ti2 + TR11 * ti3;
             let cr5 = ti11 * tr5 + ti12 * tr4;
             let ci5 = ti11 * ti5 + ti12 * ti4;
             let cr4 = ti12 * tr5 - ti11 * tr4;
@@ -804,13 +841,11 @@ fn radb2(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32]) {
 
 /// Real forward radix-3 pass.
 fn radf3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[f32]) {
-    let taur = -0.5_f32;
-    let taui = 0.866_025_4_f32;
     for k in 0..l1 {
         let cr2 = cc[(k + l1) * ido] + cc[(k + 2 * l1) * ido];
         ch[3 * k * ido] = cc[k * ido] + cr2;
-        ch[(3 * k + 2) * ido] = taui * (cc[(k + 2 * l1) * ido] - cc[(k + l1) * ido]);
-        ch[ido - 1 + (3 * k + 1) * ido] = cc[k * ido] + taur * cr2;
+        ch[(3 * k + 2) * ido] = TAUI * (cc[(k + 2 * l1) * ido] - cc[(k + l1) * ido]);
+        ch[ido - 1 + (3 * k + 1) * ido] = cc[k * ido] + TAUR * cr2;
     }
     if ido == 1 {
         return;
@@ -830,10 +865,10 @@ fn radf3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[
             let ci2 = di2 + di3;
             ch[i - 1 + 3 * k * ido] = cc[i - 1 + k * ido] + cr2;
             ch[i + 3 * k * ido] = cc[i + k * ido] + ci2;
-            let tr2 = cc[i - 1 + k * ido] + taur * cr2;
-            let ti2 = cc[i + k * ido] + taur * ci2;
-            let tr3 = taui * (di2 - di3);
-            let ti3 = taui * (dr3 - dr2);
+            let tr2 = cc[i - 1 + k * ido] + TAUR * cr2;
+            let ti2 = cc[i + k * ido] + TAUR * ci2;
+            let tr3 = TAUI * (di2 - di3);
+            let ti3 = TAUI * (dr3 - dr2);
             ch[i - 1 + (3 * k + 2) * ido] = tr2 + tr3;
             ch[ic - 1 + (3 * k + 1) * ido] = tr2 - tr3;
             ch[i + (3 * k + 2) * ido] = ti2 + ti3;
@@ -844,13 +879,11 @@ fn radf3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[
 
 /// Real backward radix-3 pass.
 fn radb3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[f32]) {
-    let taur = -0.5_f32;
-    let taui = 0.866_025_4_f32;
-    let taui_2 = taui * 2.0;
+    let taui_2 = TAUI * 2.0;
     for k in 0..l1 {
         let tr2 = cc[ido - 1 + (3 * k + 1) * ido];
         let tr2 = tr2 + tr2;
-        let cr2 = cc[3 * k * ido] + taur * tr2;
+        let cr2 = cc[3 * k * ido] + TAUR * tr2;
         ch[k * ido] = cc[3 * k * ido] + tr2;
         let ci3 = taui_2 * cc[(3 * k + 2) * ido];
         ch[(k + l1) * ido] = cr2 - ci3;
@@ -863,13 +896,13 @@ fn radb3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[
         for i in (2..ido).step_by(2) {
             let ic = ido - i;
             let tr2 = cc[i - 1 + (3 * k + 2) * ido] + cc[ic - 1 + (3 * k + 1) * ido];
-            let cr2 = cc[i - 1 + 3 * k * ido] + taur * tr2;
+            let cr2 = cc[i - 1 + 3 * k * ido] + TAUR * tr2;
             ch[i - 1 + k * ido] = cc[i - 1 + 3 * k * ido] + tr2;
             let ti2 = cc[i + (3 * k + 2) * ido] - cc[ic + (3 * k + 1) * ido];
-            let ci2 = cc[i + 3 * k * ido] + taur * ti2;
+            let ci2 = cc[i + 3 * k * ido] + TAUR * ti2;
             ch[i + k * ido] = cc[i + 3 * k * ido] + ti2;
-            let cr3 = taui * (cc[i - 1 + (3 * k + 2) * ido] - cc[ic - 1 + (3 * k + 1) * ido]);
-            let ci3 = taui * (cc[i + (3 * k + 2) * ido] + cc[ic + (3 * k + 1) * ido]);
+            let cr3 = TAUI * (cc[i - 1 + (3 * k + 2) * ido] - cc[ic - 1 + (3 * k + 1) * ido]);
+            let ci3 = TAUI * (cc[i + (3 * k + 2) * ido] + cc[ic + (3 * k + 1) * ido]);
             let mut dr2 = cr2 - ci3;
             let mut dr3 = cr2 + ci3;
             let mut di2 = ci2 + cr3;
@@ -886,7 +919,6 @@ fn radb3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[
 
 /// Real forward radix-4 pass.
 fn radf4(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[f32], wa3: &[f32]) {
-    let minus_hsqt2 = -0.707_106_77_f32;
     let l1ido = l1 * ido;
     {
         let mut cc_off = 0;
@@ -952,8 +984,8 @@ fn radf4(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[
         let b = cc[ido - 1 + k + 3 * l1ido];
         let c = cc[ido - 1 + k];
         let d = cc[ido - 1 + k + 2 * l1ido];
-        let ti1 = minus_hsqt2 * (a + b);
-        let tr1 = minus_hsqt2 * (b - a);
+        let ti1 = MINUS_HSQT2 * (a + b);
+        let tr1 = MINUS_HSQT2 * (b - a);
         ch[ido - 1 + 4 * k] = tr1 + c;
         ch[ido - 1 + 4 * k + 2 * ido] = c - tr1;
         ch[4 * k + ido] = ti1 - d;
@@ -1059,11 +1091,6 @@ fn radf5(
     wa3: &[f32],
     wa4: &[f32],
 ) {
-    let tr11 = 0.309_017_f32;
-    let ti11 = 0.951_056_5_f32;
-    let tr12 = -0.809_017_f32;
-    let ti12 = 0.587_785_25_f32;
-
     // 1-based indexing closures matching C macros, with -1 for 0-based arrays.
     let cc_ref =
         |a1: usize, a2: usize, a3: usize| -> usize { ((a3 - 1) * l1 + (a2 - 1)) * ido + (a1 - 1) };
@@ -1076,10 +1103,10 @@ fn radf5(
         let cr3 = cc[cc_ref(1, k, 4)] + cc[cc_ref(1, k, 3)];
         let ci4 = cc[cc_ref(1, k, 4)] - cc[cc_ref(1, k, 3)];
         ch[ch_ref(1, 1, k)] = cc[cc_ref(1, k, 1)] + cr2 + cr3;
-        ch[ch_ref(ido, 2, k)] = cc[cc_ref(1, k, 1)] + tr11 * cr2 + tr12 * cr3;
-        ch[ch_ref(1, 3, k)] = ti11 * ci5 + ti12 * ci4;
-        ch[ch_ref(ido, 4, k)] = cc[cc_ref(1, k, 1)] + tr12 * cr2 + tr11 * cr3;
-        ch[ch_ref(1, 5, k)] = ti12 * ci5 - ti11 * ci4;
+        ch[ch_ref(ido, 2, k)] = cc[cc_ref(1, k, 1)] + TR11 * cr2 + TR12 * cr3;
+        ch[ch_ref(1, 3, k)] = TI11 * ci5 + TI12 * ci4;
+        ch[ch_ref(ido, 4, k)] = cc[cc_ref(1, k, 1)] + TR12 * cr2 + TR11 * cr3;
+        ch[ch_ref(1, 5, k)] = TI12 * ci5 - TI11 * ci4;
     }
     if ido == 1 {
         return;
@@ -1130,14 +1157,14 @@ fn radf5(
             let ci3 = di3 + di4;
             ch[ch_ref(i - 1, 1, k)] = cc[cc_ref(i - 1, k, 1)] + cr2 + cr3;
             ch[ch_ref(i, 1, k)] = cc[cc_ref(i, k, 1)] - (ci2 + ci3);
-            let tr2 = cc[cc_ref(i - 1, k, 1)] + tr11 * cr2 + tr12 * cr3;
-            let ti2 = cc[cc_ref(i, k, 1)] - (tr11 * ci2 + tr12 * ci3);
-            let tr3 = cc[cc_ref(i - 1, k, 1)] + tr12 * cr2 + tr11 * cr3;
-            let ti3 = cc[cc_ref(i, k, 1)] - (tr12 * ci2 + tr11 * ci3);
-            let tr5 = ti11 * cr5 + ti12 * cr4;
-            let ti5 = ti11 * ci5 + ti12 * ci4;
-            let tr4 = ti12 * cr5 - ti11 * cr4;
-            let ti4 = ti12 * ci5 - ti11 * ci4;
+            let tr2 = cc[cc_ref(i - 1, k, 1)] + TR11 * cr2 + TR12 * cr3;
+            let ti2 = cc[cc_ref(i, k, 1)] - (TR11 * ci2 + TR12 * ci3);
+            let tr3 = cc[cc_ref(i - 1, k, 1)] + TR12 * cr2 + TR11 * cr3;
+            let ti3 = cc[cc_ref(i, k, 1)] - (TR12 * ci2 + TR11 * ci3);
+            let tr5 = TI11 * cr5 + TI12 * cr4;
+            let ti5 = TI11 * ci5 + TI12 * ci4;
+            let tr4 = TI12 * cr5 - TI11 * cr4;
+            let ti4 = TI12 * ci5 - TI11 * ci4;
             ch[ch_ref(i - 1, 3, k)] = tr2 - tr5;
             ch[ch_ref(ic - 1, 2, k)] = tr2 + tr5;
             ch[ch_ref(i, 3, k)] = ti2 + ti5;
@@ -1165,11 +1192,6 @@ fn radb5(
     wa3: &[f32],
     wa4: &[f32],
 ) {
-    let tr11 = 0.309_017_f32;
-    let ti11 = 0.951_056_5_f32;
-    let tr12 = -0.809_017_f32;
-    let ti12 = 0.587_785_25_f32;
-
     let cc_ref =
         |a1: usize, a2: usize, a3: usize| -> usize { ((a3 - 1) * 5 + (a2 - 1)) * ido + (a1 - 1) };
     let ch_ref =
@@ -1181,10 +1203,10 @@ fn radb5(
         let tr2 = cc[cc_ref(ido, 2, k)] + cc[cc_ref(ido, 2, k)];
         let tr3 = cc[cc_ref(ido, 4, k)] + cc[cc_ref(ido, 4, k)];
         ch[ch_ref(1, k, 1)] = cc[cc_ref(1, 1, k)] + tr2 + tr3;
-        let cr2 = cc[cc_ref(1, 1, k)] + tr11 * tr2 + tr12 * tr3;
-        let cr3 = cc[cc_ref(1, 1, k)] + tr12 * tr2 + tr11 * tr3;
-        let ci5 = ti11 * ti5 + ti12 * ti4;
-        let ci4 = ti12 * ti5 - ti11 * ti4;
+        let cr2 = cc[cc_ref(1, 1, k)] + TR11 * tr2 + TR12 * tr3;
+        let cr3 = cc[cc_ref(1, 1, k)] + TR12 * tr2 + TR11 * tr3;
+        let ci5 = TI11 * ti5 + TI12 * ti4;
+        let ci4 = TI12 * ti5 - TI11 * ti4;
         ch[ch_ref(1, k, 2)] = cr2 - ci5;
         ch[ch_ref(1, k, 3)] = cr3 - ci4;
         ch[ch_ref(1, k, 4)] = cr3 + ci4;
@@ -1207,14 +1229,14 @@ fn radb5(
             let tr3 = cc[cc_ref(i - 1, 5, k)] + cc[cc_ref(ic - 1, 4, k)];
             ch[ch_ref(i - 1, k, 1)] = cc[cc_ref(i - 1, 1, k)] + tr2 + tr3;
             ch[ch_ref(i, k, 1)] = cc[cc_ref(i, 1, k)] + ti2 + ti3;
-            let cr2 = cc[cc_ref(i - 1, 1, k)] + tr11 * tr2 + tr12 * tr3;
-            let ci2 = cc[cc_ref(i, 1, k)] + tr11 * ti2 + tr12 * ti3;
-            let cr3 = cc[cc_ref(i - 1, 1, k)] + tr12 * tr2 + tr11 * tr3;
-            let ci3 = cc[cc_ref(i, 1, k)] + tr12 * ti2 + tr11 * ti3;
-            let cr5 = ti11 * tr5 + ti12 * tr4;
-            let ci5 = ti11 * ti5 + ti12 * ti4;
-            let cr4 = ti12 * tr5 - ti11 * tr4;
-            let ci4 = ti12 * ti5 - ti11 * ti4;
+            let cr2 = cc[cc_ref(i - 1, 1, k)] + TR11 * tr2 + TR12 * tr3;
+            let ci2 = cc[cc_ref(i, 1, k)] + TR11 * ti2 + TR12 * ti3;
+            let cr3 = cc[cc_ref(i - 1, 1, k)] + TR12 * tr2 + TR11 * tr3;
+            let ci3 = cc[cc_ref(i, 1, k)] + TR12 * ti2 + TR11 * ti3;
+            let cr5 = TI11 * tr5 + TI12 * tr4;
+            let ci5 = TI11 * ti5 + TI12 * ti4;
+            let cr4 = TI12 * tr5 - TI11 * tr4;
+            let ci4 = TI12 * ti5 - TI11 * ti4;
             let mut dr3 = cr3 - ci4;
             let mut dr4 = cr3 + ci4;
             let mut di3 = ci3 + cr4;
@@ -1286,12 +1308,9 @@ fn rfftf1(
         iw -= (ip - 1) * ido;
 
         let (inp, out) = if in_is_work2 {
-            // Split borrows: work2 is input, work1 is output.
-            let (w1, w2) = split_buffers_w1_w2(work1, work2);
-            (w2 as &[f32], w1)
+            (work2 as &[f32], work1 as &mut [f32])
         } else {
-            let (w1, w2) = split_buffers_w1_w2(work1, work2);
-            (w1 as &[f32], w2)
+            (work1 as &[f32], work2 as &mut [f32])
         };
 
         match ip {
@@ -1361,11 +1380,9 @@ fn rfftb1(
         let ido = n / l2;
 
         let (inp, out) = if in_is_work2 {
-            let (w1, w2) = split_buffers_w1_w2(work1, work2);
-            (w2 as &[f32], w1)
+            (work2 as &[f32], work1 as &mut [f32])
         } else {
-            let (w1, w2) = split_buffers_w1_w2(work1, work2);
-            (w1 as &[f32], w2)
+            (work1 as &[f32], work2 as &mut [f32])
         };
 
         match ip {
@@ -1443,11 +1460,9 @@ fn cfftf1(
         let idot = ido + ido;
 
         let (inp, out) = if in_is_work2 {
-            let (w1, w2) = split_buffers_w1_w2(work1, work2);
-            (w2 as &[f32], w1)
+            (work2 as &[f32], work1 as &mut [f32])
         } else {
-            let (w1, w2) = split_buffers_w1_w2(work1, work2);
-            (w1 as &[f32], w2)
+            (work1 as &[f32], work2 as &mut [f32])
         };
 
         match ip {
@@ -1490,16 +1505,11 @@ fn cfftf1(
     }
 }
 
-/// Helper to get mutable references to both work buffers simultaneously.
-fn split_buffers_w1_w2<'a>(
-    work1: &'a mut [f32],
-    work2: &'a mut [f32],
-) -> (&'a mut [f32], &'a mut [f32]) {
-    (work1, work2)
-}
-
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use test_strategy::proptest;
+
     use super::*;
 
     #[test]
@@ -1533,7 +1543,7 @@ mod tests {
     #[test]
     fn real_roundtrip_power_of_two() {
         for &n in &[32, 64, 128, 256, 512] {
-            let pffft = Pffft::new(n, FftType::Real);
+            let mut pffft = Pffft::new(n, FftType::Real);
             let mut input = pffft.create_buffer();
             let mut freq = pffft.create_buffer();
             let mut output = pffft.create_buffer();
@@ -1561,7 +1571,7 @@ mod tests {
     #[test]
     fn real_roundtrip_composite() {
         for &n in &[48, 96, 160, 480] {
-            let pffft = Pffft::new(n, FftType::Real);
+            let mut pffft = Pffft::new(n, FftType::Real);
             let mut input = pffft.create_buffer();
             let mut freq = pffft.create_buffer();
             let mut output = pffft.create_buffer();
@@ -1588,7 +1598,7 @@ mod tests {
     #[test]
     fn complex_roundtrip() {
         for &n in &[16, 32, 64, 128] {
-            let pffft = Pffft::new(n, FftType::Complex);
+            let mut pffft = Pffft::new(n, FftType::Complex);
             let mut input = pffft.create_buffer();
             let mut freq = pffft.create_buffer();
             let mut output = pffft.create_buffer();
@@ -1615,7 +1625,7 @@ mod tests {
     #[test]
     fn convolve_accumulate_basic() {
         let n = 512;
-        let pffft = Pffft::new(n, FftType::Real);
+        let mut pffft = Pffft::new(n, FftType::Real);
         let mut input = pffft.create_buffer();
         let mut freq_x = pffft.create_buffer();
         let mut freq_y = pffft.create_buffer();
@@ -1666,7 +1676,7 @@ mod tests {
 
     #[test]
     fn zero_input() {
-        let pffft = Pffft::new(64, FftType::Real);
+        let mut pffft = Pffft::new(64, FftType::Real);
         let input = pffft.create_buffer();
         let mut output = pffft.create_buffer();
         pffft.forward(&input, &mut output, true);
@@ -1679,5 +1689,124 @@ mod tests {
     #[should_panic(expected = "invalid FFT size")]
     fn rejects_invalid_size() {
         let _ = Pffft::new(7, FftType::Real);
+    }
+
+    // -- Property tests --
+
+    /// Valid real FFT sizes for property tests (composite 2^a * 3^b * 5^c, >= 32).
+    const REAL_SIZES: [usize; 10] = [32, 48, 64, 96, 128, 160, 256, 480, 512, 1024];
+
+    /// Valid complex FFT sizes for property tests.
+    const COMPLEX_SIZES: [usize; 6] = [16, 32, 48, 64, 128, 256];
+
+    #[proptest]
+    fn real_roundtrip_recovers_signal(
+        #[strategy(prop::sample::select(&REAL_SIZES[..]))] n: usize,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, #n))] signal: Vec<f32>,
+    ) {
+        let mut pffft = Pffft::new(n, FftType::Real);
+        let mut input = pffft.create_buffer();
+        let mut freq = pffft.create_buffer();
+        let mut output = pffft.create_buffer();
+
+        input.as_mut_slice().copy_from_slice(&signal);
+        pffft.forward(&input, &mut freq, true);
+        pffft.backward(&freq, &mut output, true);
+
+        let scale = 1.0 / n as f32;
+        for (i, (&o, &r)) in signal.iter().zip(output.as_slice().iter()).enumerate() {
+            prop_assert!(
+                (o - r * scale).abs() < 1e-3,
+                "size {n}, index {i}: original={o}, recovered={}",
+                r * scale
+            );
+        }
+    }
+
+    #[proptest]
+    fn complex_roundtrip_recovers_signal(
+        #[strategy(prop::sample::select(&COMPLEX_SIZES[..]))] n: usize,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, #n * 2))] signal: Vec<f32>,
+    ) {
+        let mut pffft = Pffft::new(n, FftType::Complex);
+        let mut input = pffft.create_buffer();
+        let mut freq = pffft.create_buffer();
+        let mut output = pffft.create_buffer();
+
+        input.as_mut_slice().copy_from_slice(&signal);
+        pffft.forward(&input, &mut freq, true);
+        pffft.backward(&freq, &mut output, true);
+
+        let scale = 1.0 / n as f32;
+        for (i, (&o, &r)) in signal.iter().zip(output.as_slice().iter()).enumerate() {
+            prop_assert!(
+                (o - r * scale).abs() < 1e-3,
+                "size {n}, index {i}: original={o}, recovered={}",
+                r * scale
+            );
+        }
+    }
+
+    #[proptest]
+    fn unordered_roundtrip_recovers_signal(
+        #[strategy(prop::sample::select(&REAL_SIZES[..]))] n: usize,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, #n))] signal: Vec<f32>,
+    ) {
+        let mut pffft = Pffft::new(n, FftType::Real);
+        let mut input = pffft.create_buffer();
+        let mut freq = pffft.create_buffer();
+        let mut output = pffft.create_buffer();
+
+        input.as_mut_slice().copy_from_slice(&signal);
+        pffft.forward(&input, &mut freq, false);
+        pffft.backward(&freq, &mut output, false);
+
+        let scale = 1.0 / n as f32;
+        for (i, (&o, &r)) in signal.iter().zip(output.as_slice().iter()).enumerate() {
+            prop_assert!(
+                (o - r * scale).abs() < 1e-3,
+                "size {n}, index {i}: original={o}, recovered={}",
+                r * scale
+            );
+        }
+    }
+
+    #[proptest]
+    fn real_linearity_holds(
+        #[strategy(prop::sample::select(&REAL_SIZES[..]))] n: usize,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, #n))] sig_a: Vec<f32>,
+        #[strategy(prop::collection::vec(-1.0f32..1.0, #n))] sig_b: Vec<f32>,
+    ) {
+        let mut pffft = Pffft::new(n, FftType::Real);
+        let mut in_a = pffft.create_buffer();
+        let mut in_b = pffft.create_buffer();
+        let mut in_sum = pffft.create_buffer();
+        let mut freq_a = pffft.create_buffer();
+        let mut freq_b = pffft.create_buffer();
+        let mut freq_sum = pffft.create_buffer();
+
+        in_a.as_mut_slice().copy_from_slice(&sig_a);
+        in_b.as_mut_slice().copy_from_slice(&sig_b);
+        for (i, v) in in_sum.as_mut_slice().iter_mut().enumerate() {
+            *v = sig_a[i] + sig_b[i];
+        }
+
+        pffft.forward(&in_a, &mut freq_a, true);
+        pffft.forward(&in_b, &mut freq_b, true);
+        pffft.forward(&in_sum, &mut freq_sum, true);
+
+        for (i, ((&fa, &fb), &fs)) in freq_a
+            .as_slice()
+            .iter()
+            .zip(freq_b.as_slice().iter())
+            .zip(freq_sum.as_slice().iter())
+            .enumerate()
+        {
+            let expected = fa + fb;
+            prop_assert!(
+                (fs - expected).abs() < 1e-2,
+                "size {n}, index {i}: FFT(a+b)={fs}, FFT(a)+FFT(b)={expected}"
+            );
+        }
     }
 }
