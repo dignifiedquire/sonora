@@ -6,5 +6,7 @@
 
 pub(crate) mod biquad_filter;
 pub mod common;
+pub(crate) mod interpolated_gain_curve;
+pub(crate) mod limiter_db_gain_curve;
 pub mod rnn_vad;
 pub(crate) mod vad_wrapper;
