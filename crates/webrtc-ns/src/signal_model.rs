@@ -20,9 +20,11 @@ pub struct SignalModel {
     pub avg_log_lrt: [f32; FFT_SIZE_BY_2_PLUS_1],
 }
 
+/// Spectral flatness feature threshold.
+const SF_FEATURE_THR: f32 = 0.5;
+
 impl SignalModel {
     pub fn new() -> Self {
-        const SF_FEATURE_THR: f32 = 0.5;
         Self {
             lrt: LTR_FEATURE_THR,
             spectral_flatness: SF_FEATURE_THR,

@@ -40,26 +40,26 @@ impl Histograms {
     /// Update histograms from the current signal features.
     pub fn update(&mut self, features: &SignalModel) {
         // Update LRT histogram.
-        let one_by_bin_size_lrt = 1.0 / BIN_SIZE_LRT;
+        const ONE_BY_BIN_SIZE_LRT: f32 = 1.0 / BIN_SIZE_LRT;
         if features.lrt < HISTOGRAM_SIZE as f32 * BIN_SIZE_LRT && features.lrt >= 0.0 {
-            self.lrt[(one_by_bin_size_lrt * features.lrt) as usize] += 1;
+            self.lrt[(ONE_BY_BIN_SIZE_LRT * features.lrt) as usize] += 1;
         }
 
         // Update spectral flatness histogram.
-        let one_by_bin_size_spec_flat = 1.0 / BIN_SIZE_SPEC_FLAT;
+        const ONE_BY_BIN_SIZE_SPEC_FLAT: f32 = 1.0 / BIN_SIZE_SPEC_FLAT;
         if features.spectral_flatness < HISTOGRAM_SIZE as f32 * BIN_SIZE_SPEC_FLAT
             && features.spectral_flatness >= 0.0
         {
             self.spectral_flatness
-                [(features.spectral_flatness * one_by_bin_size_spec_flat) as usize] += 1;
+                [(features.spectral_flatness * ONE_BY_BIN_SIZE_SPEC_FLAT) as usize] += 1;
         }
 
         // Update spectral difference histogram.
-        let one_by_bin_size_spec_diff = 1.0 / BIN_SIZE_SPEC_DIFF;
+        const ONE_BY_BIN_SIZE_SPEC_DIFF: f32 = 1.0 / BIN_SIZE_SPEC_DIFF;
         if features.spectral_diff < HISTOGRAM_SIZE as f32 * BIN_SIZE_SPEC_DIFF
             && features.spectral_diff >= 0.0
         {
-            self.spectral_diff[(features.spectral_diff * one_by_bin_size_spec_diff) as usize] += 1;
+            self.spectral_diff[(features.spectral_diff * ONE_BY_BIN_SIZE_SPEC_DIFF) as usize] += 1;
         }
     }
 
