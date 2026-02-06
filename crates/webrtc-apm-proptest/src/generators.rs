@@ -1,6 +1,82 @@
 //! Audio buffer generators for property-based testing.
+//!
+//! Provides both strategy functions (for use with `#[strategy(...)]`) and
+//! `Arbitrary`-deriving structs for common audio test inputs.
 
 use proptest::prelude::*;
+use test_strategy::Arbitrary;
+
+/// A valid WebRTC sample rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Arbitrary)]
+pub enum SampleRate {
+    #[weight(1)]
+    Hz8000,
+    #[weight(1)]
+    Hz16000,
+    #[weight(1)]
+    Hz32000,
+    #[weight(1)]
+    Hz48000,
+}
+
+impl SampleRate {
+    pub fn hz(self) -> u32 {
+        match self {
+            Self::Hz8000 => 8000,
+            Self::Hz16000 => 16000,
+            Self::Hz32000 => 32000,
+            Self::Hz48000 => 48000,
+        }
+    }
+
+    /// Number of samples in a 10ms frame at this rate.
+    pub fn frame_size(self) -> usize {
+        (self.hz() / 100) as usize
+    }
+}
+
+/// A valid channel count for WebRTC audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Arbitrary)]
+pub enum ChannelCount {
+    #[weight(1)]
+    Mono,
+    #[weight(1)]
+    Stereo,
+}
+
+impl ChannelCount {
+    pub fn count(self) -> usize {
+        match self {
+            Self::Mono => 1,
+            Self::Stereo => 2,
+        }
+    }
+}
+
+/// A mono f32 audio frame with its sample rate.
+#[derive(Debug, Clone, Arbitrary)]
+pub struct MonoFrameF32 {
+    pub sample_rate: SampleRate,
+    #[strategy(audio_frame_f32(#sample_rate.hz()))]
+    pub samples: Vec<f32>,
+}
+
+/// A mono i16 audio frame with its sample rate.
+#[derive(Debug, Clone, Arbitrary)]
+pub struct MonoFrameI16 {
+    pub sample_rate: SampleRate,
+    #[strategy(audio_frame_i16(#sample_rate.hz()))]
+    pub samples: Vec<i16>,
+}
+
+/// An interleaved multi-channel f32 audio frame.
+#[derive(Debug, Clone, Arbitrary)]
+pub struct MultiChannelFrameF32 {
+    pub sample_rate: SampleRate,
+    pub channels: ChannelCount,
+    #[strategy(audio_frame_multichannel_f32(#sample_rate.hz(), #channels.count()))]
+    pub samples: Vec<f32>,
+}
 
 /// Generate a mono audio frame at a given sample rate (~10ms frame).
 pub fn audio_frame_f32(sample_rate: u32) -> impl Strategy<Value = Vec<f32>> {
@@ -34,128 +110,64 @@ pub fn fir_coefficients(max_len: usize) -> impl Strategy<Value = Vec<f32>> {
     proptest::collection::vec(-1.0f32..=1.0f32, 1..=max_len)
 }
 
-/// Generate a valid WebRTC sample rate.
-pub fn sample_rate() -> impl Strategy<Value = u32> {
-    prop_oneof![
-        Just(8000u32),
-        Just(16000u32),
-        Just(32000u32),
-        Just(48000u32),
-    ]
-}
-
-/// Generate a valid channel count (1 or 2).
-pub fn channel_count() -> impl Strategy<Value = usize> {
-    prop_oneof![Just(1usize), Just(2usize),]
-}
-
-/// Generate a pair of sample rate and matching mono f32 frame.
-pub fn sample_rate_and_frame_f32() -> impl Strategy<Value = (u32, Vec<f32>)> {
-    sample_rate().prop_flat_map(|sr| (Just(sr), audio_frame_f32(sr)))
-}
-
-/// Generate a pair of sample rate and matching mono i16 frame.
-pub fn sample_rate_and_frame_i16() -> impl Strategy<Value = (u32, Vec<i16>)> {
-    sample_rate().prop_flat_map(|sr| (Just(sr), audio_frame_i16(sr)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::test_runner::{Config, TestRunner};
+    use test_strategy::proptest;
 
-    #[test]
-    fn frame_f32_correct_length() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&audio_frame_f32(16000), |frame| {
-                prop_assert_eq!(frame.len(), 160); // 16000 / 100
-                for &s in &frame {
-                    prop_assert!((-1.0..=1.0).contains(&s));
-                }
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn frame_f32_correct_length(#[strategy(audio_frame_f32(16000))] frame: Vec<f32>) {
+        assert_eq!(frame.len(), 160);
+        for &s in &frame {
+            assert!((-1.0..=1.0).contains(&s));
+        }
     }
 
-    #[test]
-    fn frame_f32_48k_length() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&audio_frame_f32(48000), |frame| {
-                prop_assert_eq!(frame.len(), 480); // 48000 / 100
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn frame_f32_48k_length(#[strategy(audio_frame_f32(48000))] frame: Vec<f32>) {
+        assert_eq!(frame.len(), 480);
     }
 
-    #[test]
-    fn frame_i16_correct_length() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&audio_frame_i16(8000), |frame| {
-                prop_assert_eq!(frame.len(), 80); // 8000 / 100
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn frame_i16_correct_length(#[strategy(audio_frame_i16(8000))] frame: Vec<i16>) {
+        assert_eq!(frame.len(), 80);
     }
 
-    #[test]
-    fn stereo_frame_correct_length() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&stereo_frame_f32(16000), |frame| {
-                prop_assert_eq!(frame.len(), 320); // 160 * 2
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn stereo_frame_correct_length(#[strategy(stereo_frame_f32(16000))] frame: Vec<f32>) {
+        assert_eq!(frame.len(), 320);
     }
 
-    #[test]
-    fn multichannel_frame_correct_length() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&audio_frame_multichannel_f32(48000, 3), |frame| {
-                prop_assert_eq!(frame.len(), 1440); // 480 * 3
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn mono_frame_struct_consistent(frame: MonoFrameF32) {
+        assert_eq!(frame.samples.len(), frame.sample_rate.frame_size());
+        for &s in &frame.samples {
+            assert!((-1.0..=1.0).contains(&s));
+        }
     }
 
-    #[test]
-    fn sample_rate_valid_values() {
-        let mut runner = TestRunner::new(Config::with_cases(50));
-        runner
-            .run(&sample_rate(), |sr| {
-                prop_assert!([8000, 16000, 32000, 48000].contains(&sr));
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn mono_frame_i16_struct_consistent(frame: MonoFrameI16) {
+        assert_eq!(frame.samples.len(), frame.sample_rate.frame_size());
     }
 
-    #[test]
-    fn sample_rate_and_frame_consistent() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&sample_rate_and_frame_f32(), |(sr, frame)| {
-                prop_assert_eq!(frame.len(), (sr / 100) as usize);
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn multichannel_frame_struct_consistent(frame: MultiChannelFrameF32) {
+        let expected = frame.sample_rate.frame_size() * frame.channels.count();
+        assert_eq!(frame.samples.len(), expected);
     }
 
-    #[test]
-    fn fir_coefficients_valid_range() {
-        let mut runner = TestRunner::new(Config::with_cases(20));
-        runner
-            .run(&fir_coefficients(64), |coeffs| {
-                prop_assert!(!coeffs.is_empty());
-                prop_assert!(coeffs.len() <= 64);
-                for &c in &coeffs {
-                    prop_assert!((-1.0..=1.0).contains(&c));
-                }
-                Ok(())
-            })
-            .unwrap();
+    #[proptest]
+    fn sample_rate_valid_values(sr: SampleRate) {
+        assert!([8000, 16000, 32000, 48000].contains(&sr.hz()));
+    }
+
+    #[proptest]
+    fn fir_coefficients_valid_range(#[strategy(fir_coefficients(64))] coeffs: Vec<f32>) {
+        assert!(!coeffs.is_empty());
+        assert!(coeffs.len() <= 64);
+        for &c in &coeffs {
+            assert!((-1.0..=1.0).contains(&c));
+        }
     }
 }

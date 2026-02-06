@@ -15,4 +15,5 @@ cpp-comparison = ["dep:webrtc-apm-sys", "webrtc-apm-sys/cxx-bridge"]
 
 [dependencies]
 proptest = { workspace = true }
+test-strategy = { workspace = true }
 webrtc-apm-sys = { workspace = true, optional = true }

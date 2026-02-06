@@ -35,3 +35,4 @@ webrtc-apm-proptest = { path = "crates/webrtc-apm-proptest" }
 # External dependencies
 tracing = "0.1"
 proptest = "1.9"
+test-strategy = "0.4"
