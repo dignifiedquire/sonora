@@ -164,8 +164,7 @@ mod tests {
     fn gain_nonzero_after_warmup() {
         let mut gain = CoarseFilterUpdateGain::new(&default_config(), 250);
         let render_power = [100_000.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let mut rsa = RenderSignalAnalyzer::default();
-        rsa.set_poor_signal_excitation(false);
+        let rsa = RenderSignalAnalyzer::default();
 
         let mut e = FftData::default();
         e.re.fill(1.0);
