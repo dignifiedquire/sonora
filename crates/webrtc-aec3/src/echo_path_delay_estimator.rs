@@ -18,6 +18,7 @@ use crate::delay_estimate::{DelayEstimate, DelayEstimateQuality};
 use crate::downsampled_render_buffer::DownsampledRenderBuffer;
 use crate::matched_filter::MatchedFilter;
 use crate::matched_filter_lag_aggregator::MatchedFilterLagAggregator;
+use webrtc_simd::SimdBackend;
 
 /// Estimates the delay of the echo path.
 pub(crate) struct EchoPathDelayEstimator {
@@ -33,7 +34,11 @@ pub(crate) struct EchoPathDelayEstimator {
 }
 
 impl EchoPathDelayEstimator {
-    pub(crate) fn new(config: &EchoCanceller3Config, num_capture_channels: usize) -> Self {
+    pub(crate) fn new(
+        backend: SimdBackend,
+        config: &EchoCanceller3Config,
+        num_capture_channels: usize,
+    ) -> Self {
         let down_sampling_factor = config.delay.down_sampling_factor;
         let sub_block_size = if down_sampling_factor != 0 {
             BLOCK_SIZE / down_sampling_factor
@@ -48,6 +53,7 @@ impl EchoPathDelayEstimator {
         };
 
         let matched_filter = MatchedFilter::new(
+            backend,
             sub_block_size,
             MATCHED_FILTER_WINDOW_SIZE_SUB_BLOCKS,
             config.delay.num_filters,

@@ -8,6 +8,14 @@
 
 use crate::common::BLOCK_SIZE;
 use crate::downsampled_render_buffer::DownsampledRenderBuffer;
+use webrtc_simd::SimdBackend;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod avx2;
+#[cfg(target_arch = "aarch64")]
+mod neon;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod sse2;
 
 /// Subsample rate for computing accumulated error (pre-echo detection).
 const ACCUMULATED_ERROR_SUB_SAMPLE_RATE: usize = 4;
@@ -113,6 +121,145 @@ pub(crate) fn matched_filter_core(
     }
 }
 
+/// SIMD-dispatched matched filter core.
+///
+/// Selects the best available implementation based on `backend`.
+/// Falls back to scalar when no SIMD path matches.
+#[allow(clippy::too_many_arguments, reason = "matches C++ function signature")]
+pub(crate) fn matched_filter_core_dispatch(
+    backend: SimdBackend,
+    x_start_index: usize,
+    x2_sum_threshold: f32,
+    smoothing: f32,
+    x: &[f32],
+    y: &[f32],
+    h: &mut [f32],
+    filters_updated: &mut bool,
+    error_sum: &mut f32,
+    compute_accumulated_error: bool,
+    accumulated_error: &mut [f32],
+    scratch_memory: &mut [f32],
+) {
+    match backend {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        SimdBackend::Avx2 => {
+            if compute_accumulated_error {
+                // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma.
+                unsafe {
+                    avx2::matched_filter_core_accumulated_error(
+                        x_start_index,
+                        x2_sum_threshold,
+                        smoothing,
+                        x,
+                        y,
+                        h,
+                        filters_updated,
+                        error_sum,
+                        accumulated_error,
+                        scratch_memory,
+                    );
+                }
+            } else {
+                // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma.
+                unsafe {
+                    avx2::matched_filter_core(
+                        x_start_index,
+                        x2_sum_threshold,
+                        smoothing,
+                        x,
+                        y,
+                        h,
+                        filters_updated,
+                        error_sum,
+                    );
+                }
+            }
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        SimdBackend::Sse2 => {
+            if compute_accumulated_error {
+                // SAFETY: detect_backend() only returns Sse2 after confirming sse2.
+                unsafe {
+                    sse2::matched_filter_core_accumulated_error(
+                        x_start_index,
+                        x2_sum_threshold,
+                        smoothing,
+                        x,
+                        y,
+                        h,
+                        filters_updated,
+                        error_sum,
+                        accumulated_error,
+                        scratch_memory,
+                    );
+                }
+            } else {
+                // SAFETY: detect_backend() only returns Sse2 after confirming sse2.
+                unsafe {
+                    sse2::matched_filter_core(
+                        x_start_index,
+                        x2_sum_threshold,
+                        smoothing,
+                        x,
+                        y,
+                        h,
+                        filters_updated,
+                        error_sum,
+                    );
+                }
+            }
+        }
+        #[cfg(target_arch = "aarch64")]
+        SimdBackend::Neon => {
+            if compute_accumulated_error {
+                // SAFETY: NEON is always available on aarch64.
+                unsafe {
+                    neon::matched_filter_core_accumulated_error(
+                        x_start_index,
+                        x2_sum_threshold,
+                        smoothing,
+                        x,
+                        y,
+                        h,
+                        filters_updated,
+                        error_sum,
+                        accumulated_error,
+                        scratch_memory,
+                    );
+                }
+            } else {
+                // SAFETY: NEON is always available on aarch64.
+                unsafe {
+                    neon::matched_filter_core(
+                        x_start_index,
+                        x2_sum_threshold,
+                        smoothing,
+                        x,
+                        y,
+                        h,
+                        filters_updated,
+                        error_sum,
+                    );
+                }
+            }
+        }
+        _ => {
+            matched_filter_core(
+                x_start_index,
+                x2_sum_threshold,
+                smoothing,
+                x,
+                y,
+                h,
+                filters_updated,
+                error_sum,
+                compute_accumulated_error,
+                accumulated_error,
+            );
+        }
+    }
+}
+
 /// Find the index of the element with the largest squared value.
 ///
 /// Uses even/odd tracking for better compiler optimization, matching the C++
@@ -197,6 +344,7 @@ fn compute_pre_echo_lag(
 /// Produces recursively updated cross-correlation estimates for several signal
 /// shifts where the intra-shift spacing is uniform.
 pub(crate) struct MatchedFilter {
+    backend: SimdBackend,
     sub_block_size: usize,
     filter_intra_lag_shift: usize,
     filters: Vec<Vec<f32>>,
@@ -220,6 +368,7 @@ impl MatchedFilter {
         reason = "matches C++ constructor signature"
     )]
     pub(crate) fn new(
+        backend: SimdBackend,
         sub_block_size: usize,
         window_size_sub_blocks: usize,
         num_matched_filters: usize,
@@ -237,19 +386,22 @@ impl MatchedFilter {
         let filter_intra_lag_shift = alignment_shift_sub_blocks * sub_block_size;
         let filter_size = window_size_sub_blocks * sub_block_size;
 
-        let (accumulated_error, instantaneous_accumulated_error, scratch_memory) =
-            if detect_pre_echo {
-                let acc_size = filter_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE;
-                (
-                    vec![vec![1.0f32; acc_size]; num_matched_filters],
-                    vec![0.0f32; acc_size],
-                    vec![0.0f32; filter_size],
-                )
-            } else {
-                (Vec::new(), Vec::new(), Vec::new())
-            };
+        let (accumulated_error, instantaneous_accumulated_error) = if detect_pre_echo {
+            let acc_size = filter_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE;
+            (
+                vec![vec![1.0f32; acc_size]; num_matched_filters],
+                vec![0.0f32; acc_size],
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
+        // Always allocate scratch_memory — SIMD paths use it to linearize
+        // the circular buffer even outside the accumulated-error path.
+        let scratch_memory = vec![0.0f32; filter_size];
 
         Self {
+            backend,
             sub_block_size,
             filter_intra_lag_shift,
             filters: vec![vec![0.0f32; filter_size]; num_matched_filters],
@@ -322,7 +474,8 @@ impl MatchedFilter {
             let x_start_index = (render_buffer.read + alignment_shift + self.sub_block_size - 1)
                 % render_buffer.buffer.len();
 
-            matched_filter_core(
+            matched_filter_core_dispatch(
+                self.backend,
                 x_start_index,
                 x2_sum_threshold,
                 smoothing,
@@ -333,6 +486,7 @@ impl MatchedFilter {
                 &mut error_sum,
                 compute_pre_echo,
                 &mut self.instantaneous_accumulated_error,
+                &mut self.scratch_memory,
             );
 
             // Estimate the lag as the peak of the matched filter.
@@ -598,11 +752,13 @@ mod tests {
     #[test]
     fn matched_filter_reset() {
         let mut mf = MatchedFilter::new(
+            SimdBackend::Scalar,
             16, // sub_block_size
             32, // window_size_sub_blocks
             10, // num_matched_filters
             24, // alignment_shift_sub_blocks
-            150.0, 0.7,  // smoothing_fast
+            150.0,
+            0.7,  // smoothing_fast
             0.3,  // smoothing_slow
             0.1,  // matching_filter_threshold
             true, // detect_pre_echo
@@ -632,15 +788,244 @@ mod tests {
     #[test]
     fn matched_filter_max_lag() {
         let mf = MatchedFilter::new(
+            SimdBackend::Scalar,
             16, // sub_block_size
             32, // window_size_sub_blocks
             10, // num_matched_filters
             24, // alignment_shift_sub_blocks
-            150.0, 0.7, 0.3, 0.1, false,
+            150.0,
+            0.7,
+            0.3,
+            0.1,
+            false,
         );
         // filter_intra_lag_shift = 24 * 16 = 384
         // filter_size = 32 * 16 = 512
         // max_lag = 10 * 384 + 512 = 4352
         assert_eq!(mf.get_max_filter_lag(), 4352);
+    }
+
+    /// Verifies that SIMD matched_filter_core_dispatch produces the same
+    /// results as the scalar path for various filter sizes and start indices.
+    #[test]
+    fn matched_filter_core_simd_matches_scalar() {
+        let backend = webrtc_simd::detect_backend();
+        if backend == SimdBackend::Scalar {
+            // Nothing to compare — skip.
+            return;
+        }
+
+        let mut rng = TestRandom::new(42);
+
+        // Test several filter sizes (must be divisible by 16 for AVX2 accumulated error).
+        for h_size in [16, 32, 64, 128, 256, 512] {
+            let x_size = h_size * 3;
+            let sub_block_size = 16;
+
+            let mut x = vec![0.0f32; x_size];
+            rng.fill(&mut x);
+            let mut y = vec![0.0f32; sub_block_size];
+            rng.fill(&mut y);
+
+            // Test with various start indices, including near wraparound.
+            for x_start_index in [0, 1, h_size / 2, x_size - 1, x_size - h_size / 2] {
+                // --- Without accumulated error ---
+                let mut h_scalar = vec![0.0f32; h_size];
+                rng.fill(&mut h_scalar);
+                let mut h_simd = h_scalar.clone();
+
+                let mut updated_scalar = false;
+                let mut updated_simd = false;
+                let mut error_sum_scalar = 0.0f32;
+                let mut error_sum_simd = 0.0f32;
+                let mut acc_err_scalar = vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
+                let mut acc_err_simd = acc_err_scalar.clone();
+                let mut scratch = vec![0.0f32; h_size];
+
+                matched_filter_core(
+                    x_start_index,
+                    1.0,
+                    0.5,
+                    &x,
+                    &y,
+                    &mut h_scalar,
+                    &mut updated_scalar,
+                    &mut error_sum_scalar,
+                    false,
+                    &mut acc_err_scalar,
+                );
+
+                matched_filter_core_dispatch(
+                    backend,
+                    x_start_index,
+                    1.0,
+                    0.5,
+                    &x,
+                    &y,
+                    &mut h_simd,
+                    &mut updated_simd,
+                    &mut error_sum_simd,
+                    false,
+                    &mut acc_err_simd,
+                    &mut scratch,
+                );
+
+                assert_eq!(
+                    updated_scalar, updated_simd,
+                    "filters_updated mismatch for h_size={h_size}, x_start={x_start_index}"
+                );
+                let err_scale = error_sum_scalar.abs().max(1.0);
+                assert!(
+                    (error_sum_scalar - error_sum_simd).abs() / err_scale < 1e-3,
+                    "error_sum mismatch: scalar={error_sum_scalar}, simd={error_sum_simd}, \
+                     h_size={h_size}, x_start={x_start_index}"
+                );
+                for k in 0..h_size {
+                    let abs_err = (h_scalar[k] - h_simd[k]).abs();
+                    let scale = h_scalar[k].abs().max(1.0);
+                    assert!(
+                        abs_err / scale < 1e-3,
+                        "h mismatch at {k}: scalar={}, simd={}, h_size={h_size}, \
+                         x_start={x_start_index}",
+                        h_scalar[k],
+                        h_simd[k],
+                    );
+                }
+
+                // --- With accumulated error ---
+                let mut h_scalar2 = vec![0.0f32; h_size];
+                rng.fill(&mut h_scalar2);
+                let mut h_simd2 = h_scalar2.clone();
+
+                let mut updated_scalar2 = false;
+                let mut updated_simd2 = false;
+                let mut error_sum_scalar2 = 0.0f32;
+                let mut error_sum_simd2 = 0.0f32;
+                let mut acc_err_scalar2 = vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
+                let mut acc_err_simd2 = acc_err_scalar2.clone();
+                let mut scratch2 = vec![0.0f32; h_size];
+
+                matched_filter_core(
+                    x_start_index,
+                    1.0,
+                    0.5,
+                    &x,
+                    &y,
+                    &mut h_scalar2,
+                    &mut updated_scalar2,
+                    &mut error_sum_scalar2,
+                    true,
+                    &mut acc_err_scalar2,
+                );
+
+                matched_filter_core_dispatch(
+                    backend,
+                    x_start_index,
+                    1.0,
+                    0.5,
+                    &x,
+                    &y,
+                    &mut h_simd2,
+                    &mut updated_simd2,
+                    &mut error_sum_simd2,
+                    true,
+                    &mut acc_err_simd2,
+                    &mut scratch2,
+                );
+
+                assert_eq!(
+                    updated_scalar2, updated_simd2,
+                    "filters_updated mismatch (acc_error) for h_size={h_size}, \
+                     x_start={x_start_index}"
+                );
+                let err_scale2 = error_sum_scalar2.abs().max(1.0);
+                assert!(
+                    (error_sum_scalar2 - error_sum_simd2).abs() / err_scale2 < 1e-3,
+                    "error_sum mismatch (acc_error): scalar={error_sum_scalar2}, \
+                     simd={error_sum_simd2}, h_size={h_size}, x_start={x_start_index}"
+                );
+                for k in 0..h_size {
+                    let abs_err = (h_scalar2[k] - h_simd2[k]).abs();
+                    let scale = h_scalar2[k].abs().max(1.0);
+                    assert!(
+                        abs_err / scale < 1e-3,
+                        "h mismatch (acc_error) at {k}: scalar={}, simd={}, h_size={h_size}, \
+                         x_start={x_start_index}",
+                        h_scalar2[k],
+                        h_simd2[k],
+                    );
+                }
+                for k in 0..acc_err_scalar2.len() {
+                    let abs_err = (acc_err_scalar2[k] - acc_err_simd2[k]).abs();
+                    let scale = acc_err_scalar2[k].abs().max(1.0);
+                    assert!(
+                        abs_err / scale < 1e-3,
+                        "accumulated_error mismatch at {k}: scalar={}, simd={}, \
+                         h_size={h_size}, x_start={x_start_index}",
+                        acc_err_scalar2[k],
+                        acc_err_simd2[k],
+                    );
+                }
+            }
+        }
+    }
+
+    /// Verifies that matched_filter_core_dispatch with scalar backend produces
+    /// identical results to calling matched_filter_core directly.
+    #[test]
+    fn matched_filter_core_dispatch_scalar_identical() {
+        let mut rng = TestRandom::new(99);
+        let h_size = 64;
+        let x_size = 200;
+        let sub_block_size = 16;
+
+        let mut x = vec![0.0f32; x_size];
+        rng.fill(&mut x);
+        let mut y = vec![0.0f32; sub_block_size];
+        rng.fill(&mut y);
+
+        let mut h_direct = vec![0.0f32; h_size];
+        rng.fill(&mut h_direct);
+        let mut h_dispatch = h_direct.clone();
+
+        let mut updated_direct = false;
+        let mut updated_dispatch = false;
+        let mut error_sum_direct = 0.0f32;
+        let mut error_sum_dispatch = 0.0f32;
+        let mut acc_err_direct = vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
+        let mut acc_err_dispatch = acc_err_direct.clone();
+        let mut scratch = vec![0.0f32; h_size];
+
+        matched_filter_core(
+            50,
+            1.0,
+            0.5,
+            &x,
+            &y,
+            &mut h_direct,
+            &mut updated_direct,
+            &mut error_sum_direct,
+            false,
+            &mut acc_err_direct,
+        );
+
+        matched_filter_core_dispatch(
+            SimdBackend::Scalar,
+            50,
+            1.0,
+            0.5,
+            &x,
+            &y,
+            &mut h_dispatch,
+            &mut updated_dispatch,
+            &mut error_sum_dispatch,
+            false,
+            &mut acc_err_dispatch,
+            &mut scratch,
+        );
+
+        assert_eq!(updated_direct, updated_dispatch);
+        assert_eq!(error_sum_direct, error_sum_dispatch);
+        assert_eq!(h_direct, h_dispatch);
     }
 }

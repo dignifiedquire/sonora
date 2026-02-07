@@ -13,6 +13,7 @@ use crate::delay_estimate::{DelayEstimate, DelayEstimateQuality};
 use crate::downsampled_render_buffer::DownsampledRenderBuffer;
 use crate::echo_path_delay_estimator::EchoPathDelayEstimator;
 use crate::render_delay_controller_metrics::RenderDelayControllerMetrics;
+use webrtc_simd::SimdBackend;
 
 /// Computes the buffer delay from the estimated delay in samples.
 fn compute_buffer_delay(
@@ -52,11 +53,15 @@ pub(crate) struct RenderDelayController {
 }
 
 impl RenderDelayController {
-    pub(crate) fn new(config: &EchoCanceller3Config, num_capture_channels: usize) -> Self {
+    pub(crate) fn new(
+        backend: SimdBackend,
+        config: &EchoCanceller3Config,
+        num_capture_channels: usize,
+    ) -> Self {
         Self {
             hysteresis_limit_blocks: config.delay.hysteresis_limit_blocks as i32,
             delay: None,
-            delay_estimator: EchoPathDelayEstimator::new(config, num_capture_channels),
+            delay_estimator: EchoPathDelayEstimator::new(backend, config, num_capture_channels),
             metrics: RenderDelayControllerMetrics::new(),
             delay_samples: None,
             capture_call_counter: 0,

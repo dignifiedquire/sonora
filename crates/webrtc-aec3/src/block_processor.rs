@@ -14,9 +14,11 @@ use crate::echo_path_variability::{DelayAdjustment, EchoPathVariability};
 use crate::echo_remover::EchoRemover;
 use crate::render_delay_buffer::{BufferingEvent, RenderDelayBuffer};
 use crate::render_delay_controller::RenderDelayController;
+use webrtc_simd::SimdBackend;
 
 /// Block-level echo cancellation processor.
 pub struct BlockProcessor {
+    backend: SimdBackend,
     config: EchoCanceller3Config,
     capture_properly_started: bool,
     render_properly_started: bool,
@@ -45,12 +47,34 @@ impl BlockProcessor {
         num_render_channels: usize,
         num_capture_channels: usize,
     ) -> Self {
+        let backend = webrtc_simd::detect_backend();
+        Self::with_backend(
+            backend,
+            config,
+            sample_rate_hz,
+            num_render_channels,
+            num_capture_channels,
+        )
+    }
+
+    /// Creates a new block processor with an explicit SIMD backend.
+    pub fn with_backend(
+        backend: SimdBackend,
+        config: &EchoCanceller3Config,
+        sample_rate_hz: usize,
+        num_render_channels: usize,
+        num_capture_channels: usize,
+    ) -> Self {
         debug_assert!(valid_full_band_rate(sample_rate_hz));
 
         let render_buffer = RenderDelayBuffer::new(config, sample_rate_hz, num_render_channels);
 
         let delay_controller = if !config.delay.use_external_delay_estimator {
-            Some(RenderDelayController::new(config, num_capture_channels))
+            Some(RenderDelayController::new(
+                backend,
+                config,
+                num_capture_channels,
+            ))
         } else {
             None
         };
@@ -63,6 +87,7 @@ impl BlockProcessor {
         );
 
         Self {
+            backend,
             config: config.clone(),
             capture_properly_started: false,
             render_properly_started: false,
