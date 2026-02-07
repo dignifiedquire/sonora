@@ -685,4 +685,158 @@ mod tests {
 
         assert_eq!(ir.len(), get_time_domain_length(num_partitions));
     }
+
+    // --- SIMD verification tests ---
+
+    /// Helper to create FftData with deterministic non-trivial values.
+    fn make_fft_data(seed: usize) -> FftData {
+        let mut d = FftData::default();
+        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+            d.re[k] = ((seed * 7 + k * 13) as f32 * 0.0037).sin();
+            d.im[k] = ((seed * 11 + k * 17) as f32 * 0.0041).cos();
+        }
+        d.im[0] = 0.0;
+        d.im[FFT_LENGTH_BY_2] = 0.0;
+        d
+    }
+
+    #[test]
+    fn compute_frequency_response_simd_matches_scalar() {
+        let num_partitions = 6;
+        let num_channels = 2;
+        let h: Vec<Vec<FftData>> = (0..num_partitions)
+            .map(|p| {
+                (0..num_channels)
+                    .map(|ch| make_fft_data(p * 10 + ch))
+                    .collect()
+            })
+            .collect();
+
+        let mut h2_scalar = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_partitions];
+        let mut h2_simd = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_partitions];
+
+        compute_frequency_response(SimdBackend::Scalar, num_partitions, &h, &mut h2_scalar);
+        compute_frequency_response(
+            webrtc_simd::detect_backend(),
+            num_partitions,
+            &h,
+            &mut h2_simd,
+        );
+
+        for p in 0..num_partitions {
+            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+                let diff = (h2_scalar[p][k] - h2_simd[p][k]).abs();
+                let scale = h2_scalar[p][k].abs().max(1e-10);
+                assert!(
+                    diff / scale < 1e-5,
+                    "freq_resp mismatch at p={p}, k={k}: scalar={}, simd={}",
+                    h2_scalar[p][k],
+                    h2_simd[p][k]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn adapt_partitions_simd_matches_scalar() {
+        let num_partitions = 4;
+        let num_channels = 1;
+        let (bb, sb, fb) = make_render_buffer_with_data(num_partitions, num_channels);
+        let render_buffer = RenderBuffer::new(&bb, &sb, &fb);
+
+        let g = make_fft_data(42);
+
+        let mut h_scalar: Vec<Vec<FftData>> = (0..num_partitions)
+            .map(|p| vec![make_fft_data(100 + p)])
+            .collect();
+        let mut h_simd: Vec<Vec<FftData>> = h_scalar
+            .iter()
+            .map(|v| v.iter().map(|d| d.clone()).collect())
+            .collect();
+
+        adapt_partitions(
+            SimdBackend::Scalar,
+            &render_buffer,
+            &g,
+            num_partitions,
+            &mut h_scalar,
+        );
+        adapt_partitions(
+            webrtc_simd::detect_backend(),
+            &render_buffer,
+            &g,
+            num_partitions,
+            &mut h_simd,
+        );
+
+        for p in 0..num_partitions {
+            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+                let diff_re = (h_scalar[p][0].re[k] - h_simd[p][0].re[k]).abs();
+                let scale_re = h_scalar[p][0].re[k].abs().max(1e-10);
+                assert!(
+                    diff_re / scale_re < 1e-5,
+                    "adapt re mismatch at p={p}, k={k}: scalar={}, simd={}",
+                    h_scalar[p][0].re[k],
+                    h_simd[p][0].re[k]
+                );
+                let diff_im = (h_scalar[p][0].im[k] - h_simd[p][0].im[k]).abs();
+                let scale_im = h_scalar[p][0].im[k].abs().max(1e-10);
+                assert!(
+                    diff_im / scale_im < 1e-5,
+                    "adapt im mismatch at p={p}, k={k}: scalar={}, simd={}",
+                    h_scalar[p][0].im[k],
+                    h_simd[p][0].im[k]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn apply_filter_simd_matches_scalar() {
+        let num_partitions = 4;
+        let num_channels = 1;
+        let (bb, sb, fb) = make_render_buffer_with_data(num_partitions, num_channels);
+        let render_buffer = RenderBuffer::new(&bb, &sb, &fb);
+
+        let h: Vec<Vec<FftData>> = (0..num_partitions)
+            .map(|p| vec![make_fft_data(200 + p)])
+            .collect();
+
+        let mut s_scalar = FftData::default();
+        let mut s_simd = FftData::default();
+
+        apply_filter(
+            SimdBackend::Scalar,
+            &render_buffer,
+            num_partitions,
+            &h,
+            &mut s_scalar,
+        );
+        apply_filter(
+            webrtc_simd::detect_backend(),
+            &render_buffer,
+            num_partitions,
+            &h,
+            &mut s_simd,
+        );
+
+        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+            let diff_re = (s_scalar.re[k] - s_simd.re[k]).abs();
+            let scale_re = s_scalar.re[k].abs().max(1e-10);
+            assert!(
+                diff_re / scale_re < 1e-5,
+                "apply re mismatch at k={k}: scalar={}, simd={}",
+                s_scalar.re[k],
+                s_simd.re[k]
+            );
+            let diff_im = (s_scalar.im[k] - s_simd.im[k]).abs();
+            let scale_im = s_scalar.im[k].abs().max(1e-10);
+            assert!(
+                diff_im / scale_im < 1e-5,
+                "apply im mismatch at k={k}: scalar={}, simd={}",
+                s_scalar.im[k],
+                s_simd.im[k]
+            );
+        }
+    }
 }

@@ -71,4 +71,32 @@ mod tests {
             assert!((erl[k] - k as f32).abs() < 1e-6);
         }
     }
+
+    #[test]
+    fn compute_erl_simd_matches_scalar() {
+        let num_partitions = 6;
+        let mut h2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_partitions];
+        for (p, h2_p) in h2.iter_mut().enumerate() {
+            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+                h2_p[k] = ((p * 7 + k * 13) as f32 * 0.0037).sin().abs();
+            }
+        }
+
+        let mut erl_scalar = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        let mut erl_simd = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+
+        compute_erl(SimdBackend::Scalar, &h2, &mut erl_scalar);
+        compute_erl(webrtc_simd::detect_backend(), &h2, &mut erl_simd);
+
+        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+            let diff = (erl_scalar[k] - erl_simd[k]).abs();
+            let scale = erl_scalar[k].abs().max(1e-10);
+            assert!(
+                diff / scale < 1e-5,
+                "erl mismatch at k={k}: scalar={}, simd={}",
+                erl_scalar[k],
+                erl_simd[k]
+            );
+        }
+    }
 }
