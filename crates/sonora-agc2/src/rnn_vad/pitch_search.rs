@@ -91,7 +91,7 @@ mod tests {
 
     fn test_resources_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/resources/audio_processing/agc2/rnn_vad")
+            .join("tests/resources/rnn_vad")
     }
 
     /// Loads a binary file as a Vec of little-endian f32 values.
