@@ -1,6 +1,9 @@
 name: C++ Validation
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   schedule:
     - cron: "0 6 * * 1" # Weekly on Monday
   workflow_dispatch:
@@ -23,7 +26,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y meson ninja-build libabsl-dev pkg-config
+          sudo apt-get install -y meson ninja-build libabsl-dev libprotobuf-dev protobuf-compiler pkg-config
 
       - name: Build Rust library
         run: cargo build --release -p sonora

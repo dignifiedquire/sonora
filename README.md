@@ -47,6 +47,37 @@ apm.process_stream_f32(&[&src], &stream, &stream, &mut [&mut dest]).unwrap();
 | [`sonora-fft`](crates/sonora-fft) | FFT implementations (Ooura, PFFFT) |
 | [`sonora-sys`](crates/sonora-sys) | C++ FFI bridge for comparison testing |
 
+## Benchmarks
+
+Full pipeline processing a 10 ms frame with AEC3 + noise suppression + AGC2 enabled.
+
+Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C opt-level=3`:
+
+| Benchmark | Rust | C++ | Ratio |
+|-----------|------|-----|-------|
+| `process_stream` 48 kHz mono | 15.6 us | 11.2 us | 1.39x |
+
+### Component benchmarks (Rust)
+
+| Benchmark | Time |
+|-----------|------|
+| `process_stream` 16 kHz mono | 4.8 us |
+| `process_stream` 48 kHz mono | 15.6 us |
+| `process_stream` 48 kHz stereo | 21.4 us |
+| Noise suppressor (analyze + process) | 1.4 us |
+| PFFFT forward 128-point | 263 ns |
+| PFFFT forward 256-point | 534 ns |
+| PFFFT forward 512-point | 1.26 us |
+| Sinc resampler 48 kHz to 16 kHz (10 ms) | 745 ns |
+
+All times are per 10 ms frame. Reproduce with:
+
+```bash
+cargo bench -p sonora --bench pipeline
+# Rust vs C++ (requires C++ library built in cpp/):
+PKG_CONFIG_PATH=cpp/install/lib/pkgconfig cargo bench -p sonora --features cpp-comparison --bench cpp_comparison
+```
+
 ## MSRV
 
 The minimum supported Rust version is **1.91**.

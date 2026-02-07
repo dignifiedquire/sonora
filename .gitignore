@@ -2,4 +2,5 @@
 **/*.rs.bk
 *.swp
 *.swo
+*.stamp
 .DS_Store
