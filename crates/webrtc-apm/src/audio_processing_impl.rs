@@ -385,18 +385,31 @@ impl AudioProcessingImpl {
 
         self.process_capture_stream_locked();
 
-        if self.capture.capture_fullband_audio.is_some() {
-            self.capture
-                .capture_fullband_audio
-                .as_mut()
-                .unwrap()
-                .copy_to_interleaved_i16(output_config, dest);
+        // Only copy through AudioBuffer when processing actually happened.
+        // When all components are disabled, the int16 data is left as-is
+        // (matching C++ behavior where src == dest is common).
+        if self
+            .submodule_states
+            .capture_multi_band_processing_present()
+            || self.submodule_states.capture_full_band_processing_active()
+        {
+            if self.capture.capture_fullband_audio.is_some() {
+                self.capture
+                    .capture_fullband_audio
+                    .as_mut()
+                    .unwrap()
+                    .copy_to_interleaved_i16(output_config, dest);
+            } else {
+                self.capture
+                    .capture_audio
+                    .as_mut()
+                    .unwrap()
+                    .copy_to_interleaved_i16(output_config, dest);
+            }
         } else {
-            self.capture
-                .capture_audio
-                .as_mut()
-                .unwrap()
-                .copy_to_interleaved_i16(output_config, dest);
+            // No processing — copy input to output directly.
+            let len = dest.len().min(src.len());
+            dest[..len].copy_from_slice(&src[..len]);
         }
     }
 

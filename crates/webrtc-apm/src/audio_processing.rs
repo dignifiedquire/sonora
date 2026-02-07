@@ -480,4 +480,391 @@ mod tests {
             "bad stream parameter (clamped)"
         );
     }
+
+    // ─── End-to-end tests ────────────────────────────────────────
+
+    /// Helper: generate a ~10ms frame of sawtooth at the given rate.
+    fn sawtooth_frame(sample_rate_hz: usize, num_channels: usize) -> Vec<f32> {
+        let num_frames = sample_rate_hz / 100;
+        let mut data = vec![0.0f32; num_frames * num_channels];
+        for i in 0..num_frames {
+            let sample = ((i % 100) as f32 / 100.0) * 2.0 - 1.0;
+            for ch in 0..num_channels {
+                data[i * num_channels + ch] = sample * 0.5;
+            }
+        }
+        data
+    }
+
+    /// Helper: deinterleave a multichannel buffer into per-channel slices.
+    fn deinterleave(data: &[f32], num_channels: usize) -> Vec<Vec<f32>> {
+        let num_frames = data.len() / num_channels;
+        let mut channels = vec![vec![0.0f32; num_frames]; num_channels];
+        for i in 0..num_frames {
+            for ch in 0..num_channels {
+                channels[ch][i] = data[i * num_channels + ch];
+            }
+        }
+        channels
+    }
+
+    #[test]
+    fn no_processing_when_all_disabled_float() {
+        // Matches C++ test: NoProcessingWhenAllComponentsDisabledFloat.
+        // With all components disabled, ProcessStream copies input to output.
+        let mut apm = AudioProcessing::new();
+        let config = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+        let src_data: Vec<f32> = (0..num_frames)
+            .map(|i| (i as f32 / num_frames as f32) * 2.0 - 1.0)
+            .collect();
+        let src: &[&[f32]] = &[&src_data];
+        let mut dest_data = vec![0.0f32; num_frames];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+
+        apm.process_stream_f32(src, &config, &config, dest).unwrap();
+
+        for i in 0..num_frames {
+            assert_eq!(
+                src_data[i], dest[0][i],
+                "sample {i} mismatch: src={}, dest={}",
+                src_data[i], dest[0][i]
+            );
+        }
+    }
+
+    #[test]
+    fn no_processing_when_all_disabled_float_reverse() {
+        let mut apm = AudioProcessing::new();
+        let config = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+        let src_data: Vec<f32> = (0..num_frames)
+            .map(|i| (i as f32 / num_frames as f32) * 2.0 - 1.0)
+            .collect();
+        let src: &[&[f32]] = &[&src_data];
+        let mut dest_data = vec![0.0f32; num_frames];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+
+        apm.process_reverse_stream_f32(src, &config, &config, dest)
+            .unwrap();
+
+        for i in 0..num_frames {
+            assert_eq!(src_data[i], dest[0][i], "sample {i} mismatch");
+        }
+    }
+
+    #[test]
+    fn no_processing_when_all_disabled_i16() {
+        // Matches C++ test: NoProcessingWhenAllComponentsDisabledInt.
+        let mut apm = AudioProcessing::new();
+        for &rate in &[8000usize, 16000, 32000, 48000] {
+            let config = StreamConfig::new(rate, 1);
+            let num_frames = rate / 100;
+            let src: Vec<i16> = (0..num_frames)
+                .map(|i| ((i as i32 * 200) % 30000 - 15000) as i16)
+                .collect();
+            let mut dest = vec![0i16; num_frames];
+
+            apm.process_stream_i16(&src, &config, &config, &mut dest)
+                .unwrap();
+
+            for i in 0..num_frames {
+                assert_eq!(src[i], dest[i], "rate={rate} sample {i} mismatch");
+            }
+        }
+    }
+
+    #[test]
+    fn all_processing_disabled_by_default() {
+        // Matches C++ test: AllProcessingDisabledByDefault.
+        let apm = AudioProcessing::new();
+        let config = apm.get_config();
+        assert!(!config.echo_canceller.enabled);
+        assert!(!config.high_pass_filter.enabled);
+        assert!(!config.noise_suppression.enabled);
+        assert!(!config.gain_controller2.enabled);
+    }
+
+    #[test]
+    fn echo_canceller_processes_multiple_frames() {
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        let mut apm = AudioProcessing::builder().config(config).build();
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        // Process 50 frames (500 ms) of render + capture.
+        for _ in 0..50 {
+            let render = vec![0.1f32; num_frames];
+            let render_src: &[&[f32]] = &[&render];
+            let mut render_dest = vec![0.0f32; num_frames];
+            let render_dest: &mut [&mut [f32]] = &mut [&mut render_dest];
+            apm.process_reverse_stream_f32(render_src, &stream, &stream, render_dest)
+                .unwrap();
+
+            let capture = vec![0.05f32; num_frames];
+            let capture_src: &[&[f32]] = &[&capture];
+            let mut capture_dest = vec![0.0f32; num_frames];
+            let capture_dest: &mut [&mut [f32]] = &mut [&mut capture_dest];
+            apm.process_stream_f32(capture_src, &stream, &stream, capture_dest)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn noise_suppression_processes_multiple_frames() {
+        let mut config = Config::default();
+        config.noise_suppression.enabled = true;
+        config.noise_suppression.level = crate::config::NoiseSuppressionLevel::High;
+        let mut apm = AudioProcessing::builder().config(config).build();
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        for _ in 0..50 {
+            let capture = sawtooth_frame(16000, 1);
+            let channels = deinterleave(&capture, 1);
+            let src: Vec<&[f32]> = channels.iter().map(|c| c.as_slice()).collect();
+            let mut dest_data = vec![0.0f32; num_frames];
+            let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+            apm.process_stream_f32(&src, &stream, &stream, dest)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn gain_controller2_processes_multiple_frames() {
+        let mut config = Config::default();
+        config.gain_controller2.enabled = true;
+        config.gain_controller2.adaptive_digital.enabled = true;
+        let mut apm = AudioProcessing::builder().config(config).build();
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        for _ in 0..50 {
+            let capture = sawtooth_frame(16000, 1);
+            let channels = deinterleave(&capture, 1);
+            let src: Vec<&[f32]> = channels.iter().map(|c| c.as_slice()).collect();
+            let mut dest_data = vec![0.0f32; num_frames];
+            let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+            apm.process_stream_f32(&src, &stream, &stream, dest)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn high_pass_filter_processes_multiple_frames() {
+        let mut config = Config::default();
+        config.high_pass_filter.enabled = true;
+        let mut apm = AudioProcessing::builder().config(config).build();
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        for _ in 0..50 {
+            let capture = sawtooth_frame(16000, 1);
+            let channels = deinterleave(&capture, 1);
+            let src: Vec<&[f32]> = channels.iter().map(|c| c.as_slice()).collect();
+            let mut dest_data = vec![0.0f32; num_frames];
+            let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+            apm.process_stream_f32(&src, &stream, &stream, dest)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn all_components_enabled_processes_multiple_frames() {
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        config.noise_suppression.enabled = true;
+        config.high_pass_filter.enabled = true;
+        config.gain_controller2.enabled = true;
+        config.gain_controller2.adaptive_digital.enabled = true;
+        let mut apm = AudioProcessing::builder().config(config).build();
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        for _ in 0..100 {
+            // Render.
+            let render = sawtooth_frame(16000, 1);
+            let render_ch = deinterleave(&render, 1);
+            let render_src: Vec<&[f32]> = render_ch.iter().map(|c| c.as_slice()).collect();
+            let mut render_dest = vec![0.0f32; num_frames];
+            let render_dest: &mut [&mut [f32]] = &mut [&mut render_dest];
+            apm.process_reverse_stream_f32(&render_src, &stream, &stream, render_dest)
+                .unwrap();
+
+            // Capture.
+            let capture = sawtooth_frame(16000, 1);
+            let capture_ch = deinterleave(&capture, 1);
+            let capture_src: Vec<&[f32]> = capture_ch.iter().map(|c| c.as_slice()).collect();
+            let mut capture_dest = vec![0.0f32; num_frames];
+            let capture_dest: &mut [&mut [f32]] = &mut [&mut capture_dest];
+            apm.process_stream_f32(&capture_src, &stream, &stream, capture_dest)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn config_change_mid_stream() {
+        let mut apm = AudioProcessing::new();
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+        let silence = vec![0.0f32; num_frames];
+        let src: &[&[f32]] = &[&silence];
+        let mut dest_data = vec![0.0f32; num_frames];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+
+        // Process a few frames with default config.
+        for _ in 0..10 {
+            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+        }
+
+        // Enable echo canceller mid-stream.
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        apm.apply_config(config);
+
+        // Process more frames — should not crash.
+        for _ in 0..10 {
+            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+        }
+
+        // Enable noise suppression mid-stream.
+        let mut config = apm.get_config().clone();
+        config.noise_suppression.enabled = true;
+        apm.apply_config(config);
+
+        for _ in 0..10 {
+            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+        }
+    }
+
+    #[test]
+    fn sample_rate_change_mid_stream() {
+        let mut apm = AudioProcessing::new();
+
+        // Process at 16 kHz.
+        let stream_16k = StreamConfig::new(16000, 1);
+        let src_16k = vec![0.0f32; 160];
+        let src: &[&[f32]] = &[&src_16k];
+        let mut dest_16k = vec![0.0f32; 160];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_16k];
+        for _ in 0..5 {
+            apm.process_stream_f32(src, &stream_16k, &stream_16k, dest)
+                .unwrap();
+        }
+
+        // Switch to 48 kHz — should reinitialize automatically.
+        let stream_48k = StreamConfig::new(48000, 1);
+        let src_48k = vec![0.0f32; 480];
+        let src: &[&[f32]] = &[&src_48k];
+        let mut dest_48k = vec![0.0f32; 480];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_48k];
+        for _ in 0..5 {
+            apm.process_stream_f32(src, &stream_48k, &stream_48k, dest)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn pre_amplifier_applies_gain() {
+        // Matches C++ test: PreAmplifier (simplified).
+        let mut config = Config::default();
+        config.pre_amplifier.enabled = true;
+        config.pre_amplifier.fixed_gain_factor = 2.0;
+        let mut apm = AudioProcessing::builder().config(config).build();
+
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        // Run enough frames for the filter to settle.
+        for _ in 0..20 {
+            let src_data: Vec<f32> = (0..num_frames)
+                .map(|i| ((i % 3) as f32 - 1.0) * 0.3)
+                .collect();
+            let src: &[&[f32]] = &[&src_data];
+            let mut dest_data = vec![0.0f32; num_frames];
+            let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+        }
+
+        // Process one more frame and check that the output has roughly 2x power.
+        let src_data: Vec<f32> = (0..num_frames)
+            .map(|i| ((i % 3) as f32 - 1.0) * 0.3)
+            .collect();
+        let input_power: f32 = src_data.iter().map(|&s| s * s).sum::<f32>() / num_frames as f32;
+
+        let src: &[&[f32]] = &[&src_data];
+        let mut dest_data = vec![0.0f32; num_frames];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+        apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+
+        let output_power: f32 = dest[0].iter().map(|&s| s * s).sum::<f32>() / num_frames as f32;
+
+        // 2x gain → 4x power. Allow some tolerance for filter settling.
+        assert!(
+            output_power > input_power * 3.0,
+            "expected ~4x power, got input={input_power}, output={output_power}",
+        );
+    }
+
+    #[test]
+    fn runtime_setting_capture_pre_gain() {
+        let mut config = Config::default();
+        config.pre_amplifier.enabled = true;
+        config.pre_amplifier.fixed_gain_factor = 1.0;
+        let mut apm = AudioProcessing::builder().config(config).build();
+
+        // Change gain via runtime setting.
+        apm.set_runtime_setting(RuntimeSetting::CapturePreGain(2.0));
+
+        let stream = StreamConfig::new(16000, 1);
+        let num_frames = 160;
+
+        // Process enough frames for the setting to take effect.
+        for _ in 0..20 {
+            let src_data = vec![0.1f32; num_frames];
+            let src: &[&[f32]] = &[&src_data];
+            let mut dest_data = vec![0.0f32; num_frames];
+            let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+        }
+
+        // Verify the config was updated.
+        let config = apm.get_config();
+        assert_eq!(config.pre_amplifier.fixed_gain_factor, 2.0);
+    }
+
+    #[test]
+    fn stereo_processing_does_not_crash() {
+        let mut config = Config::default();
+        config.echo_canceller.enabled = true;
+        config.pipeline.multi_channel_render = true;
+        config.pipeline.multi_channel_capture = true;
+        let mut apm = AudioProcessing::builder().config(config).build();
+
+        let stream = StreamConfig::new(16000, 2);
+        let num_frames = 160;
+
+        for _ in 0..20 {
+            // Render (stereo).
+            let render_l = vec![0.1f32; num_frames];
+            let render_r = vec![0.05f32; num_frames];
+            let render_src: &[&[f32]] = &[&render_l, &render_r];
+            let mut render_dest_l = vec![0.0f32; num_frames];
+            let mut render_dest_r = vec![0.0f32; num_frames];
+            let render_dest: &mut [&mut [f32]] = &mut [&mut render_dest_l, &mut render_dest_r];
+            apm.process_reverse_stream_f32(render_src, &stream, &stream, render_dest)
+                .unwrap();
+
+            // Capture (stereo).
+            let capture_l = vec![0.05f32; num_frames];
+            let capture_r = vec![0.02f32; num_frames];
+            let capture_src: &[&[f32]] = &[&capture_l, &capture_r];
+            let mut capture_dest_l = vec![0.0f32; num_frames];
+            let mut capture_dest_r = vec![0.0f32; num_frames];
+            let capture_dest: &mut [&mut [f32]] = &mut [&mut capture_dest_l, &mut capture_dest_r];
+            apm.process_stream_f32(capture_src, &stream, &stream, capture_dest)
+                .unwrap();
+        }
+    }
 }
