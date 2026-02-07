@@ -1,0 +1,4 @@
+[submodule "cpp"]
+	path = cpp
+	url = https://github.com/dignifiedquire/webrtc-audio-processing.git
+	shallow = true
