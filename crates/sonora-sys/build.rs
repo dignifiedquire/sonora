@@ -21,9 +21,14 @@ fn main() {
             build.include(path);
         }
 
-        // Also include our own cpp/ directory and the project root
+        // Also include our own cpp/ directory (shim headers)
         build.include("cpp");
-        build.include("../..");
+
+        // Include the C++ submodule root for webrtc headers.
+        // Override with WEBRTC_CPP_ROOT env var if the submodule is elsewhere.
+        let cpp_root = std::env::var("WEBRTC_CPP_ROOT")
+            .unwrap_or_else(|_| format!("{}/../../cpp", env!("CARGO_MANIFEST_DIR")));
+        build.include(&cpp_root);
 
         build.compile("sonora_shim");
 
