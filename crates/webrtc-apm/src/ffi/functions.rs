@@ -1047,4 +1047,373 @@ mod tests {
         assert_eq!(err, WapError::BadSampleRate);
         wap_destroy(apm);
     }
+
+    // ─── End-to-end integration tests ────────────────────────────
+
+    /// Helper: generates a simple sine tone at the given frequency.
+    fn generate_sine(num_frames: usize, freq_hz: f32, sample_rate: f32) -> Vec<f32> {
+        use std::f32::consts::PI;
+        (0..num_frames)
+            .map(|i| (2.0 * PI * freq_hz * i as f32 / sample_rate).sin() * 0.5)
+            .collect()
+    }
+
+    #[test]
+    fn e2e_echo_cancellation_pipeline() {
+        // Run the full AEC3 pipeline: feed render, then process capture.
+        let mut config = wap_config_default();
+        config.echo_canceller_enabled = true;
+        config.high_pass_filter_enabled = true;
+        let apm = wap_create_with_config(config);
+        assert!(!apm.is_null());
+
+        let stream_config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let num_frames = 160;
+
+        // Simulate 50 frames of echo cancellation.
+        for i in 0..50 {
+            // Render (far-end) signal: sine tone.
+            let render = generate_sine(num_frames, 440.0, 16000.0);
+            let render_ptrs: [*const f32; 1] = [render.as_ptr()];
+            let mut render_out = vec![0.0f32; num_frames];
+            let render_out_ptrs: [*mut f32; 1] = [render_out.as_mut_ptr()];
+
+            let err = wap_process_reverse_stream_f32(
+                apm,
+                render_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                render_out_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "render frame {i}");
+
+            // Set stream delay before capture processing.
+            let err = wap_set_stream_delay_ms(apm, 10);
+            assert_eq!(err, WapError::None);
+
+            // Capture (near-end) signal: same sine (simulating echo).
+            let capture = generate_sine(num_frames, 440.0, 16000.0);
+            let capture_ptrs: [*const f32; 1] = [capture.as_ptr()];
+            let mut capture_out = vec![0.0f32; num_frames];
+            let capture_out_ptrs: [*mut f32; 1] = [capture_out.as_mut_ptr()];
+
+            let err = wap_process_stream_f32(
+                apm,
+                capture_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                capture_out_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "capture frame {i}");
+        }
+
+        // After convergence, check that stats are populated.
+        let mut stats = WapStats {
+            has_echo_return_loss: false,
+            echo_return_loss: 0.0,
+            has_echo_return_loss_enhancement: false,
+            echo_return_loss_enhancement: 0.0,
+            has_divergent_filter_fraction: false,
+            divergent_filter_fraction: 0.0,
+            has_delay_median_ms: false,
+            delay_median_ms: 0,
+            has_delay_standard_deviation_ms: false,
+            delay_standard_deviation_ms: 0,
+            has_residual_echo_likelihood: false,
+            residual_echo_likelihood: 0.0,
+            has_residual_echo_likelihood_recent_max: false,
+            residual_echo_likelihood_recent_max: 0.0,
+            has_delay_ms: false,
+            delay_ms: 0,
+        };
+        let err = wap_get_statistics(apm, &mut stats);
+        assert_eq!(err, WapError::None);
+        // delay_ms should be populated after AEC processing.
+        assert!(
+            stats.has_delay_ms,
+            "expected delay_ms stat after AEC3 processing"
+        );
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn e2e_all_components_enabled() {
+        // Enable every component and process audio without errors.
+        let mut config = wap_config_default();
+        config.high_pass_filter_enabled = true;
+        config.echo_canceller_enabled = true;
+        config.noise_suppression_enabled = true;
+        config.noise_suppression_level = WapNoiseSuppressionLevel::High;
+        config.gain_controller2_enabled = true;
+        config.gain_controller2_adaptive_digital_enabled = true;
+        config.capture_level_adjustment_enabled = true;
+        config.capture_level_adjustment_pre_gain_factor = 1.0;
+        config.capture_level_adjustment_post_gain_factor = 1.0;
+
+        let apm = wap_create_with_config(config);
+        assert!(!apm.is_null());
+
+        let stream_config = WapStreamConfig {
+            sample_rate_hz: 48000,
+            num_channels: 1,
+        };
+        let num_frames = 480; // 10ms at 48kHz
+
+        for i in 0..100 {
+            // Feed render.
+            let render = generate_sine(num_frames, 300.0, 48000.0);
+            let render_ptrs: [*const f32; 1] = [render.as_ptr()];
+            let mut render_out = vec![0.0f32; num_frames];
+            let render_out_ptrs: [*mut f32; 1] = [render_out.as_mut_ptr()];
+
+            let err = wap_process_reverse_stream_f32(
+                apm,
+                render_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                render_out_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "render frame {i}");
+
+            let err = wap_set_stream_delay_ms(apm, 20);
+            assert_eq!(err, WapError::None);
+
+            // Process capture with some noise-like content.
+            let capture: Vec<f32> = (0..num_frames)
+                .map(|j| {
+                    let t = (i * num_frames + j) as f32 / 48000.0;
+                    (2.0 * std::f32::consts::PI * 300.0 * t).sin() * 0.3
+                        + (2.0 * std::f32::consts::PI * 1500.0 * t).sin() * 0.1
+                })
+                .collect();
+            let capture_ptrs: [*const f32; 1] = [capture.as_ptr()];
+            let mut capture_out = vec![0.0f32; num_frames];
+            let capture_out_ptrs: [*mut f32; 1] = [capture_out.as_mut_ptr()];
+
+            let err = wap_process_stream_f32(
+                apm,
+                capture_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                capture_out_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "capture frame {i}");
+
+            // Output should be finite.
+            for (j, &s) in capture_out.iter().enumerate() {
+                assert!(
+                    s.is_finite(),
+                    "non-finite sample at frame {i} sample {j}: {s}"
+                );
+            }
+        }
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn e2e_config_change_mid_stream() {
+        // Start with no processing, then enable components mid-stream.
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let stream_config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let num_frames = 160;
+        let src_data = generate_sine(num_frames, 440.0, 16000.0);
+        let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
+
+        // Process 10 frames with default config (all disabled).
+        for i in 0..10 {
+            let mut dest = vec![0.0f32; num_frames];
+            let dest_ptrs: [*mut f32; 1] = [dest.as_mut_ptr()];
+            let err = wap_process_stream_f32(
+                apm,
+                src_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                dest_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "pre-config frame {i}");
+            // With no processing, output should equal input.
+            for j in 0..num_frames {
+                assert_eq!(
+                    src_data[j], dest[j],
+                    "passthrough mismatch at frame {i} sample {j}"
+                );
+            }
+        }
+
+        // Enable HPF + NS mid-stream.
+        let mut config = wap_config_default();
+        config.high_pass_filter_enabled = true;
+        config.noise_suppression_enabled = true;
+        config.noise_suppression_level = WapNoiseSuppressionLevel::VeryHigh;
+        let err = wap_apply_config(apm, config);
+        assert_eq!(err, WapError::None);
+
+        // Verify config took effect.
+        let mut readback = wap_config_default();
+        let err = wap_get_config(apm, &mut readback);
+        assert_eq!(err, WapError::None);
+        assert!(readback.high_pass_filter_enabled);
+        assert!(readback.noise_suppression_enabled);
+        assert_eq!(
+            readback.noise_suppression_level,
+            WapNoiseSuppressionLevel::VeryHigh
+        );
+
+        // Process 20 more frames with NS enabled.
+        for i in 0..20 {
+            let mut dest = vec![0.0f32; num_frames];
+            let dest_ptrs: [*mut f32; 1] = [dest.as_mut_ptr()];
+            let err = wap_process_stream_f32(
+                apm,
+                src_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                dest_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "post-config frame {i}");
+            // Output should still be finite.
+            for &s in &dest {
+                assert!(s.is_finite());
+            }
+        }
+
+        // Now disable NS and enable AGC2.
+        config.noise_suppression_enabled = false;
+        config.gain_controller2_enabled = true;
+        config.gain_controller2_adaptive_digital_enabled = true;
+        let err = wap_apply_config(apm, config);
+        assert_eq!(err, WapError::None);
+
+        // Process 10 more frames.
+        for i in 0..10 {
+            let mut dest = vec![0.0f32; num_frames];
+            let dest_ptrs: [*mut f32; 1] = [dest.as_mut_ptr()];
+            let err = wap_process_stream_f32(
+                apm,
+                src_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                dest_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "agc2 frame {i}");
+        }
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn e2e_i16_pipeline() {
+        // End-to-end test of the int16 interleaved path at multiple rates.
+        let mut config = wap_config_default();
+        config.high_pass_filter_enabled = true;
+        config.noise_suppression_enabled = true;
+        let apm = wap_create_with_config(config);
+        assert!(!apm.is_null());
+
+        for &rate in &[8000i32, 16000, 32000, 48000] {
+            let stream_config = WapStreamConfig {
+                sample_rate_hz: rate,
+                num_channels: 1,
+            };
+            let num_frames = (rate / 100) as usize;
+
+            for i in 0..20 {
+                // Generate simple i16 samples.
+                let src: Vec<i16> = (0..num_frames)
+                    .map(|j| {
+                        let t = (i * num_frames + j) as f32 / rate as f32;
+                        (f32::sin(2.0 * std::f32::consts::PI * 440.0 * t) * 16000.0) as i16
+                    })
+                    .collect();
+                let mut dest = vec![0i16; num_frames];
+
+                let err = wap_process_stream_i16(
+                    apm,
+                    src.as_ptr(),
+                    num_frames as i32,
+                    stream_config,
+                    stream_config,
+                    dest.as_mut_ptr(),
+                    num_frames as i32,
+                );
+                assert_eq!(err, WapError::None, "rate={rate} frame={i}");
+            }
+        }
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn e2e_stereo_capture_and_render() {
+        // Test stereo processing with multi-channel enabled.
+        let mut config = wap_config_default();
+        config.pipeline_multi_channel_capture = true;
+        config.pipeline_multi_channel_render = true;
+        config.echo_canceller_enabled = true;
+        config.noise_suppression_enabled = true;
+        let apm = wap_create_with_config(config);
+        assert!(!apm.is_null());
+
+        let stream_config = WapStreamConfig {
+            sample_rate_hz: 48000,
+            num_channels: 2,
+        };
+        let num_frames = 480;
+
+        for i in 0..30 {
+            // Stereo render.
+            let render_l = generate_sine(num_frames, 300.0, 48000.0);
+            let render_r = generate_sine(num_frames, 500.0, 48000.0);
+            let render_ptrs: [*const f32; 2] = [render_l.as_ptr(), render_r.as_ptr()];
+            let mut out_l = vec![0.0f32; num_frames];
+            let mut out_r = vec![0.0f32; num_frames];
+            let out_ptrs: [*mut f32; 2] = [out_l.as_mut_ptr(), out_r.as_mut_ptr()];
+
+            let err = wap_process_reverse_stream_f32(
+                apm,
+                render_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                out_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "render frame {i}");
+
+            let err = wap_set_stream_delay_ms(apm, 15);
+            assert_eq!(err, WapError::None);
+
+            // Stereo capture.
+            let cap_l = generate_sine(num_frames, 300.0, 48000.0);
+            let cap_r = generate_sine(num_frames, 500.0, 48000.0);
+            let cap_ptrs: [*const f32; 2] = [cap_l.as_ptr(), cap_r.as_ptr()];
+            let mut cap_out_l = vec![0.0f32; num_frames];
+            let mut cap_out_r = vec![0.0f32; num_frames];
+            let cap_out_ptrs: [*mut f32; 2] = [cap_out_l.as_mut_ptr(), cap_out_r.as_mut_ptr()];
+
+            let err = wap_process_stream_f32(
+                apm,
+                cap_ptrs.as_ptr(),
+                stream_config,
+                stream_config,
+                cap_out_ptrs.as_ptr(),
+            );
+            assert_eq!(err, WapError::None, "capture frame {i}");
+
+            // Both channels should have finite output.
+            for &s in cap_out_l.iter().chain(cap_out_r.iter()) {
+                assert!(s.is_finite(), "non-finite output at frame {i}");
+            }
+        }
+
+        wap_destroy(apm);
+    }
 }
