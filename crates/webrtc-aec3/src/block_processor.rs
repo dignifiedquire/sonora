@@ -80,6 +80,7 @@ impl BlockProcessor {
         };
 
         let echo_remover = EchoRemover::new(
+            backend,
             config,
             sample_rate_hz,
             num_render_channels,

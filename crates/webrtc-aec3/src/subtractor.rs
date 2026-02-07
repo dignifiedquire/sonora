@@ -138,6 +138,7 @@ pub(crate) struct Subtractor {
 
 impl Subtractor {
     pub(crate) fn new(
+        backend: webrtc_simd::SimdBackend,
         config: &EchoCanceller3Config,
         num_render_channels: usize,
         num_capture_channels: usize,
@@ -163,6 +164,7 @@ impl Subtractor {
 
         for _ in 0..num_capture_channels {
             refined_filters.push(AdaptiveFirFilter::new(
+                backend,
                 config.filter.refined.length_blocks,
                 config.filter.refined_initial.length_blocks,
                 config.filter.config_change_duration_blocks,
@@ -170,6 +172,7 @@ impl Subtractor {
             ));
 
             coarse_filters.push(AdaptiveFirFilter::new(
+                backend,
                 config.filter.coarse.length_blocks,
                 config.filter.coarse_initial.length_blocks,
                 config.filter.config_change_duration_blocks,
@@ -455,7 +458,7 @@ mod tests {
     #[test]
     fn subtractor_creation() {
         let config = EchoCanceller3Config::default();
-        let subtractor = Subtractor::new(&config, 1, 1);
+        let subtractor = Subtractor::new(webrtc_simd::SimdBackend::Scalar, &config, 1, 1);
         assert_eq!(subtractor.num_capture_channels, 1);
         assert_eq!(subtractor.filter_frequency_responses().len(), 1);
         assert_eq!(subtractor.filter_impulse_responses().len(), 1);
@@ -464,7 +467,7 @@ mod tests {
     #[test]
     fn subtractor_multichannel_creation() {
         let config = EchoCanceller3Config::default();
-        let subtractor = Subtractor::new(&config, 2, 4);
+        let subtractor = Subtractor::new(webrtc_simd::SimdBackend::Scalar, &config, 2, 4);
         assert_eq!(subtractor.num_capture_channels, 4);
         assert_eq!(subtractor.filter_frequency_responses().len(), 4);
         assert_eq!(subtractor.filter_impulse_responses().len(), 4);
@@ -473,7 +476,7 @@ mod tests {
     #[test]
     fn handle_echo_path_change_delay() {
         let config = EchoCanceller3Config::default();
-        let mut subtractor = Subtractor::new(&config, 1, 1);
+        let mut subtractor = Subtractor::new(webrtc_simd::SimdBackend::Scalar, &config, 1, 1);
         let variability = EchoPathVariability::new(true, DelayAdjustment::NewDetectedDelay, false);
         // Should not panic.
         subtractor.handle_echo_path_change(&variability);
@@ -482,7 +485,7 @@ mod tests {
     #[test]
     fn handle_echo_path_change_gain() {
         let config = EchoCanceller3Config::default();
-        let mut subtractor = Subtractor::new(&config, 1, 1);
+        let mut subtractor = Subtractor::new(webrtc_simd::SimdBackend::Scalar, &config, 1, 1);
         let variability = EchoPathVariability::new(true, DelayAdjustment::None, false);
         // Should not panic.
         subtractor.handle_echo_path_change(&variability);
@@ -491,7 +494,7 @@ mod tests {
     #[test]
     fn exit_initial_state_does_not_panic() {
         let config = EchoCanceller3Config::default();
-        let mut subtractor = Subtractor::new(&config, 1, 1);
+        let mut subtractor = Subtractor::new(webrtc_simd::SimdBackend::Scalar, &config, 1, 1);
         subtractor.exit_initial_state();
     }
 
@@ -511,7 +514,7 @@ mod tests {
         let aec_state = AecState::new(&config, 1);
         let mut outputs = vec![SubtractorOutput::default()];
 
-        let mut subtractor = Subtractor::new(&config, 1, 1);
+        let mut subtractor = Subtractor::new(webrtc_simd::SimdBackend::Scalar, &config, 1, 1);
         subtractor.process(&render_buffer, &capture, &rsa, &aec_state, &mut outputs);
 
         // With zero input, all outputs should be zero/near-zero.

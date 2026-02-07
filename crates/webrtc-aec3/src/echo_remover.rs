@@ -99,6 +99,7 @@ pub(crate) struct EchoRemover {
 
 impl EchoRemover {
     pub(crate) fn new(
+        backend: webrtc_simd::SimdBackend,
         config: &EchoCanceller3Config,
         sample_rate_hz: usize,
         num_render_channels: usize,
@@ -112,7 +113,7 @@ impl EchoRemover {
             num_render_channels,
             num_capture_channels,
             use_coarse_filter_output: config.filter.enable_coarse_filter_output_usage,
-            subtractor: Subtractor::new(config, num_render_channels, num_capture_channels),
+            subtractor: Subtractor::new(backend, config, num_render_channels, num_capture_channels),
             suppression_gain: SuppressionGain::new(config, sample_rate_hz, num_capture_channels),
             cng: ComfortNoiseGenerator::new(config, num_capture_channels),
             suppression_filter: SuppressionFilter::new(sample_rate_hz, num_capture_channels),
@@ -448,8 +449,13 @@ mod tests {
             for num_capture_channels in [1, 2] {
                 for &rate in &[16000, 32000, 48000] {
                     let config = EchoCanceller3Config::default();
-                    let mut remover =
-                        EchoRemover::new(&config, rate, num_render_channels, num_capture_channels);
+                    let mut remover = EchoRemover::new(
+                        webrtc_simd::SimdBackend::Scalar,
+                        &config,
+                        rate,
+                        num_render_channels,
+                        num_capture_channels,
+                    );
 
                     let num_bands = num_bands_for_rate(rate);
                     let buf_size = config
@@ -494,7 +500,7 @@ mod tests {
     #[test]
     fn get_metrics_initial() {
         let config = EchoCanceller3Config::default();
-        let remover = EchoRemover::new(&config, 16000, 1, 1);
+        let remover = EchoRemover::new(webrtc_simd::SimdBackend::Scalar, &config, 16000, 1, 1);
         let metrics = remover.get_metrics();
         // Just verify it doesn't panic and returns finite values.
         assert!(metrics.echo_return_loss.is_finite() || metrics.echo_return_loss.is_nan());
@@ -503,7 +509,7 @@ mod tests {
     #[test]
     fn set_capture_output_usage() {
         let config = EchoCanceller3Config::default();
-        let mut remover = EchoRemover::new(&config, 16000, 1, 1);
+        let mut remover = EchoRemover::new(webrtc_simd::SimdBackend::Scalar, &config, 16000, 1, 1);
         remover.set_capture_output_usage(false);
         assert!(!remover.capture_output_used);
         remover.set_capture_output_usage(true);
@@ -513,7 +519,7 @@ mod tests {
     #[test]
     fn update_echo_leakage_status() {
         let config = EchoCanceller3Config::default();
-        let mut remover = EchoRemover::new(&config, 16000, 1, 1);
+        let mut remover = EchoRemover::new(webrtc_simd::SimdBackend::Scalar, &config, 16000, 1, 1);
         remover.update_echo_leakage_status(true);
         assert!(remover.echo_leakage_detected);
         remover.update_echo_leakage_status(false);

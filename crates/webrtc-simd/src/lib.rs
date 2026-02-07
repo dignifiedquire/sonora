@@ -209,6 +209,23 @@ impl SimdBackend {
         }
     }
 
+    /// Elementwise maximum: out[i] = max(a[i], b[i])
+    ///
+    /// `a`, `b`, and `out` must have the same length.
+    pub fn elementwise_max(self, a: &[f32], b: &[f32], out: &mut [f32]) {
+        debug_assert_eq!(a.len(), b.len());
+        debug_assert_eq!(a.len(), out.len());
+        match self {
+            Self::Scalar => fallback::elementwise_max(a, b, out),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => unsafe { sse2::elementwise_max(a, b, out) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Avx2 => unsafe { avx2::elementwise_max(a, b, out) },
+            #[cfg(target_arch = "aarch64")]
+            Self::Neon => unsafe { neon::elementwise_max(a, b, out) },
+        }
+    }
+
     /// Complex multiply-accumulate (AEC3 conjugate convention):
     ///   acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]
     ///   acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]
@@ -243,6 +260,45 @@ impl SimdBackend {
             #[cfg(target_arch = "aarch64")]
             Self::Neon => unsafe {
                 neon::complex_multiply_accumulate(x_re, x_im, h_re, h_im, acc_re, acc_im);
+            },
+        }
+    }
+    /// Standard complex multiply-accumulate:
+    ///   acc_re[i] += x_re[i]*h_re[i] - x_im[i]*h_im[i]
+    ///   acc_im[i] += x_re[i]*h_im[i] + x_im[i]*h_re[i]
+    ///
+    /// All slices must have the same length.
+    pub fn complex_multiply_accumulate_standard(
+        self,
+        x_re: &[f32],
+        x_im: &[f32],
+        h_re: &[f32],
+        h_im: &[f32],
+        acc_re: &mut [f32],
+        acc_im: &mut [f32],
+    ) {
+        debug_assert_eq!(x_re.len(), x_im.len());
+        debug_assert_eq!(x_re.len(), h_re.len());
+        debug_assert_eq!(x_re.len(), h_im.len());
+        debug_assert_eq!(x_re.len(), acc_re.len());
+        debug_assert_eq!(x_re.len(), acc_im.len());
+        match self {
+            Self::Scalar => {
+                fallback::complex_multiply_accumulate_standard(
+                    x_re, x_im, h_re, h_im, acc_re, acc_im,
+                );
+            }
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => unsafe {
+                sse2::complex_multiply_accumulate_standard(x_re, x_im, h_re, h_im, acc_re, acc_im);
+            },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Avx2 => unsafe {
+                avx2::complex_multiply_accumulate_standard(x_re, x_im, h_re, h_im, acc_re, acc_im);
+            },
+            #[cfg(target_arch = "aarch64")]
+            Self::Neon => unsafe {
+                neon::complex_multiply_accumulate_standard(x_re, x_im, h_re, h_im, acc_re, acc_im);
             },
         }
     }
@@ -604,6 +660,41 @@ mod tests {
     }
 
     #[test]
+    fn test_elementwise_max_simple() {
+        let ops = detect_backend();
+        let a = [1.0f32, 5.0, 3.0, 8.0, 2.0];
+        let b = [4.0f32, 2.0, 7.0, 1.0, 9.0];
+        let mut out = [0.0f32; 5];
+        ops.elementwise_max(&a, &b, &mut out);
+        assert_eq!(out, [4.0, 5.0, 7.0, 8.0, 9.0]);
+    }
+
+    #[test]
+    fn test_elementwise_max_matches_scalar() {
+        let scalar = SimdBackend::Scalar;
+        let simd = detect_backend();
+
+        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+            let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+            let b: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+            let mut out_scalar = vec![0.0f32; size];
+            let mut out_simd = vec![0.0f32; size];
+
+            scalar.elementwise_max(&a, &b, &mut out_scalar);
+            simd.elementwise_max(&a, &b, &mut out_simd);
+
+            for i in 0..size {
+                assert!(
+                    (out_scalar[i] - out_simd[i]).abs() < 1e-6,
+                    "max mismatch at index {i} for size {size}: scalar={}, simd={}",
+                    out_scalar[i],
+                    out_simd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_complex_multiply_accumulate_simple() {
         let ops = detect_backend();
         // (1+2j) * (3+4j) in AEC3 conjugate convention:
@@ -663,6 +754,80 @@ mod tests {
                 assert!(
                     (acc_im_scalar[i] - acc_im_simd[i]).abs() < 1e-4,
                     "cma im mismatch at {i} for size {size}: scalar={}, simd={}",
+                    acc_im_scalar[i],
+                    acc_im_simd[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_complex_multiply_accumulate_standard_simple() {
+        let ops = detect_backend();
+        // (1+2j) * (3+4j) in standard convention:
+        //   re = 1*3 - 2*4 = -5
+        //   im = 1*4 + 2*3 = 10
+        let x_re = [1.0f32];
+        let x_im = [2.0f32];
+        let h_re = [3.0f32];
+        let h_im = [4.0f32];
+        let mut acc_re = [0.0f32];
+        let mut acc_im = [0.0f32];
+        ops.complex_multiply_accumulate_standard(
+            &x_re,
+            &x_im,
+            &h_re,
+            &h_im,
+            &mut acc_re,
+            &mut acc_im,
+        );
+        assert!((acc_re[0] - (-5.0)).abs() < 1e-6);
+        assert!((acc_im[0] - 10.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_complex_multiply_accumulate_standard_matches_scalar() {
+        let scalar = SimdBackend::Scalar;
+        let simd = detect_backend();
+
+        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+            let x_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+            let x_im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+            let h_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.05 + 0.5).collect();
+            let h_im: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.03).collect();
+
+            let mut acc_re_scalar = vec![0.5f32; size];
+            let mut acc_im_scalar = vec![-0.3f32; size];
+            let mut acc_re_simd = acc_re_scalar.clone();
+            let mut acc_im_simd = acc_im_scalar.clone();
+
+            scalar.complex_multiply_accumulate_standard(
+                &x_re,
+                &x_im,
+                &h_re,
+                &h_im,
+                &mut acc_re_scalar,
+                &mut acc_im_scalar,
+            );
+            simd.complex_multiply_accumulate_standard(
+                &x_re,
+                &x_im,
+                &h_re,
+                &h_im,
+                &mut acc_re_simd,
+                &mut acc_im_simd,
+            );
+
+            for i in 0..size {
+                assert!(
+                    (acc_re_scalar[i] - acc_re_simd[i]).abs() < 1e-4,
+                    "std cma re mismatch at {i} for size {size}: scalar={}, simd={}",
+                    acc_re_scalar[i],
+                    acc_re_simd[i]
+                );
+                assert!(
+                    (acc_im_scalar[i] - acc_im_simd[i]).abs() < 1e-4,
+                    "std cma im mismatch at {i} for size {size}: scalar={}, simd={}",
                     acc_im_scalar[i],
                     acc_im_simd[i]
                 );

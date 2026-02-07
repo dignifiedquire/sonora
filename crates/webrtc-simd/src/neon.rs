@@ -289,6 +289,37 @@ pub(crate) unsafe fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
     }
 }
 
+/// NEON elementwise max: out[i] = max(a[i], b[i])
+///
+/// # Safety
+/// Caller must ensure NEON is available.
+#[inline]
+pub(crate) unsafe fn elementwise_max(a: &[f32], b: &[f32], out: &mut [f32]) {
+    let len = out.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+    let out_ptr = out.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        unsafe {
+            let va = vld1q_f32(a_ptr.add(offset));
+            let vb = vld1q_f32(b_ptr.add(offset));
+            let result = vmaxq_f32(va, vb);
+            vst1q_f32(out_ptr.add(offset), result);
+        }
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        out[idx] = a[idx].max(b[idx]);
+    }
+}
+
 /// NEON complex multiply-accumulate (AEC3 conjugate convention):
 ///   acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]
 ///   acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]
@@ -342,6 +373,62 @@ pub(crate) unsafe fn complex_multiply_accumulate(
         let idx = tail_start + i;
         acc_re[idx] += x_re[idx] * h_re[idx] + x_im[idx] * h_im[idx];
         acc_im[idx] += x_re[idx] * h_im[idx] - x_im[idx] * h_re[idx];
+    }
+}
+
+/// NEON standard complex multiply-accumulate:
+///   acc_re[i] += x_re[i]*h_re[i] - x_im[i]*h_im[i]
+///   acc_im[i] += x_re[i]*h_im[i] + x_im[i]*h_re[i]
+///
+/// # Safety
+/// Caller must ensure NEON is available.
+#[inline]
+pub(crate) unsafe fn complex_multiply_accumulate_standard(
+    x_re: &[f32],
+    x_im: &[f32],
+    h_re: &[f32],
+    h_im: &[f32],
+    acc_re: &mut [f32],
+    acc_im: &mut [f32],
+) {
+    let len = acc_re.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let xr_ptr = x_re.as_ptr();
+    let xi_ptr = x_im.as_ptr();
+    let hr_ptr = h_re.as_ptr();
+    let hi_ptr = h_im.as_ptr();
+    let ar_ptr = acc_re.as_mut_ptr();
+    let ai_ptr = acc_im.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        unsafe {
+            let vxr = vld1q_f32(xr_ptr.add(offset));
+            let vxi = vld1q_f32(xi_ptr.add(offset));
+            let vhr = vld1q_f32(hr_ptr.add(offset));
+            let vhi = vld1q_f32(hi_ptr.add(offset));
+
+            // acc_re += x_re*h_re - x_im*h_im
+            let mut var = vld1q_f32(ar_ptr.add(offset));
+            var = vmlaq_f32(var, vxr, vhr);
+            var = vmlsq_f32(var, vxi, vhi);
+            vst1q_f32(ar_ptr.add(offset), var);
+
+            // acc_im += x_re*h_im + x_im*h_re
+            let mut vai = vld1q_f32(ai_ptr.add(offset));
+            vai = vmlaq_f32(vai, vxr, vhi);
+            vai = vmlaq_f32(vai, vxi, vhr);
+            vst1q_f32(ai_ptr.add(offset), vai);
+        }
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        acc_re[idx] += x_re[idx] * h_re[idx] - x_im[idx] * h_im[idx];
+        acc_im[idx] += x_re[idx] * h_im[idx] + x_im[idx] * h_re[idx];
     }
 }
 

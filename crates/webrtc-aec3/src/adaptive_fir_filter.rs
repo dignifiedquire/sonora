@@ -10,6 +10,7 @@ use crate::aec3_fft::Aec3Fft;
 use crate::common::{FFT_LENGTH, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1, get_time_domain_length};
 use crate::fft_data::FftData;
 use crate::render_buffer::RenderBuffer;
+use webrtc_simd::SimdBackend;
 
 // ---------------------------------------------------------------------------
 // Free functions — core NLMS operations on partitioned FftData
@@ -18,6 +19,7 @@ use crate::render_buffer::RenderBuffer;
 /// Computes and stores the frequency response (max power across channels)
 /// for each partition.
 pub(crate) fn compute_frequency_response(
+    backend: SimdBackend,
     num_partitions: usize,
     h: &[Vec<FftData>],
     h2: &mut Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
@@ -27,18 +29,29 @@ pub(crate) fn compute_frequency_response(
     }
 
     let num_render_channels = h[0].len();
+    let mut power = [0.0f32; FFT_LENGTH_BY_2];
+    let mut maxed = [0.0f32; FFT_LENGTH_BY_2];
     for p in 0..num_partitions {
         for ch in 0..num_render_channels {
-            for j in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                let tmp = h[p][ch].re[j] * h[p][ch].re[j] + h[p][ch].im[j] * h[p][ch].im[j];
-                h2[p][j] = h2[p][j].max(tmp);
-            }
+            // Vectorized: power spectrum + elementwise max for bins [0..64]
+            backend.power_spectrum(
+                &h[p][ch].re[..FFT_LENGTH_BY_2],
+                &h[p][ch].im[..FFT_LENGTH_BY_2],
+                &mut power,
+            );
+            backend.elementwise_max(&h2[p][..FFT_LENGTH_BY_2], &power, &mut maxed);
+            h2[p][..FFT_LENGTH_BY_2].copy_from_slice(&maxed);
+            // Scalar tail: bin 64 (Nyquist)
+            let t = h[p][ch].re[FFT_LENGTH_BY_2] * h[p][ch].re[FFT_LENGTH_BY_2]
+                + h[p][ch].im[FFT_LENGTH_BY_2] * h[p][ch].im[FFT_LENGTH_BY_2];
+            h2[p][FFT_LENGTH_BY_2] = h2[p][FFT_LENGTH_BY_2].max(t);
         }
     }
 }
 
 /// Adapts the filter partitions: H(t+1) = H(t) + G(t) * conj(X(t)).
 pub(crate) fn adapt_partitions(
+    backend: SimdBackend,
     render_buffer: &RenderBuffer<'_>,
     g: &FftData,
     num_partitions: usize,
@@ -51,10 +64,19 @@ pub(crate) fn adapt_partitions(
         for ch in 0..num_render_channels {
             let x_p_ch = &render_buffer_data[index][ch];
             let h_p_ch = &mut h[p][ch];
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                h_p_ch.re[k] += x_p_ch.re[k] * g.re[k] + x_p_ch.im[k] * g.im[k];
-                h_p_ch.im[k] += x_p_ch.re[k] * g.im[k] - x_p_ch.im[k] * g.re[k];
-            }
+            // Vectorized: conjugate complex multiply-accumulate for bins [0..64]
+            backend.complex_multiply_accumulate(
+                &x_p_ch.re[..FFT_LENGTH_BY_2],
+                &x_p_ch.im[..FFT_LENGTH_BY_2],
+                &g.re[..FFT_LENGTH_BY_2],
+                &g.im[..FFT_LENGTH_BY_2],
+                &mut h_p_ch.re[..FFT_LENGTH_BY_2],
+                &mut h_p_ch.im[..FFT_LENGTH_BY_2],
+            );
+            // Scalar tail: bin 64 (Nyquist)
+            let k = FFT_LENGTH_BY_2;
+            h_p_ch.re[k] += x_p_ch.re[k] * g.re[k] + x_p_ch.im[k] * g.im[k];
+            h_p_ch.im[k] += x_p_ch.re[k] * g.im[k] - x_p_ch.im[k] * g.re[k];
         }
         index = if index < render_buffer_data.len() - 1 {
             index + 1
@@ -66,6 +88,7 @@ pub(crate) fn adapt_partitions(
 
 /// Produces the filter output: S = sum_p H[p] * X[p].
 pub(crate) fn apply_filter(
+    backend: SimdBackend,
     render_buffer: &RenderBuffer<'_>,
     num_partitions: usize,
     h: &[Vec<FftData>],
@@ -80,10 +103,19 @@ pub(crate) fn apply_filter(
         for ch in 0..num_render_channels {
             let x_p_ch = &render_buffer_data[index][ch];
             let h_p_ch = &h[p][ch];
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                s.re[k] += x_p_ch.re[k] * h_p_ch.re[k] - x_p_ch.im[k] * h_p_ch.im[k];
-                s.im[k] += x_p_ch.re[k] * h_p_ch.im[k] + x_p_ch.im[k] * h_p_ch.re[k];
-            }
+            // Vectorized: standard complex multiply-accumulate for bins [0..64]
+            backend.complex_multiply_accumulate_standard(
+                &x_p_ch.re[..FFT_LENGTH_BY_2],
+                &x_p_ch.im[..FFT_LENGTH_BY_2],
+                &h_p_ch.re[..FFT_LENGTH_BY_2],
+                &h_p_ch.im[..FFT_LENGTH_BY_2],
+                &mut s.re[..FFT_LENGTH_BY_2],
+                &mut s.im[..FFT_LENGTH_BY_2],
+            );
+            // Scalar tail: bin 64 (Nyquist)
+            let k = FFT_LENGTH_BY_2;
+            s.re[k] += x_p_ch.re[k] * h_p_ch.re[k] - x_p_ch.im[k] * h_p_ch.im[k];
+            s.im[k] += x_p_ch.re[k] * h_p_ch.im[k] + x_p_ch.im[k] * h_p_ch.re[k];
         }
         index = if index < render_buffer_data.len() - 1 {
             index + 1
@@ -113,6 +145,7 @@ fn zero_filter(old_size: usize, new_size: usize, h: &mut [Vec<FftData>]) {
 /// Frequency-domain adaptive FIR filter with partitioned convolution.
 pub(crate) struct AdaptiveFirFilter {
     fft: Aec3Fft,
+    backend: SimdBackend,
     num_render_channels: usize,
     max_size_partitions: usize,
     size_change_duration_blocks: i32,
@@ -127,6 +160,7 @@ pub(crate) struct AdaptiveFirFilter {
 
 impl AdaptiveFirFilter {
     pub(crate) fn new(
+        backend: SimdBackend,
         max_size_partitions: usize,
         initial_size_partitions: usize,
         size_change_duration_blocks: usize,
@@ -147,6 +181,7 @@ impl AdaptiveFirFilter {
 
         let mut filter = Self {
             fft: Aec3Fft::new(),
+            backend,
             num_render_channels,
             max_size_partitions,
             size_change_duration_blocks: size_change_duration_blocks as i32,
@@ -165,7 +200,13 @@ impl AdaptiveFirFilter {
 
     /// Produces the output of the filter.
     pub(crate) fn filter(&self, render_buffer: &RenderBuffer<'_>, s: &mut FftData) {
-        apply_filter(render_buffer, self.current_size_partitions, &self.h, s);
+        apply_filter(
+            self.backend,
+            render_buffer,
+            self.current_size_partitions,
+            &self.h,
+            s,
+        );
     }
 
     /// Adapts the filter.
@@ -220,7 +261,7 @@ impl AdaptiveFirFilter {
     /// Computes the frequency responses for the filter partitions.
     pub(crate) fn compute_frequency_response(&self, h2: &mut Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>) {
         h2.resize(self.current_size_partitions, [0.0; FFT_LENGTH_BY_2_PLUS_1]);
-        compute_frequency_response(self.current_size_partitions, &self.h, h2);
+        compute_frequency_response(self.backend, self.current_size_partitions, &self.h, h2);
     }
 
     /// Returns the maximum number of partitions for the filter.
@@ -262,7 +303,13 @@ impl AdaptiveFirFilter {
 
     fn adapt_and_update_size(&mut self, render_buffer: &RenderBuffer<'_>, g: &FftData) {
         self.update_size();
-        adapt_partitions(render_buffer, g, self.current_size_partitions, &mut self.h);
+        adapt_partitions(
+            self.backend,
+            render_buffer,
+            g,
+            self.current_size_partitions,
+            &mut self.h,
+        );
     }
 
     fn update_size(&mut self) {
@@ -385,14 +432,14 @@ mod tests {
 
     #[test]
     fn filter_size() {
-        let filter = AdaptiveFirFilter::new(10, 5, 2, 1);
+        let filter = AdaptiveFirFilter::new(SimdBackend::Scalar, 10, 5, 2, 1);
         assert_eq!(filter.size_partitions(), 5);
         assert_eq!(filter.max_filter_size_partitions(), 10);
     }
 
     #[test]
     fn filter_size_change_immediate() {
-        let mut filter = AdaptiveFirFilter::new(10, 5, 2, 1);
+        let mut filter = AdaptiveFirFilter::new(SimdBackend::Scalar, 10, 5, 2, 1);
         filter.set_size_partitions(8, true);
         assert_eq!(filter.size_partitions(), 8);
     }
@@ -411,7 +458,7 @@ mod tests {
         // Expected: 3^2 + 4^2 = 25.0
 
         let mut h2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_partitions];
-        compute_frequency_response(num_partitions, &h, &mut h2);
+        compute_frequency_response(SimdBackend::Scalar, num_partitions, &h, &mut h2);
         assert!((h2[0][0] - 25.0).abs() < 1e-6);
         // Other bins should be 0.
         assert!((h2[1][0]).abs() < 1e-6);
@@ -431,7 +478,7 @@ mod tests {
         h[0][1].re[0] = 2.0;
 
         let mut h2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_partitions];
-        compute_frequency_response(num_partitions, &h, &mut h2);
+        compute_frequency_response(SimdBackend::Scalar, num_partitions, &h, &mut h2);
         // Should take max(1, 4) = 4.
         assert!((h2[0][0] - 4.0).abs() < 1e-6);
     }
@@ -453,7 +500,13 @@ mod tests {
             .collect();
 
         let mut s = FftData::default();
-        apply_filter(&render_buffer, num_partitions, &h, &mut s);
+        apply_filter(
+            SimdBackend::Scalar,
+            &render_buffer,
+            num_partitions,
+            &h,
+            &mut s,
+        );
 
         // With H=1+0j, S should equal sum of all X across partitions.
         // S.re[k] = sum_p X[p].re[k], S.im[k] = sum_p X[p].im[k]
@@ -489,7 +542,13 @@ mod tests {
         g.re.fill(1.0);
 
         // After adaptation, H should be non-zero.
-        adapt_partitions(&render_buffer, &g, num_partitions, &mut h);
+        adapt_partitions(
+            SimdBackend::Scalar,
+            &render_buffer,
+            &g,
+            num_partitions,
+            &mut h,
+        );
 
         let all_zero = h
             .iter()
@@ -517,7 +576,13 @@ mod tests {
         g.re[0] = 2.0;
         g.im[0] = 1.0;
 
-        adapt_partitions(&render_buffer, &g, num_partitions, &mut h);
+        adapt_partitions(
+            SimdBackend::Scalar,
+            &render_buffer,
+            &g,
+            num_partitions,
+            &mut h,
+        );
 
         // H.re[0] = X.re * G.re + X.im * G.im = 3*2 + 4*1 = 10
         // H.im[0] = X.re * G.im - X.im * G.re = 3*1 - 4*2 = -5
@@ -535,7 +600,7 @@ mod tests {
 
     #[test]
     fn scale_filter_works() {
-        let mut filter = AdaptiveFirFilter::new(4, 4, 2, 1);
+        let mut filter = AdaptiveFirFilter::new(SimdBackend::Scalar, 4, 4, 2, 1);
         // Manually set some coefficients.
         filter.h[0][0].re[0] = 2.0;
         filter.h[0][0].im[0] = 3.0;
@@ -551,7 +616,13 @@ mod tests {
         let (bb, sb, fb) = make_render_buffer_with_data(num_partitions, num_channels);
         let render_buffer = RenderBuffer::new(&bb, &sb, &fb);
 
-        let mut filter = AdaptiveFirFilter::new(num_partitions, num_partitions, 2, num_channels);
+        let mut filter = AdaptiveFirFilter::new(
+            SimdBackend::Scalar,
+            num_partitions,
+            num_partitions,
+            2,
+            num_channels,
+        );
 
         let g = FftData::default();
         // Should not panic.
@@ -565,7 +636,13 @@ mod tests {
         let (bb, sb, fb) = make_render_buffer_with_data(num_partitions, num_channels);
         let render_buffer = RenderBuffer::new(&bb, &sb, &fb);
 
-        let mut filter = AdaptiveFirFilter::new(num_partitions, num_partitions, 2, num_channels);
+        let mut filter = AdaptiveFirFilter::new(
+            SimdBackend::Scalar,
+            num_partitions,
+            num_partitions,
+            2,
+            num_channels,
+        );
 
         // Filter output should be zero initially (all H are zero).
         let mut s = FftData::default();
@@ -593,7 +670,13 @@ mod tests {
         let (bb, sb, fb) = make_render_buffer_with_data(num_partitions, num_channels);
         let render_buffer = RenderBuffer::new(&bb, &sb, &fb);
 
-        let mut filter = AdaptiveFirFilter::new(num_partitions, num_partitions, 2, num_channels);
+        let mut filter = AdaptiveFirFilter::new(
+            SimdBackend::Scalar,
+            num_partitions,
+            num_partitions,
+            2,
+            num_channels,
+        );
         let mut ir = Vec::with_capacity(get_time_domain_length(num_partitions));
 
         let mut g = FftData::default();

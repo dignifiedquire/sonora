@@ -54,6 +54,12 @@ pub(crate) fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
     }
 }
 
+pub(crate) fn elementwise_max(a: &[f32], b: &[f32], out: &mut [f32]) {
+    for i in 0..out.len() {
+        out[i] = a[i].max(b[i]);
+    }
+}
+
 pub(crate) fn complex_multiply_accumulate(
     x_re: &[f32],
     x_im: &[f32],
@@ -70,6 +76,23 @@ pub(crate) fn complex_multiply_accumulate(
         //   imag = x_re*h_im - x_im*h_re
         acc_re[i] += x_re[i] * h_re[i] + x_im[i] * h_im[i];
         acc_im[i] += x_re[i] * h_im[i] - x_im[i] * h_re[i];
+    }
+}
+
+pub(crate) fn complex_multiply_accumulate_standard(
+    x_re: &[f32],
+    x_im: &[f32],
+    h_re: &[f32],
+    h_im: &[f32],
+    acc_re: &mut [f32],
+    acc_im: &mut [f32],
+) {
+    for i in 0..acc_re.len() {
+        // Standard complex multiply: (x_re + j*x_im) * (h_re + j*h_im)
+        //   real = x_re*h_re - x_im*h_im
+        //   imag = x_re*h_im + x_im*h_re
+        acc_re[i] += x_re[i] * h_re[i] - x_im[i] * h_im[i];
+        acc_im[i] += x_re[i] * h_im[i] + x_im[i] * h_re[i];
     }
 }
 
