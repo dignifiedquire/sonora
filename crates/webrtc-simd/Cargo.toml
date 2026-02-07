@@ -13,13 +13,8 @@ repository.workspace = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[dependencies]
+cpufeatures = { workspace = true }
+
 [lints]
 workspace = true
-
-[features]
-default = []
-# Force a specific backend (for testing/benchmarking)
-force-scalar = []
-force-sse2 = []
-force-avx2 = []
-force-neon = []

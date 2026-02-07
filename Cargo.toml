@@ -33,6 +33,7 @@ webrtc-fft = { path = "crates/webrtc-fft" }
 webrtc-apm-proptest = { path = "crates/webrtc-apm-proptest" }
 
 # External dependencies
+cpufeatures = "0.3"
 derive_more = { version = "2", features = ["debug"] }
 tracing = "0.1"
 bytemuck = { version = "1", features = ["derive"] }

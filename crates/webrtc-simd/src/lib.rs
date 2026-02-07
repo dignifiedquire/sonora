@@ -193,38 +193,35 @@ impl SimdBackend {
     }
 }
 
+// Runtime CPU feature detection via cpufeatures (atomic-cached).
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+cpufeatures::new!(has_avx2_fma, "avx2", "fma");
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+cpufeatures::new!(has_sse2, "sse2");
+
 /// Detect the best available SIMD backend for the current CPU.
 ///
-/// Uses runtime feature detection on x86/x86_64. On aarch64, NEON is
-/// always available. Falls back to scalar on unknown architectures.
+/// Uses runtime feature detection on x86/x86_64 (cached atomically after
+/// first call via `cpufeatures`). On aarch64, NEON is always available.
+/// Falls back to scalar on unknown architectures.
 pub fn detect_backend() -> SimdBackend {
-    #[cfg(feature = "force-scalar")]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
-        return SimdBackend::Scalar;
+        if has_avx2_fma::get() {
+            return SimdBackend::Avx2;
+        }
+        if has_sse2::get() {
+            return SimdBackend::Sse2;
+        }
     }
 
-    #[cfg(not(feature = "force-scalar"))]
+    #[cfg(target_arch = "aarch64")]
     {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            if !cfg!(feature = "force-sse2") {
-                if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-                    return SimdBackend::Avx2;
-                }
-            }
-            if is_x86_feature_detected!("sse2") {
-                return SimdBackend::Sse2;
-            }
-        }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            return SimdBackend::Neon;
-        }
-
-        #[allow(unreachable_code, reason = "fallback for architectures without SIMD")]
-        SimdBackend::Scalar
+        return SimdBackend::Neon;
     }
+
+    #[allow(unreachable_code, reason = "fallback for architectures without SIMD")]
+    SimdBackend::Scalar
 }
 
 #[cfg(test)]
