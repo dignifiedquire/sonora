@@ -15,6 +15,7 @@ const BLOCKS_TO_HOLD_ERLE: i32 = 100;
 const POINTS_TO_ACCUMULATE: i32 = 6;
 
 /// Instantaneous ERLE estimator with quality tracking.
+#[derive(Debug)]
 struct ErleInstantaneous {
     clamp_inst_quality_to_zero: bool,
     clamp_inst_quality_to_one: bool,
@@ -134,6 +135,7 @@ impl ErleInstantaneous {
 
 /// Estimates the echo return loss enhancement using the energy of all
 /// frequency bands.
+#[derive(Debug)]
 pub(crate) struct FullBandErleEstimator {
     min_erle_log2: f32,
     #[allow(dead_code, reason = "will be used in later steps")]

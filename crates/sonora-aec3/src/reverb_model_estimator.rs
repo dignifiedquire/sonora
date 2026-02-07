@@ -8,6 +8,7 @@ use crate::reverb_decay_estimator::ReverbDecayEstimator;
 use crate::reverb_frequency_response::ReverbFrequencyResponse;
 
 /// Estimates the model parameters for the reverberant echo.
+#[derive(Debug)]
 pub(crate) struct ReverbModelEstimator {
     reverb_decay_estimators: Vec<ReverbDecayEstimator>,
     reverb_frequency_responses: Vec<ReverbFrequencyResponse>,

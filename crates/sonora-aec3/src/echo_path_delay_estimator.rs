@@ -21,6 +21,7 @@ use crate::matched_filter_lag_aggregator::MatchedFilterLagAggregator;
 use sonora_simd::SimdBackend;
 
 /// Estimates the delay of the echo path.
+#[derive(Debug)]
 pub(crate) struct EchoPathDelayEstimator {
     down_sampling_factor: usize,
     sub_block_size: usize,

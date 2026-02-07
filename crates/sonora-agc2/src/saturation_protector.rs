@@ -12,7 +12,7 @@ const ATTACK: f32 = 0.998_849_4;
 const DECAY: f32 = 0.999_769_75;
 
 /// Saturation protector state. Used for check-pointing and restore ops.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct SaturationProtectorState {
     headroom_db: f32,
     peak_delay_buffer: SaturationProtectorBuffer,
@@ -67,6 +67,7 @@ fn update_saturation_protector_state(
 }
 
 /// Saturation protector which recommends a headroom based on the recent peaks.
+#[derive(Debug)]
 pub struct SaturationProtector {
     initial_headroom_db: f32,
     adjacent_speech_frames_threshold: i32,

@@ -18,8 +18,8 @@ const TWO_BAND_FILTER_SAMPLES_PER_FRAME: usize = 320;
 // 2-band QMF filter (ported from common_audio/signal_processing/splitting_filter.c)
 // ---------------------------------------------------------------------------
 
-const ALL_PASS_FILTER_1: [f32; 3] = [0.097_930_908_2, 0.564_300_537_1, 0.873_733_520_5];
-const ALL_PASS_FILTER_2: [f32; 3] = [0.325_515_747_07, 0.748_626_708_98, 0.961_456_298_82];
+const ALL_PASS_FILTER_1: [f32; 3] = [0.097_930_91, 0.564_300_54, 0.873_733_5];
+const ALL_PASS_FILTER_2: [f32; 3] = [0.325_515_75, 0.748_626_7, 0.961_456_3];
 
 /// State size for one allpass QMF filter chain (3 cascaded first-order sections,
 /// each needing 2 state values = 6 total).
@@ -89,9 +89,9 @@ fn analysis_qmf(
     // Split even and odd samples.
     let mut half_in1 = vec![0.0f32; band_length];
     let mut half_in2 = vec![0.0f32; band_length];
-    for i in 0..band_length {
-        half_in2[i] = in_data[2 * i];
-        half_in1[i] = in_data[2 * i + 1];
+    for (i, (h1, h2)) in half_in1.iter_mut().zip(half_in2.iter_mut()).enumerate() {
+        *h2 = in_data[2 * i];
+        *h1 = in_data[2 * i + 1];
     }
 
     // Allpass filter even and odd samples independently.
@@ -111,9 +111,13 @@ fn analysis_qmf(
     );
 
     // Sum and difference to get low and high bands.
-    for i in 0..band_length {
-        low_band[i] = (filter1[i] + filter2[i]) * 0.5;
-        high_band[i] = (filter1[i] - filter2[i]) * 0.5;
+    for ((lo, hi), (f1, f2)) in low_band
+        .iter_mut()
+        .zip(high_band.iter_mut())
+        .zip(filter1.iter().zip(filter2.iter()))
+    {
+        *lo = (f1 + f2) * 0.5;
+        *hi = (f1 - f2) * 0.5;
     }
 }
 
@@ -132,9 +136,13 @@ fn synthesis_qmf(
     // Sum and difference channels.
     let mut half_in1 = vec![0.0f32; band_length];
     let mut half_in2 = vec![0.0f32; band_length];
-    for i in 0..band_length {
-        half_in1[i] = low_band[i] + high_band[i];
-        half_in2[i] = low_band[i] - high_band[i];
+    for ((h1, h2), (lo, hi)) in half_in1
+        .iter_mut()
+        .zip(half_in2.iter_mut())
+        .zip(low_band.iter().zip(high_band.iter()))
+    {
+        *h1 = lo + hi;
+        *h2 = lo - hi;
     }
 
     // Allpass filter.
@@ -154,9 +162,9 @@ fn synthesis_qmf(
     );
 
     // Interleave with saturation (matching C++ int16 range clamp).
-    for i in 0..band_length {
-        out_data[2 * i] = filter2[i].clamp(-32768.0, 32767.0);
-        out_data[2 * i + 1] = filter1[i].clamp(-32768.0, 32767.0);
+    for (i, (f1, f2)) in filter1.iter().zip(filter2.iter()).enumerate() {
+        out_data[2 * i] = f2.clamp(-32768.0, 32767.0);
+        out_data[2 * i + 1] = f1.clamp(-32768.0, 32767.0);
     }
 }
 
@@ -263,7 +271,7 @@ impl SplittingFilter {
         debug_assert_eq!(states.len(), data.num_channels());
         debug_assert_eq!(data.num_frames(), TWO_BAND_FILTER_SAMPLES_PER_FRAME);
 
-        for i in 0..states.len() {
+        for (i, state) in states.iter_mut().enumerate() {
             let mut low_band = [0.0f32; SAMPLES_PER_BAND];
             let mut high_band = [0.0f32; SAMPLES_PER_BAND];
 
@@ -273,8 +281,8 @@ impl SplittingFilter {
                 data.bands(i),
                 &mut low_band,
                 &mut high_band,
-                &mut states[i].analysis_state1,
-                &mut states[i].analysis_state2,
+                &mut state.analysis_state1,
+                &mut state.analysis_state2,
             );
 
             bands.channel_mut(0, i).copy_from_slice(&low_band);
@@ -290,7 +298,7 @@ impl SplittingFilter {
         debug_assert!(data.num_channels() <= states.len());
         debug_assert_eq!(data.num_frames(), TWO_BAND_FILTER_SAMPLES_PER_FRAME);
 
-        for i in 0..data.num_channels() {
+        for (i, state) in states.iter_mut().enumerate().take(data.num_channels()) {
             let mut low_band = [0.0f32; SAMPLES_PER_BAND];
             let mut high_band = [0.0f32; SAMPLES_PER_BAND];
             low_band.copy_from_slice(bands.channel(0, i));
@@ -301,8 +309,8 @@ impl SplittingFilter {
                 &low_band,
                 &high_band,
                 data.bands_mut(i),
-                &mut states[i].synthesis_state1,
-                &mut states[i].synthesis_state2,
+                &mut state.synthesis_state1,
+                &mut state.synthesis_state2,
             );
         }
     }
@@ -319,13 +327,13 @@ impl SplittingFilter {
         debug_assert_eq!(bands.num_bands(), NUM_BANDS);
         debug_assert_eq!(bands.num_frames_per_band(), SPLIT_BAND_SIZE);
 
-        for i in 0..banks.len() {
+        for (i, bank) in banks.iter_mut().enumerate() {
             // C++ uses channels_view()[i] which gives the full 480 samples.
             let input: &[f32; FULL_BAND_SIZE] = data.bands(i).try_into().unwrap();
             let mut output = [[0.0f32; SPLIT_BAND_SIZE]; NUM_BANDS];
-            banks[i].analysis(input, &mut output);
-            for band in 0..NUM_BANDS {
-                bands.channel_mut(band, i).copy_from_slice(&output[band]);
+            bank.analysis(input, &mut output);
+            for (band, out) in output.iter().enumerate() {
+                bands.channel_mut(band, i).copy_from_slice(out);
             }
         }
     }
@@ -342,19 +350,21 @@ impl SplittingFilter {
         debug_assert_eq!(bands.num_bands(), NUM_BANDS);
         debug_assert_eq!(bands.num_frames_per_band(), SPLIT_BAND_SIZE);
 
-        for i in 0..data.num_channels() {
+        for (i, bank) in banks.iter_mut().enumerate().take(data.num_channels()) {
             let mut input = [[0.0f32; SPLIT_BAND_SIZE]; NUM_BANDS];
-            for band in 0..NUM_BANDS {
-                input[band].copy_from_slice(bands.channel(band, i));
+            for (band, inp) in input.iter_mut().enumerate() {
+                inp.copy_from_slice(bands.channel(band, i));
             }
             let output: &mut [f32; FULL_BAND_SIZE] = data.bands_mut(i).try_into().unwrap();
-            banks[i].synthesis(&input, output);
+            bank.synthesis(&input, output);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::PI;
+
     use super::*;
 
     // -----------------------------------------------------------------------
@@ -369,8 +379,8 @@ mod tests {
         // Generate a low-frequency sine (500 Hz at 32 kHz = well within low band).
         let num_samples = 320;
         let mut input = vec![0.0f32; num_samples];
-        for i in 0..num_samples {
-            input[i] = (2.0 * std::f32::consts::PI * 500.0 * i as f32 / 32000.0).sin();
+        for (i, sample) in input.iter_mut().enumerate() {
+            *sample = (2.0 * PI * 500.0 * i as f32 / 32000.0).sin();
         }
 
         let band_length = num_samples / 2;
@@ -411,9 +421,9 @@ mod tests {
 
         for frame in 0..num_frames {
             let mut input = vec![0.0f32; num_samples];
-            for i in 0..num_samples {
+            for (i, sample) in input.iter_mut().enumerate() {
                 let t = (frame * num_samples + i) as f32 / 32000.0;
-                input[i] = (2.0 * std::f32::consts::PI * 1000.0 * t).sin() * 1000.0;
+                *sample = (2.0 * PI * 1000.0 * t).sin() * 1000.0;
             }
 
             let mut low_band = vec![0.0f32; band_length];
@@ -476,22 +486,19 @@ mod tests {
             for s in in_data.bands_mut(0).iter_mut() {
                 *s = 0.0;
             }
-            for j in 0..num_bands {
+            for (j, &freq) in frequencies_hz.iter().enumerate() {
                 is_present[j] = (i & (1 << j)) != 0;
                 let amp = if is_present[j] { amplitude } else { 0.0 };
                 let mut addition = vec![0.0f32; samples_per_48khz_channel];
-                for k in 0..samples_per_48khz_channel {
-                    addition[k] = amp
-                        * (2.0
-                            * std::f32::consts::PI
-                            * frequencies_hz[j] as f32
-                            * (i * samples_per_48khz_channel + k) as f32
+                for (k, a) in addition.iter_mut().enumerate() {
+                    *a = amp
+                        * (2.0 * PI * freq as f32 * (i * samples_per_48khz_channel + k) as f32
                             / sample_rate_hz as f32)
                             .sin();
                 }
                 let ch = in_data.bands_mut(0);
-                for k in 0..samples_per_48khz_channel {
-                    ch[k] += addition[k];
+                for (c, a) in ch.iter_mut().zip(addition.iter()) {
+                    *c += a;
                 }
             }
 
@@ -499,14 +506,14 @@ mod tests {
             splitting_filter.analysis(&in_data, &mut bands);
 
             // Energy calculation.
-            for j in 0..num_bands {
+            for (j, &present) in is_present.iter().enumerate().take(num_bands) {
                 let mut energy = 0.0f32;
                 let band_data = bands.channel(j, 0);
-                for k in 0..samples_per_16khz_channel {
-                    energy += band_data[k] * band_data[k];
+                for s in &band_data[..samples_per_16khz_channel] {
+                    energy += s * s;
                 }
                 energy /= samples_per_16khz_channel as f32;
-                if is_present[j] {
+                if present {
                     assert!(
                         energy > amplitude * amplitude / 4.0,
                         "chunk {i}, band {j}: expected present, energy={energy}",
@@ -569,9 +576,9 @@ mod tests {
 
             // Generate a low-frequency sine (500 Hz at 32 kHz).
             let ch = in_data.bands_mut(0);
-            for k in 0..num_frames {
+            for (k, sample) in ch.iter_mut().enumerate().take(num_frames) {
                 let t = (chunk * num_frames + k) as f32 / 32000.0;
-                ch[k] = amplitude * (2.0 * std::f32::consts::PI * 500.0 * t).sin();
+                *sample = amplitude * (2.0 * PI * 500.0 * t).sin();
             }
 
             splitting_filter.analysis(&in_data, &mut bands);
@@ -626,8 +633,8 @@ mod tests {
         // Put different signals in each channel.
         for ch in 0..channels {
             let data = in_data.bands_mut(ch);
-            for k in 0..320 {
-                data[k] = (ch as f32 + 1.0) * (k as f32 / 320.0);
+            for (k, d) in data.iter_mut().enumerate().take(320) {
+                *d = (ch as f32 + 1.0) * (k as f32 / 320.0);
             }
         }
 
@@ -650,9 +657,8 @@ mod tests {
         // Put different signals in each channel.
         for ch in 0..channels {
             let data = in_data.bands_mut(ch);
-            for k in 0..480 {
-                data[k] = (ch as f32 + 1.0)
-                    * (2.0 * std::f32::consts::PI * 1000.0 * k as f32 / 48000.0).sin();
+            for (k, d) in data.iter_mut().enumerate().take(480) {
+                *d = (ch as f32 + 1.0) * (2.0 * PI * 1000.0 * k as f32 / 48000.0).sin();
             }
         }
 

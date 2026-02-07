@@ -22,6 +22,7 @@ impl PartialEq for Level {
 
 /// A circular buffer to store frame-wise [`Level`] items for clipping prediction.
 /// The current implementation is not optimized for large buffer lengths.
+#[derive(Debug)]
 pub(crate) struct ClippingPredictorLevelBuffer {
     tail: isize,
     size: usize,

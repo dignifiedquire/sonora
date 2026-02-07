@@ -24,6 +24,7 @@ fn get_down_sampling_block_size_log2(down_sampling_factor: usize) -> i32 {
 
 /// Aggregates lag estimates from matched filters into a histogram and finds
 /// the best candidate.
+#[derive(Debug)]
 struct HighestPeakAggregator {
     histogram: Vec<i32>,
     histogram_data: [i32; HISTOGRAM_DATA_SIZE],
@@ -81,6 +82,7 @@ impl HighestPeakAggregator {
 
 /// Aggregates pre-echo lag estimates using a histogram with weighted
 /// penalization.
+#[derive(Debug)]
 struct PreEchoLagAggregator {
     block_size_log2: i32,
     histogram_data: [i32; HISTOGRAM_DATA_SIZE],
@@ -174,6 +176,7 @@ impl PreEchoLagAggregator {
 
 /// Aggregates lag estimates produced by the MatchedFilter class into a single
 /// reliable combined lag estimate.
+#[derive(Debug)]
 pub(crate) struct MatchedFilterLagAggregator {
     significant_candidate_found: bool,
     thresholds: DelaySelectionThresholds,
@@ -231,10 +234,10 @@ impl MatchedFilterLagAggregator {
             let candidate = self.highest_peak_aggregator.candidate();
 
             self.significant_candidate_found = self.significant_candidate_found
-                || histogram[candidate as usize] > self.thresholds.converged as i32;
+                || histogram[candidate as usize] > self.thresholds.converged;
 
-            if histogram[candidate as usize] > self.thresholds.converged as i32
-                || (histogram[candidate as usize] > self.thresholds.initial as i32
+            if histogram[candidate as usize] > self.thresholds.converged
+                || (histogram[candidate as usize] > self.thresholds.initial
                     && !self.significant_candidate_found)
             {
                 let quality = if self.significant_candidate_found {

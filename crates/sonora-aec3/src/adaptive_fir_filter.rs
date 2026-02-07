@@ -143,6 +143,7 @@ fn zero_filter(old_size: usize, new_size: usize, h: &mut [Vec<FftData>]) {
 // ---------------------------------------------------------------------------
 
 /// Frequency-domain adaptive FIR filter with partitioned convolution.
+#[derive(Debug)]
 pub(crate) struct AdaptiveFirFilter {
     fft: Aec3Fft,
     backend: SimdBackend,
@@ -749,10 +750,7 @@ mod tests {
         let mut h_scalar: Vec<Vec<FftData>> = (0..num_partitions)
             .map(|p| vec![make_fft_data(100 + p)])
             .collect();
-        let mut h_simd: Vec<Vec<FftData>> = h_scalar
-            .iter()
-            .map(|v| v.iter().map(|d| d.clone()).collect())
-            .collect();
+        let mut h_simd: Vec<Vec<FftData>> = h_scalar.iter().map(|v| v.to_vec()).collect();
 
         adapt_partitions(
             SimdBackend::Scalar,

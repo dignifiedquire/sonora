@@ -11,7 +11,7 @@ use crate::common::{BLOCK_SIZE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1, NUM_BLO
 use crate::config::EchoCanceller3Config;
 use crate::delay_estimate::DelayEstimate;
 use crate::echo_audibility::EchoAudibility;
-use crate::echo_path_variability::EchoPathVariability;
+use crate::echo_path_variability::{DelayAdjustment, EchoPathVariability};
 use crate::erl_estimator::ErlEstimator;
 use crate::erle_estimator::ErleEstimator;
 use crate::filter_analyzer::FilterAnalyzer;
@@ -81,6 +81,7 @@ fn compute_avg_render_reverb(
 // --- Nested state classes ---
 
 /// Controls the transition from the initial state parameter set.
+#[derive(Debug)]
 struct InitialState {
     conservative_initial_phase: bool,
     initial_state_seconds: f32,
@@ -136,6 +137,7 @@ impl InitialState {
 }
 
 /// Manages the direct-path delay relative to the beginning of the filter.
+#[derive(Debug)]
 struct FilterDelay {
     delay_headroom_blocks: i32,
     filter_delays_blocks: Vec<i32>,
@@ -176,10 +178,10 @@ impl FilterDelay {
         external_delay: &Option<DelayEstimate>,
         blocks_with_proper_filter_adaptation: usize,
     ) {
-        if let Some(ext) = external_delay {
-            if self.external_delay.is_none() || self.external_delay.unwrap().delay != ext.delay {
-                self.external_delay = Some(*ext);
-            }
+        if let Some(ext) = external_delay
+            && (self.external_delay.is_none() || self.external_delay.unwrap().delay != ext.delay)
+        {
+            self.external_delay = Some(*ext);
         }
 
         let delay_estimator_may_not_have_converged =
@@ -205,6 +207,7 @@ impl FilterDelay {
 }
 
 /// Analyzes the quality of the linear filter to decide if it is usable.
+#[derive(Debug)]
 struct FilteringQualityAnalyzer {
     use_linear_filter: bool,
     overall_usable_linear_estimates: bool,
@@ -276,6 +279,7 @@ impl FilteringQualityAnalyzer {
 }
 
 /// Detects whether the echo is saturated.
+#[derive(Debug)]
 struct SaturationDetector {
     saturated_echo: bool,
 }
@@ -330,6 +334,7 @@ impl SaturationDetector {
 // --- Main AecState ---
 
 /// Central state machine for the echo canceller.
+#[derive(Debug)]
 pub(crate) struct AecState {
     config: EchoCanceller3Config,
     num_capture_channels: usize,
@@ -479,8 +484,7 @@ impl AecState {
     /// Takes appropriate action at an echo path change.
     pub(crate) fn handle_echo_path_change(&mut self, echo_path_variability: &EchoPathVariability) {
         if self.full_reset_at_echo_path_change
-            && echo_path_variability.delay_change
-                != crate::echo_path_variability::DelayAdjustment::None
+            && echo_path_variability.delay_change != DelayAdjustment::None
         {
             self.filter_analyzer.reset();
             self.capture_signal_saturation = false;

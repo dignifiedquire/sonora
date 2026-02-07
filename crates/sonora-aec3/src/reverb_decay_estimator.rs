@@ -2,7 +2,7 @@
 //!
 //! Ported from `modules/audio_processing/aec3/reverb_decay_estimator.h/cc`.
 
-use crate::common::{FFT_LENGTH_BY_2, fast_approx_log2f};
+use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_LOG2, fast_approx_log2f};
 use crate::config::EchoCanceller3Config;
 
 const EARLY_REVERB_MIN_SIZE_BLOCKS: usize = 3;
@@ -63,6 +63,7 @@ fn block_energy_average(h: &[f32], block_index: usize) -> f32 {
 }
 
 /// Estimates the decay of the late reverb using linear regression.
+#[derive(Debug)]
 struct LateReverbLinearRegressor {
     nz: f32,
     nn: f32,
@@ -119,6 +120,7 @@ impl LateReverbLinearRegressor {
 /// Identifies the length of the early reverb from the linear filter by
 /// dividing the impulse response into overlapping sections and computing the
 /// tilt of each section via linear regression.
+#[derive(Debug)]
 struct EarlyReverbLengthEstimator {
     numerators_smooth: Vec<f32>,
     numerators: Vec<f32>,
@@ -220,6 +222,7 @@ impl EarlyReverbLengthEstimator {
 }
 
 /// Estimates the decay of the late reverb from the adaptive filter.
+#[derive(Debug)]
 pub(crate) struct ReverbDecayEstimator {
     filter_length_blocks: usize,
     filter_length_coefficients: usize,
@@ -277,8 +280,7 @@ impl ReverbDecayEstimator {
         }
 
         let filter_size = filter.len() as i32;
-        let mut estimation_feasible = filter_delay_blocks
-            <= self.filter_length_blocks as i32 - EARLY_REVERB_MIN_SIZE_BLOCKS as i32 - 1;
+        let mut estimation_feasible = filter_delay_blocks < self.filter_length_blocks as i32 - EARLY_REVERB_MIN_SIZE_BLOCKS as i32;
         estimation_feasible =
             estimation_feasible && filter_size == self.filter_length_coefficients as i32;
         estimation_feasible = estimation_feasible && filter_delay_blocks > 0;
@@ -338,7 +340,7 @@ impl ReverbDecayEstimator {
             (peak_block + EARLY_REVERB_MIN_SIZE_BLOCKS).min(self.filter_length_blocks);
 
         let first_reverb_gain = block_energy_average(filter, self.block_to_analyze);
-        let h_size_blocks = filter.len() >> crate::common::FFT_LENGTH_BY_2_LOG2;
+        let h_size_blocks = filter.len() >> FFT_LENGTH_BY_2_LOG2;
         self.tail_gain = block_energy_average(filter, h_size_blocks - 1);
         let peak_energy = block_energy_peak(filter, peak_block);
         let sufficient_reverb_decay = first_reverb_gain > 4.0 * self.tail_gain;

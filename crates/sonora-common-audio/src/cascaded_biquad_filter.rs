@@ -33,6 +33,7 @@ impl BiQuad {
 }
 
 /// Cascaded biquad filter applying multiple second-order sections in series.
+#[derive(Debug)]
 pub struct CascadedBiQuadFilter {
     biquads: Vec<BiQuad>,
 }

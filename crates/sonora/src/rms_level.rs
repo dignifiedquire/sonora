@@ -2,15 +2,23 @@
 //!
 //! Ported from `modules/audio_processing/rms_level.h/cc`.
 
+#[allow(
+    dead_code,
+    reason = "API completeness - will be used when full pipeline is wired"
+)]
 const MAX_SQUARED_LEVEL: f32 = 32768.0 * 32768.0;
 /// kMinLevel is 10^(-127/10).
-const MIN_LEVEL: f32 = 1.995_262_314_968_883e-13;
+#[allow(dead_code, reason = "API completeness")]
+const MIN_LEVEL: f32 = 1.995_262_3e-13;
 
 /// Minimum RMS level in dBFS (digital silence).
+#[allow(dead_code, reason = "API completeness")]
 pub(crate) const MIN_LEVEL_DB: i32 = 127;
 /// Level representing inaudible but not muted audio.
+#[allow(dead_code, reason = "API completeness")]
 pub(crate) const INAUDIBLE_BUT_NOT_MUTED: i32 = 126;
 
+#[allow(dead_code, reason = "API completeness")]
 fn compute_rms(mean_square: f32) -> i32 {
     if mean_square <= MIN_LEVEL * MAX_SQUARED_LEVEL {
         return MIN_LEVEL_DB;
@@ -24,12 +32,14 @@ fn compute_rms(mean_square: f32) -> i32 {
 
 /// Average and peak RMS levels.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code, reason = "API completeness")]
 pub(crate) struct Levels {
     pub(crate) average: i32,
     pub(crate) peak: i32,
 }
 
 /// Computes RMS level in dBFS following RFC 6465.
+#[allow(dead_code, reason = "API completeness")]
 pub(crate) struct RmsLevel {
     sum_square: f32,
     sample_count: usize,
@@ -37,6 +47,7 @@ pub(crate) struct RmsLevel {
     block_size: Option<usize>,
 }
 
+#[allow(dead_code, reason = "API completeness")]
 impl RmsLevel {
     pub(crate) fn new() -> Self {
         Self {
@@ -165,11 +176,12 @@ mod tests {
     }
 
     fn create_i16_sinusoid(frequency_hz: i32, amplitude: i32, num_samples: usize) -> Vec<i16> {
-        let pi = std::f64::consts::PI;
+        use std::f64::consts::PI;
+
         (0..num_samples)
             .map(|n| {
                 let val = amplitude as f64
-                    * (2.0 * pi * n as f64 * frequency_hz as f64 / SAMPLE_RATE_HZ as f64).sin();
+                    * (2.0 * PI * n as f64 * frequency_hz as f64 / SAMPLE_RATE_HZ as f64).sin();
                 val.clamp(i16::MIN as f64, i16::MAX as f64) as i16
             })
             .collect()

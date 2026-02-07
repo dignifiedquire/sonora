@@ -7,6 +7,7 @@
 /// Unlike `BlockBuffer`/`SpectrumBuffer`/`FftBuffer`, this stores a flat
 /// `Vec<f32>` rather than structured per-slot objects, so it has its own
 /// index management instead of using `RingIndex`.
+#[derive(Debug)]
 pub(crate) struct DownsampledRenderBuffer {
     pub size: usize,
     pub buffer: Vec<f32>,

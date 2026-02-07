@@ -6,6 +6,7 @@
 use sonora_simd::SimdBackend;
 
 /// Provides SIMD-optimized elementwise vector operations.
+#[derive(Debug)]
 pub(crate) struct VectorMath {
     backend: SimdBackend,
 }
@@ -85,7 +86,7 @@ mod tests {
         }
         vm.accumulate(&x, &mut z);
         for k in 0..z.len() {
-            assert_eq!(z[k], x[k] + 2.0 * x[k] as f32, "mismatch at {k}");
+            assert_eq!(z[k], x[k] + 2.0 * x[k], "mismatch at {k}");
         }
     }
 }

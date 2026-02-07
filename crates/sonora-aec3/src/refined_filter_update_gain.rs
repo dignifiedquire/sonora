@@ -17,6 +17,7 @@ const H_ERROR_INITIAL: f32 = 10_000.0;
 const POOR_EXCITATION_COUNTER_INITIAL: usize = 1000;
 
 /// Computes the adaptive gain for the refined adaptive filter.
+#[derive(Debug)]
 pub(crate) struct RefinedFilterUpdateGain {
     config_change_duration_blocks: i32,
     one_by_config_change_duration_blocks: f32,

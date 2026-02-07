@@ -109,6 +109,7 @@ fn compute_crest_factor(level: &Level) -> f32 {
 ///
 /// Analyzes 10 ms multi-channel frames and estimates an analog mic level
 /// decrease step to possibly avoid clipping when predicted.
+#[derive(Debug)]
 pub enum ClippingPredictor {
     /// Crest factor-based clipping event prediction.
     Event(ClippingEventPredictor),
@@ -208,6 +209,7 @@ pub fn create_clipping_predictor(
 }
 
 /// Crest factor-based clipping event prediction.
+#[derive(Debug)]
 pub struct ClippingEventPredictor {
     ch_buffers: Vec<ClippingPredictorLevelBuffer>,
     window_length: i32,
@@ -318,6 +320,7 @@ impl ClippingEventPredictor {
 }
 
 /// Crest factor-based clipping peak prediction.
+#[derive(Debug)]
 pub struct ClippingPeakPredictor {
     ch_buffers: Vec<ClippingPredictorLevelBuffer>,
     window_length: i32,

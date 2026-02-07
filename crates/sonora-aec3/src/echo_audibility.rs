@@ -9,6 +9,7 @@ use crate::spectrum_buffer::SpectrumBuffer;
 use crate::stationarity_estimator::StationarityEstimator;
 
 /// Estimates whether the echo is audible based on render signal stationarity.
+#[derive(Debug)]
 pub(crate) struct EchoAudibility {
     render_spectrum_write_prev: Option<usize>,
     render_block_write_prev: usize,

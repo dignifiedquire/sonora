@@ -55,6 +55,7 @@ fn apply_gain_with_ramping(
 
 /// Applies a gain factor to multi-channel audio with linear ramping between
 /// frames and optional hard clipping.
+#[derive(Debug)]
 pub struct GainApplier {
     hard_clip_samples: bool,
     last_gain_factor: f32,

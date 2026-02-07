@@ -11,6 +11,7 @@ pub(crate) enum ClockdriftLevel {
 }
 
 /// Detects clock drift by analyzing the estimated delay.
+#[derive(Debug)]
 pub(crate) struct ClockdriftDetector {
     delay_history: [i32; 3],
     level: ClockdriftLevel,

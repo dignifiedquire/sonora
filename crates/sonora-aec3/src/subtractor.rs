@@ -10,10 +10,12 @@
 use crate::adaptive_fir_filter::AdaptiveFirFilter;
 use crate::adaptive_fir_filter_erl::compute_erl;
 use crate::aec_state::AecState;
-use crate::aec3_fft::Aec3Fft;
+use crate::aec3_fft::{Aec3Fft, Window};
 use crate::block::Block;
 use crate::coarse_filter_update_gain::CoarseFilterUpdateGain;
-use crate::common::{BLOCK_SIZE, FFT_LENGTH, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
+use crate::common::{
+    BLOCK_SIZE, FFT_LENGTH, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1, get_time_domain_length,
+};
 use crate::config::EchoCanceller3Config;
 use crate::echo_path_variability::{DelayAdjustment, EchoPathVariability};
 use crate::fft_data::FftData;
@@ -55,6 +57,7 @@ fn scale_filter_output(y: &[f32], factor: f32, e: &mut [f32], s: &mut [f32]) {
 
 /// Estimates filter misadjustment and recommends scaling when the
 /// prediction error energy is much larger than the microphone signal energy.
+#[derive(Debug)]
 struct FilterMisadjustmentEstimator {
     n_blocks: i32,
     n_blocks_acum: i32,
@@ -120,6 +123,7 @@ impl FilterMisadjustmentEstimator {
 }
 
 /// Provides linear echo cancellation using dual adaptive filters.
+#[derive(Debug)]
 pub(crate) struct Subtractor {
     fft: Aec3Fft,
     backend: sonora_simd::SimdBackend,
@@ -158,10 +162,7 @@ impl Subtractor {
         let refined_frequency_responses =
             vec![vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; max_refined_len]; num_capture_channels];
         let refined_impulse_responses =
-            vec![
-                vec![0.0f32; crate::common::get_time_domain_length(max_refined_len)];
-                num_capture_channels
-            ];
+            vec![vec![0.0f32; get_time_domain_length(max_refined_len)]; num_capture_channels];
 
         for _ in 0..num_capture_channels {
             refined_filters.push(AdaptiveFirFilter::new(
@@ -302,14 +303,11 @@ impl Subtractor {
             // Compute the FFTs of the refined and coarse filter outputs.
             self.fft.zero_padded_fft(
                 &output.e_refined,
-                crate::aec3_fft::Window::Hanning,
+                Window::Hanning,
                 &mut output.e_refined_fft,
             );
-            self.fft.zero_padded_fft(
-                &output.e_coarse,
-                crate::aec3_fft::Window::Hanning,
-                &mut e_coarse_fft,
-            );
+            self.fft
+                .zero_padded_fft(&output.e_coarse, Window::Hanning, &mut e_coarse_fft);
 
             // Compute spectra for future use.
             e_coarse_fft.spectrum(&mut output.e2_coarse);
@@ -535,9 +533,11 @@ mod tests {
 
         // Feed high-error, low-y outputs to trigger adjustment.
         for _ in 0..4 {
-            let mut output = SubtractorOutput::default();
-            output.e2_refined_sum = 100_000_000.0; // Very high error.
-            output.y2 = 100_000_000.0; // High y power.
+            let output = SubtractorOutput {
+                e2_refined_sum: 100_000_000.0, // Very high error.
+                y2: 100_000_000.0,             // High y power.
+                ..Default::default()
+            };
             estimator.update(&output);
         }
         // After 4 blocks, check state.

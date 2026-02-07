@@ -12,6 +12,7 @@ const MIN_ERL: f32 = 0.01;
 const MAX_ERL: f32 = 1000.0;
 
 /// Estimates the echo return loss based on the signal spectra.
+#[derive(Debug)]
 pub(crate) struct ErlEstimator {
     startup_phase_length_blocks: usize,
     erl: [f32; FFT_LENGTH_BY_2_PLUS_1],

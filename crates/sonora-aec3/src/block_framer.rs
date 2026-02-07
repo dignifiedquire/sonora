@@ -10,6 +10,7 @@ use crate::block::Block;
 use crate::common::{BLOCK_SIZE, SUB_FRAME_LENGTH};
 
 /// Produces 80-sample sub-frames from 64-sample blocks.
+#[derive(Debug)]
 pub struct BlockFramer {
     num_bands: usize,
     num_channels: usize,

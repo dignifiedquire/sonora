@@ -6,6 +6,7 @@
 use crate::common::METRICS_REPORTING_INTERVAL_BLOCKS;
 
 /// Handles the reporting of metrics for the block processor.
+#[derive(Debug)]
 pub(crate) struct BlockProcessorMetrics {
     capture_block_counter: usize,
     metrics_reported: bool,

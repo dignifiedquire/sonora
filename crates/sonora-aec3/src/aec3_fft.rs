@@ -4,6 +4,7 @@
 
 use crate::common::{FFT_LENGTH, FFT_LENGTH_BY_2};
 use crate::fft_data::FftData;
+use sonora_fft::ooura_fft;
 
 /// Window type for FFT operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +220,7 @@ const SQRT_HANNING_128: [f32; FFT_LENGTH] = [
 /// Wrapper providing 128-point real-valued FFT for AEC3.
 ///
 /// Uses `sonora_fft::ooura_fft` (128-point Ooura FFT) under the hood.
+#[derive(Debug)]
 pub(crate) struct Aec3Fft;
 
 impl Aec3Fft {
@@ -231,7 +233,7 @@ impl Aec3Fft {
     /// `x` is used as scratch space and is modified in place by the Ooura
     /// routine. The result is unpacked into `x_out`.
     pub(crate) fn fft(&self, x: &mut [f32; FFT_LENGTH], x_out: &mut FftData) {
-        sonora_fft::ooura_fft::forward(x);
+        ooura_fft::forward(x);
         x_out.copy_from_packed_array(x);
     }
 
@@ -240,7 +242,7 @@ impl Aec3Fft {
     /// Packs `x_in` into Ooura format, then runs the inverse transform.
     pub(crate) fn ifft(&self, x_in: &FftData, x: &mut [f32; FFT_LENGTH]) {
         x_in.copy_to_packed_array(x);
-        sonora_fft::ooura_fft::inverse(x);
+        ooura_fft::inverse(x);
     }
 
     /// Windows the input with the specified window, zero-pads the first half,

@@ -226,18 +226,22 @@ impl AudioConverter {
         }
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn src_channels(&self) -> usize {
         self.src_channels
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn src_frames(&self) -> usize {
         self.src_frames
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn dst_channels(&self) -> usize {
         self.dst_channels
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn dst_frames(&self) -> usize {
         self.dst_frames
     }

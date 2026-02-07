@@ -12,6 +12,7 @@ use crate::gain_applier::GainApplier;
 use crate::speech_level_estimator::AdaptiveDigitalConfig;
 
 /// Information about a frame to process.
+#[derive(Debug)]
 pub struct FrameInfo {
     /// Probability of speech in the [0, 1] range.
     pub speech_probability: f32,
@@ -90,6 +91,7 @@ fn compute_gain_change_this_frame_db(
 }
 
 /// Adaptive digital gain controller.
+#[derive(Debug)]
 pub struct AdaptiveDigitalGainController {
     gain_applier: GainApplier,
     config: AdaptiveDigitalConfig,

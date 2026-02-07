@@ -106,6 +106,7 @@ fn set_max_erle_subbands(
 
 /// Estimates the dependency of ERLE on the input signal by analyzing
 /// which filter sections contribute most to the echo estimate.
+#[derive(Debug)]
 pub(crate) struct SignalDependentErleEstimator {
     min_erle: f32,
     num_sections: usize,

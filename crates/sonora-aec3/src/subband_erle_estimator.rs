@@ -24,6 +24,7 @@ fn set_max_erle_bands(max_erle_l: f32, max_erle_h: f32) -> [f32; FFT_LENGTH_BY_2
     max_erle
 }
 
+#[derive(Debug)]
 struct AccumulatedSpectra {
     y2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
     e2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
@@ -43,6 +44,7 @@ impl AccumulatedSpectra {
 }
 
 /// Estimates the echo return loss enhancement for each frequency subband.
+#[derive(Debug)]
 pub(crate) struct SubbandErleEstimator {
     use_onset_detection: bool,
     min_erle: f32,

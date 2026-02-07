@@ -10,6 +10,7 @@ use crate::clockdrift_detector::ClockdriftLevel;
 use crate::common::{BLOCK_SIZE, METRICS_REPORTING_INTERVAL_BLOCKS, NUM_BLOCKS_PER_SECOND};
 
 /// Handles the reporting of metrics for the render delay controller.
+#[derive(Debug)]
 pub(crate) struct RenderDelayControllerMetrics {
     delay_blocks: usize,
     reliable_delay_estimate_counter: i32,

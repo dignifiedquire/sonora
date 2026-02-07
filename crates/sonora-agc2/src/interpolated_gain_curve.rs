@@ -49,7 +49,7 @@ impl Default for Stats {
 
 /// Interpolated gain curve using piecewise-linear under-approximation to avoid
 /// saturation.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct InterpolatedGainCurve {
     stats: Stats,
 }

@@ -3,6 +3,8 @@
 //!
 //! Ported from `modules/audio_processing/aec3/suppression_filter.h/cc`.
 
+use std::mem::swap;
+
 use crate::aec3_fft::Aec3Fft;
 use crate::block::Block;
 use crate::common::{
@@ -146,6 +148,7 @@ const K_SQRT_HANNING: [f32; FFT_LENGTH] = [
 
 /// Applies frequency-domain suppression gain and comfort noise, then
 /// synthesizes the output using overlap-add with a sqrt-Hanning window.
+#[derive(Debug)]
 pub(crate) struct SuppressionFilter {
     sample_rate_hz: usize,
     num_capture_channels: usize,
@@ -249,7 +252,7 @@ impl SuppressionFilter {
             for b in 1..e.num_bands() {
                 let e_band = e.view_mut(b, ch);
                 for i in 0..FFT_LENGTH_BY_2 {
-                    std::mem::swap(&mut e_band[i], &mut self.e_output_old[b][ch][i]);
+                    swap(&mut e_band[i], &mut self.e_output_old[b][ch][i]);
                 }
             }
 
@@ -434,7 +437,7 @@ mod tests {
         let cn_high_bands = vec![FftData::default(); 1];
         let mut e_old = [0.0f32; FFT_LENGTH_BY_2];
         let fft = Aec3Fft::new();
-        let mut gain = [1.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        let gain = [1.0f32; FFT_LENGTH_BY_2_PLUS_1];
         let mut e = Block::new(num_bands, num_channels);
 
         for k in 0..100usize {

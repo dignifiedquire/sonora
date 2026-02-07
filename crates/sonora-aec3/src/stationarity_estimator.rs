@@ -12,6 +12,7 @@ const N_BLOCKS_INITIAL_PHASE: usize = NUM_BLOCKS_PER_SECOND * 2;
 const WINDOW_LENGTH: usize = 13;
 
 /// Noise power spectrum estimator.
+#[derive(Debug)]
 struct NoiseSpectrum {
     noise_spectrum: [f32; FFT_LENGTH_BY_2_PLUS_1],
     block_counter: usize,
@@ -44,9 +45,8 @@ impl NoiseSpectrum {
     fn update(&mut self, spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]]) {
         let num_render_channels = spectrum.len();
 
-        let avg_spectrum: [f32; FFT_LENGTH_BY_2_PLUS_1];
-        if num_render_channels == 1 {
-            avg_spectrum = spectrum[0];
+        let avg_spectrum: [f32; FFT_LENGTH_BY_2_PLUS_1] = if num_render_channels == 1 {
+            spectrum[0]
         } else {
             let mut data = spectrum[0];
             let one_by_num_channels = 1.0 / num_render_channels as f32;
@@ -58,8 +58,8 @@ impl NoiseSpectrum {
             for k in 1..FFT_LENGTH_BY_2_PLUS_1 {
                 data[k] *= one_by_num_channels;
             }
-            avg_spectrum = data;
-        }
+            data
+        };
 
         self.block_counter += 1;
         let alpha = self.get_alpha();
@@ -97,10 +97,8 @@ impl NoiseSpectrum {
         if power_band_noise < power_band {
             debug_assert!(power_band > 0.0);
             let mut alpha_inc = alpha * (power_band_noise / power_band);
-            if self.block_counter > N_BLOCKS_INITIAL_PHASE {
-                if 10.0 * power_band_noise < power_band {
-                    alpha_inc *= 0.1;
-                }
+            if self.block_counter > N_BLOCKS_INITIAL_PHASE && 10.0 * power_band_noise < power_band {
+                alpha_inc *= 0.1;
             }
             power_band_noise_updated += alpha_inc * (power_band - power_band_noise);
         } else {
@@ -112,6 +110,7 @@ impl NoiseSpectrum {
 }
 
 /// Estimates whether the render signal is stationary.
+#[derive(Debug)]
 pub(crate) struct StationarityEstimator {
     noise: NoiseSpectrum,
     hangovers: [i32; FFT_LENGTH_BY_2_PLUS_1],

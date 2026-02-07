@@ -2,6 +2,8 @@
 //!
 //! All types here are `#[repr(C)]` and are safe to pass across FFI boundaries.
 
+use std::fmt;
+
 use crate::AudioProcessing;
 
 // ---------------------------------------------------------------------------
@@ -164,4 +166,10 @@ pub struct WapStats {
 /// **NOT thread-safe**: all calls on the same handle must be serialized.
 pub struct WapAudioProcessing {
     pub(crate) inner: AudioProcessing,
+}
+
+impl fmt::Debug for WapAudioProcessing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WapAudioProcessing").finish_non_exhaustive()
+    }
 }

@@ -46,7 +46,7 @@ fn get_initial_speech_level_estimate_dbfs(config: &AdaptiveDigitalConfig) -> f32
 }
 
 /// Part of the level estimator state used for check-pointing and restore ops.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct LevelEstimatorState {
     /// Time remaining until the estimator becomes confident.
     time_to_confidence_ms: i32,
@@ -54,7 +54,7 @@ struct LevelEstimatorState {
     level_dbfs: Ratio,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Ratio {
     numerator: f32,
     denominator: f32,
@@ -69,6 +69,7 @@ impl Ratio {
 
 /// Active speech level estimator based on the analysis of the following
 /// framewise properties: RMS level (dBFS), speech probability.
+#[derive(Debug)]
 pub struct SpeechLevelEstimator {
     initial_speech_level_dbfs: f32,
     adjacent_speech_frames_threshold: i32,

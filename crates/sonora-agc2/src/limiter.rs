@@ -64,6 +64,7 @@ fn scale_samples(per_sample_scaling_factors: &[f32], signal: &mut [&mut [f32]]) 
 }
 
 /// Output limiter that applies gain curve compression and hard clipping.
+#[derive(Debug)]
 pub struct Limiter {
     interp_gain_curve: InterpolatedGainCurve,
     level_estimator: FixedDigitalLevelEstimator,

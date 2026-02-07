@@ -1,11 +1,13 @@
 //! Benchmarks for the Sonora audio processing pipeline and components.
 
+use std::slice;
+
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora_common_audio::sinc_resampler::{SincResampler, SincResamplerCallback};
 use sonora_fft::pffft::{FftType, Pffft};
-use sonora_ns::config::NS_FRAME_SIZE;
+use sonora_ns::config::{NS_FRAME_SIZE, SuppressionLevel};
 use sonora_ns::noise_suppressor::NoiseSuppressor;
 
 // ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ fn make_apm(sample_rate: usize, channels: usize) -> (AudioProcessing, StreamConf
     let mut dst: Vec<&mut [f32]> = (0..channels)
         .map(|_| {
             // SAFETY: each slice is independent; we just need the borrow checker to cooperate
-            unsafe { std::slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), samples) }
+            unsafe { slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), samples) }
         })
         .collect();
 
@@ -121,7 +123,7 @@ fn bench_process_stream(c: &mut Criterion) {
 
 fn bench_noise_suppressor(c: &mut Criterion) {
     let mut group = c.benchmark_group("noise_suppressor");
-    let mut ns = NoiseSuppressor::with_level(sonora_ns::config::SuppressionLevel::K12dB);
+    let mut ns = NoiseSuppressor::with_level(SuppressionLevel::K12dB);
 
     let mut frame = [0.0f32; NS_FRAME_SIZE];
     for (i, s) in frame.iter_mut().enumerate() {

@@ -37,6 +37,7 @@ fn choose_mixing_variant(
 }
 
 /// Mixes multi-channel audio down to mono for delay estimation.
+#[derive(Debug)]
 pub(crate) struct AlignmentMixer {
     num_channels: usize,
     one_by_num_channels: f32,

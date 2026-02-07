@@ -3,6 +3,7 @@
 //! Ported from `modules/audio_processing/aec3/moving_average.h/cc`.
 
 /// Computes the running average over the last `mem_len` input vectors.
+#[derive(Debug)]
 pub(crate) struct MovingAverage {
     num_elem: usize,
     mem_len: usize,

@@ -4,12 +4,12 @@
 //!
 //! All public symbols use the `wap_` prefix.
 
+use std::ffi::c_char;
 use std::ptr;
 use std::slice;
 
 use crate::AudioProcessing;
 use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
-use crate::stream_config::StreamConfig;
 
 use super::panic_guard::{ffi_guard, ffi_guard_ptr};
 use super::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamConfig};
@@ -20,7 +20,7 @@ use super::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamC
 ///
 /// The returned pointer is valid for the lifetime of the process.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_version() -> *const std::ffi::c_char {
+pub extern "C" fn wap_version() -> *const c_char {
     // Safety: the byte string is a static literal with a trailing NUL.
     c"0.1.0".as_ptr()
 }
@@ -65,8 +65,14 @@ pub extern "C" fn wap_create_with_config(config: WapConfig) -> *mut WapAudioProc
 /// Destroys an audio processing instance and frees its memory.
 ///
 /// Passing `NULL` is a safe no-op. After this call the pointer is invalid.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// After this call the pointer is invalid and must not be used again.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_destroy(apm: *mut WapAudioProcessing) {
+pub unsafe extern "C" fn wap_destroy(apm: *mut WapAudioProcessing) {
     if !apm.is_null() {
         // Safety: we created this pointer via Box::into_raw in wap_create/
         // wap_create_with_config, and the caller guarantees single ownership.
@@ -79,8 +85,16 @@ pub extern "C" fn wap_destroy(apm: *mut WapAudioProcessing) {
 /// Applies a new configuration to the audio processing instance.
 ///
 /// Returns `WapError::NullPointer` if `apm` is null.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_apply_config(apm: *mut WapAudioProcessing, config: WapConfig) -> WapError {
+pub unsafe extern "C" fn wap_apply_config(
+    apm: *mut WapAudioProcessing,
+    config: WapConfig,
+) -> WapError {
     ffi_guard! {
         if apm.is_null() {
             return WapError::NullPointer;
@@ -96,8 +110,14 @@ pub extern "C" fn wap_apply_config(apm: *mut WapAudioProcessing, config: WapConf
 /// Retrieves the current configuration.
 ///
 /// Returns `WapError::NullPointer` if `apm` or `config_out` is null.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// All pointer arguments must be valid and properly aligned.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_get_config(
+pub unsafe extern "C" fn wap_get_config(
     apm: *const WapAudioProcessing,
     config_out: *mut WapConfig,
 ) -> WapError {
@@ -123,8 +143,13 @@ pub extern "C" fn wap_get_config(
 /// triggering a full reinitialisation of internal buffers and submodules.
 ///
 /// Returns `WapError::NullPointer` if `apm` is null.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_initialize(
+pub unsafe extern "C" fn wap_initialize(
     apm: *mut WapAudioProcessing,
     input_config: WapStreamConfig,
     output_config: WapStreamConfig,
@@ -234,8 +259,16 @@ fn rust_error_to_wap(err: crate::Error) -> WapError {
 /// - `dest`: array of `output_config.num_channels` pointers (output buffers).
 ///
 /// Returns `WapError::None` on success.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// `src` and `dest` channel pointer arrays must have the correct number
+/// of channels and each channel pointer must point to at least the
+/// required number of frames.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_process_stream_f32(
+pub unsafe extern "C" fn wap_process_stream_f32(
     apm: *mut WapAudioProcessing,
     src: *const *const f32,
     input_config: WapStreamConfig,
@@ -273,8 +306,16 @@ pub extern "C" fn wap_process_stream_f32(
 }
 
 /// Processes a reverse (render / far-end) audio frame (float, deinterleaved).
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// `src` and `dest` channel pointer arrays must have the correct number
+/// of channels and each channel pointer must point to at least the
+/// required number of frames.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_process_reverse_stream_f32(
+pub unsafe extern "C" fn wap_process_reverse_stream_f32(
     apm: *mut WapAudioProcessing,
     src: *const *const f32,
     input_config: WapStreamConfig,
@@ -319,8 +360,14 @@ pub extern "C" fn wap_process_reverse_stream_f32(
 /// - `dest`: pointer to output buffer of same size.
 /// - Input and output configs must have native rates (8k/16k/32k/48k) and
 ///   matching rates and channel counts.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// `src` and `dest` must point to at least the specified number of samples.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_process_stream_i16(
+pub unsafe extern "C" fn wap_process_stream_i16(
     apm: *mut WapAudioProcessing,
     src: *const i16,
     src_len: i32,
@@ -356,8 +403,14 @@ pub extern "C" fn wap_process_stream_i16(
 }
 
 /// Processes a reverse (render / far-end) audio frame (int16, interleaved).
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// `src` and `dest` must point to at least the specified number of samples.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_process_reverse_stream_i16(
+pub unsafe extern "C" fn wap_process_reverse_stream_i16(
     apm: *mut WapAudioProcessing,
     src: *const i16,
     src_len: i32,
@@ -397,8 +450,13 @@ pub extern "C" fn wap_process_reverse_stream_i16(
 ///
 /// Must be called before [`wap_process_stream_f32()`] if the input volume
 /// controller is enabled. Value should be in range `[0, 255]`.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_stream_analog_level(
+pub unsafe extern "C" fn wap_set_stream_analog_level(
     apm: *mut WapAudioProcessing,
     level: i32,
 ) -> WapError {
@@ -416,8 +474,15 @@ pub extern "C" fn wap_set_stream_analog_level(
 ///
 /// Should be called after [`wap_process_stream_f32()`] to obtain the
 /// recommended new analog level. Returns 0 if `apm` is null.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_recommended_stream_analog_level(apm: *const WapAudioProcessing) -> i32 {
+pub unsafe extern "C" fn wap_recommended_stream_analog_level(
+    apm: *const WapAudioProcessing,
+) -> i32 {
     if apm.is_null() {
         return 0;
     }
@@ -431,8 +496,16 @@ pub extern "C" fn wap_recommended_stream_analog_level(apm: *const WapAudioProces
 ///
 /// The delay is clamped to `[0, 500]`. Returns `WapError::BadStreamParameter`
 /// if clamping was necessary (processing still proceeds).
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_stream_delay_ms(apm: *mut WapAudioProcessing, delay: i32) -> WapError {
+pub unsafe extern "C" fn wap_set_stream_delay_ms(
+    apm: *mut WapAudioProcessing,
+    delay: i32,
+) -> WapError {
     ffi_guard! {
         if apm.is_null() {
             return WapError::NullPointer;
@@ -446,8 +519,13 @@ pub extern "C" fn wap_set_stream_delay_ms(apm: *mut WapAudioProcessing, delay: i
 }
 
 /// Returns the current stream delay in ms. Returns 0 if `apm` is null.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_stream_delay_ms(apm: *const WapAudioProcessing) -> i32 {
+pub unsafe extern "C" fn wap_stream_delay_ms(apm: *const WapAudioProcessing) -> i32 {
     if apm.is_null() {
         return 0;
     }
@@ -458,8 +536,16 @@ pub extern "C" fn wap_stream_delay_ms(apm: *const WapAudioProcessing) -> i32 {
 // ─── Runtime settings ────────────────────────────────────────────────
 
 /// Sets the capture pre-gain factor via runtime setting.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_capture_pre_gain(apm: *mut WapAudioProcessing, gain: f32) -> WapError {
+pub unsafe extern "C" fn wap_set_capture_pre_gain(
+    apm: *mut WapAudioProcessing,
+    gain: f32,
+) -> WapError {
     ffi_guard! {
         if apm.is_null() {
             return WapError::NullPointer;
@@ -471,8 +557,16 @@ pub extern "C" fn wap_set_capture_pre_gain(apm: *mut WapAudioProcessing, gain: f
 }
 
 /// Sets the capture post-gain factor via runtime setting.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_capture_post_gain(apm: *mut WapAudioProcessing, gain: f32) -> WapError {
+pub unsafe extern "C" fn wap_set_capture_post_gain(
+    apm: *mut WapAudioProcessing,
+    gain: f32,
+) -> WapError {
     ffi_guard! {
         if apm.is_null() {
             return WapError::NullPointer;
@@ -484,8 +578,13 @@ pub extern "C" fn wap_set_capture_post_gain(apm: *mut WapAudioProcessing, gain: 
 }
 
 /// Sets the fixed post-gain in dB via runtime setting (range: 0..=90).
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_capture_fixed_post_gain(
+pub unsafe extern "C" fn wap_set_capture_fixed_post_gain(
     apm: *mut WapAudioProcessing,
     gain_db: f32,
 ) -> WapError {
@@ -500,8 +599,16 @@ pub extern "C" fn wap_set_capture_fixed_post_gain(
 }
 
 /// Notifies of a playout volume change via runtime setting.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_playout_volume(apm: *mut WapAudioProcessing, volume: i32) -> WapError {
+pub unsafe extern "C" fn wap_set_playout_volume(
+    apm: *mut WapAudioProcessing,
+    volume: i32,
+) -> WapError {
     ffi_guard! {
         if apm.is_null() {
             return WapError::NullPointer;
@@ -513,8 +620,13 @@ pub extern "C" fn wap_set_playout_volume(apm: *mut WapAudioProcessing, volume: i
 }
 
 /// Notifies of a playout audio device change via runtime setting.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_playout_audio_device(
+pub unsafe extern "C" fn wap_set_playout_audio_device(
     apm: *mut WapAudioProcessing,
     device_id: i32,
     max_volume: i32,
@@ -534,8 +646,13 @@ pub extern "C" fn wap_set_playout_audio_device(
 }
 
 /// Sets whether the capture output is used via runtime setting.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_set_capture_output_used(
+pub unsafe extern "C" fn wap_set_capture_output_used(
     apm: *mut WapAudioProcessing,
     used: bool,
 ) -> WapError {
@@ -554,8 +671,14 @@ pub extern "C" fn wap_set_capture_output_used(
 /// Retrieves current processing statistics.
 ///
 /// Returns `WapError::NullPointer` if `apm` or `stats_out` is null.
+///
+/// # Safety
+///
+/// `apm` must be a valid pointer returned by [`wap_create`] or
+/// [`wap_create_with_config`] and must not be concurrently accessed.
+/// All pointer arguments must be valid and properly aligned.
 #[unsafe(no_mangle)]
-pub extern "C" fn wap_get_statistics(
+pub unsafe extern "C" fn wap_get_statistics(
     apm: *const WapAudioProcessing,
     stats_out: *mut WapStats,
 ) -> WapError {
@@ -576,6 +699,9 @@ pub extern "C" fn wap_get_statistics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::PI;
+    use std::ffi::CStr;
+
     use crate::ffi::types::WapNoiseSuppressionLevel;
 
     #[test]
@@ -583,7 +709,7 @@ mod tests {
         let ptr = wap_version();
         assert!(!ptr.is_null());
         // Safety: wap_version returns a static NUL-terminated string.
-        let cstr = unsafe { std::ffi::CStr::from_ptr(ptr) };
+        let cstr = unsafe { CStr::from_ptr(ptr) };
         assert_eq!(cstr.to_str().unwrap(), "0.1.0");
     }
 
@@ -591,12 +717,12 @@ mod tests {
     fn create_and_destroy() {
         let apm = wap_create();
         assert!(!apm.is_null());
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
     fn destroy_null_is_safe() {
-        wap_destroy(ptr::null_mut());
+        unsafe { wap_destroy(ptr::null_mut()) };
     }
 
     #[test]
@@ -611,7 +737,7 @@ mod tests {
 
         // Verify config was applied.
         let mut config_out = wap_config_default();
-        let err = wap_get_config(apm, &mut config_out);
+        let err = unsafe { wap_get_config(apm, &mut config_out) };
         assert_eq!(err, WapError::None);
         assert!(config_out.echo_canceller_enabled);
         assert!(config_out.noise_suppression_enabled);
@@ -620,7 +746,7 @@ mod tests {
             WapNoiseSuppressionLevel::VeryHigh
         );
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -649,13 +775,13 @@ mod tests {
     #[test]
     fn apply_config_null_returns_error() {
         let config = wap_config_default();
-        let err = wap_apply_config(ptr::null_mut(), config);
+        let err = unsafe { wap_apply_config(ptr::null_mut(), config) };
         assert_eq!(err, WapError::NullPointer);
     }
 
     #[test]
     fn get_config_null_returns_error() {
-        let err = wap_get_config(ptr::null(), ptr::null_mut());
+        let err = unsafe { wap_get_config(ptr::null(), ptr::null_mut()) };
         assert_eq!(err, WapError::NullPointer);
     }
 
@@ -674,12 +800,12 @@ mod tests {
         config.pre_amplifier_enabled = true;
         config.pre_amplifier_fixed_gain_factor = 2.5;
 
-        let err = wap_apply_config(apm, config);
+        let err = unsafe { wap_apply_config(apm, config) };
         assert_eq!(err, WapError::None);
 
         // Get config back.
         let mut config_out = wap_config_default();
-        let err = wap_get_config(apm, &mut config_out);
+        let err = unsafe { wap_get_config(apm, &mut config_out) };
         assert_eq!(err, WapError::None);
         assert!(config_out.echo_canceller_enabled);
         assert!(config_out.noise_suppression_enabled);
@@ -689,16 +815,16 @@ mod tests {
         assert!(config_out.pre_amplifier_enabled);
         assert_eq!(config_out.pre_amplifier_fixed_gain_factor, 2.5);
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
     fn get_config_null_config_out_returns_error() {
         let apm = wap_create();
         assert!(!apm.is_null());
-        let err = wap_get_config(apm, ptr::null_mut());
+        let err = unsafe { wap_get_config(apm, ptr::null_mut()) };
         assert_eq!(err, WapError::NullPointer);
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     // ─── Processing tests ────────────────────────────────────────
@@ -709,7 +835,9 @@ mod tests {
             sample_rate_hz: 16000,
             num_channels: 1,
         };
-        let err = wap_process_stream_f32(ptr::null_mut(), ptr::null(), config, config, ptr::null());
+        let err = unsafe {
+            wap_process_stream_f32(ptr::null_mut(), ptr::null(), config, config, ptr::null())
+        };
         assert_eq!(err, WapError::NullPointer);
     }
 
@@ -727,14 +855,15 @@ mod tests {
         let mut dest_data = [1.0f32; 160];
         let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
 
-        let err =
-            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        let err = unsafe {
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr())
+        };
         assert_eq!(err, WapError::None);
 
         for &s in &dest_data {
             assert!(s.abs() < 1e-6, "expected silence, got {s}");
         }
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -751,14 +880,15 @@ mod tests {
         let mut dest_data = vec![0.0f32; 160];
         let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
 
-        let err =
-            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        let err = unsafe {
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr())
+        };
         assert_eq!(err, WapError::None);
 
         for i in 0..160 {
             assert_eq!(src_data[i], dest_data[i], "sample {i} mismatch");
         }
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -775,15 +905,17 @@ mod tests {
         let mut dest_data = [0.0f32; 160];
         let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
 
-        let err = wap_process_reverse_stream_f32(
-            apm,
-            src_ptrs.as_ptr(),
-            config,
-            config,
-            dest_ptrs.as_ptr(),
-        );
+        let err = unsafe {
+            wap_process_reverse_stream_f32(
+                apm,
+                src_ptrs.as_ptr(),
+                config,
+                config,
+                dest_ptrs.as_ptr(),
+            )
+        };
         assert_eq!(err, WapError::None);
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -804,10 +936,11 @@ mod tests {
         let mut dest_r = [0.0f32; 160];
         let dest_ptrs: [*mut f32; 2] = [dest_l.as_mut_ptr(), dest_r.as_mut_ptr()];
 
-        let err =
-            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        let err = unsafe {
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr())
+        };
         assert_eq!(err, WapError::None);
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -822,21 +955,23 @@ mod tests {
         let src = [0i16; 160];
         let mut dest = [100i16; 160];
 
-        let err = wap_process_stream_i16(
-            apm,
-            src.as_ptr(),
-            160,
-            config,
-            config,
-            dest.as_mut_ptr(),
-            160,
-        );
+        let err = unsafe {
+            wap_process_stream_i16(
+                apm,
+                src.as_ptr(),
+                160,
+                config,
+                config,
+                dest.as_mut_ptr(),
+                160,
+            )
+        };
         assert_eq!(err, WapError::None);
 
         for &s in &dest {
             assert_eq!(s, 0, "expected silence");
         }
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -845,15 +980,17 @@ mod tests {
             sample_rate_hz: 16000,
             num_channels: 1,
         };
-        let err = wap_process_stream_i16(
-            ptr::null_mut(),
-            ptr::null(),
-            0,
-            config,
-            config,
-            ptr::null_mut(),
-            0,
-        );
+        let err = unsafe {
+            wap_process_stream_i16(
+                ptr::null_mut(),
+                ptr::null(),
+                0,
+                config,
+                config,
+                ptr::null_mut(),
+                0,
+            )
+        };
         assert_eq!(err, WapError::NullPointer);
     }
 
@@ -869,17 +1006,19 @@ mod tests {
         let src = [0i16; 10]; // Too short for 160 frames.
         let mut dest = [0i16; 160];
 
-        let err = wap_process_stream_i16(
-            apm,
-            src.as_ptr(),
-            10,
-            config,
-            config,
-            dest.as_mut_ptr(),
-            160,
-        );
+        let err = unsafe {
+            wap_process_stream_i16(
+                apm,
+                src.as_ptr(),
+                10,
+                config,
+                config,
+                dest.as_mut_ptr(),
+                160,
+            )
+        };
         assert_eq!(err, WapError::BadDataLength);
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -894,17 +1033,19 @@ mod tests {
         let src = [100i16; 160];
         let mut dest = [0i16; 160];
 
-        let err = wap_process_reverse_stream_i16(
-            apm,
-            src.as_ptr(),
-            160,
-            config,
-            config,
-            dest.as_mut_ptr(),
-            160,
-        );
+        let err = unsafe {
+            wap_process_reverse_stream_i16(
+                apm,
+                src.as_ptr(),
+                160,
+                config,
+                config,
+                dest.as_mut_ptr(),
+                160,
+            )
+        };
         assert_eq!(err, WapError::None);
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     // ─── Analog level tests ─────────────────────────────────────
@@ -914,19 +1055,22 @@ mod tests {
         let apm = wap_create();
         assert!(!apm.is_null());
 
-        let err = wap_set_stream_analog_level(apm, 128);
+        let err = unsafe { wap_set_stream_analog_level(apm, 128) };
         assert_eq!(err, WapError::None);
         // Recommended level depends on processing state; just check it doesn't crash.
-        let _level = wap_recommended_stream_analog_level(apm);
+        let _level = unsafe { wap_recommended_stream_analog_level(apm) };
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
     fn analog_level_null_safety() {
-        let err = wap_set_stream_analog_level(ptr::null_mut(), 0);
+        let err = unsafe { wap_set_stream_analog_level(ptr::null_mut(), 0) };
         assert_eq!(err, WapError::NullPointer);
-        assert_eq!(wap_recommended_stream_analog_level(ptr::null()), 0);
+        assert_eq!(
+            unsafe { wap_recommended_stream_analog_level(ptr::null()) },
+            0
+        );
     }
 
     // ─── Stream delay tests ──────────────────────────────────────
@@ -936,11 +1080,11 @@ mod tests {
         let apm = wap_create();
         assert!(!apm.is_null());
 
-        let err = wap_set_stream_delay_ms(apm, 50);
+        let err = unsafe { wap_set_stream_delay_ms(apm, 50) };
         assert_eq!(err, WapError::None);
-        assert_eq!(wap_stream_delay_ms(apm), 50);
+        assert_eq!(unsafe { wap_stream_delay_ms(apm) }, 50);
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -948,11 +1092,11 @@ mod tests {
         let apm = wap_create();
         assert!(!apm.is_null());
 
-        let err = wap_set_stream_delay_ms(apm, 600);
+        let err = unsafe { wap_set_stream_delay_ms(apm, 600) };
         assert_eq!(err, WapError::BadStreamParameter);
-        assert_eq!(wap_stream_delay_ms(apm), 500);
+        assert_eq!(unsafe { wap_stream_delay_ms(apm) }, 500);
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -960,48 +1104,50 @@ mod tests {
         let apm = wap_create();
         assert!(!apm.is_null());
 
-        let err = wap_set_stream_delay_ms(apm, -10);
+        let err = unsafe { wap_set_stream_delay_ms(apm, -10) };
         assert_eq!(err, WapError::BadStreamParameter);
-        assert_eq!(wap_stream_delay_ms(apm), 0);
+        assert_eq!(unsafe { wap_stream_delay_ms(apm) }, 0);
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
     fn delay_null_safety() {
-        let err = wap_set_stream_delay_ms(ptr::null_mut(), 0);
+        let err = unsafe { wap_set_stream_delay_ms(ptr::null_mut(), 0) };
         assert_eq!(err, WapError::NullPointer);
-        assert_eq!(wap_stream_delay_ms(ptr::null()), 0);
+        assert_eq!(unsafe { wap_stream_delay_ms(ptr::null()) }, 0);
     }
 
     // ─── Runtime settings tests ──────────────────────────────────
 
     #[test]
     fn runtime_settings_null_safety() {
-        assert_eq!(
-            wap_set_capture_pre_gain(ptr::null_mut(), 1.0),
-            WapError::NullPointer
-        );
-        assert_eq!(
-            wap_set_capture_post_gain(ptr::null_mut(), 1.0),
-            WapError::NullPointer
-        );
-        assert_eq!(
-            wap_set_capture_fixed_post_gain(ptr::null_mut(), 0.0),
-            WapError::NullPointer
-        );
-        assert_eq!(
-            wap_set_playout_volume(ptr::null_mut(), 0),
-            WapError::NullPointer
-        );
-        assert_eq!(
-            wap_set_playout_audio_device(ptr::null_mut(), 0, 0),
-            WapError::NullPointer
-        );
-        assert_eq!(
-            wap_set_capture_output_used(ptr::null_mut(), true),
-            WapError::NullPointer
-        );
+        unsafe {
+            assert_eq!(
+                wap_set_capture_pre_gain(ptr::null_mut(), 1.0),
+                WapError::NullPointer
+            );
+            assert_eq!(
+                wap_set_capture_post_gain(ptr::null_mut(), 1.0),
+                WapError::NullPointer
+            );
+            assert_eq!(
+                wap_set_capture_fixed_post_gain(ptr::null_mut(), 0.0),
+                WapError::NullPointer
+            );
+            assert_eq!(
+                wap_set_playout_volume(ptr::null_mut(), 0),
+                WapError::NullPointer
+            );
+            assert_eq!(
+                wap_set_playout_audio_device(ptr::null_mut(), 0, 0),
+                WapError::NullPointer
+            );
+            assert_eq!(
+                wap_set_capture_output_used(ptr::null_mut(), true),
+                WapError::NullPointer
+            );
+        }
     }
 
     #[test]
@@ -1009,30 +1155,33 @@ mod tests {
         let apm = wap_create();
         assert!(!apm.is_null());
 
-        assert_eq!(wap_set_capture_pre_gain(apm, 2.0), WapError::None);
-        assert_eq!(wap_set_capture_post_gain(apm, 1.5), WapError::None);
-        assert_eq!(wap_set_capture_fixed_post_gain(apm, 10.0), WapError::None);
-        assert_eq!(wap_set_playout_volume(apm, 128), WapError::None);
-        assert_eq!(wap_set_playout_audio_device(apm, 1, 255), WapError::None);
-        assert_eq!(wap_set_capture_output_used(apm, false), WapError::None);
-
-        wap_destroy(apm);
+        unsafe {
+            assert_eq!(wap_set_capture_pre_gain(apm, 2.0), WapError::None);
+            assert_eq!(wap_set_capture_post_gain(apm, 1.5), WapError::None);
+            assert_eq!(wap_set_capture_fixed_post_gain(apm, 10.0), WapError::None);
+            assert_eq!(wap_set_playout_volume(apm, 128), WapError::None);
+            assert_eq!(wap_set_playout_audio_device(apm, 1, 255), WapError::None);
+            assert_eq!(wap_set_capture_output_used(apm, false), WapError::None);
+            wap_destroy(apm);
+        }
     }
 
     // ─── Statistics tests ────────────────────────────────────────
 
     #[test]
     fn get_statistics_null_safety() {
-        assert_eq!(
-            wap_get_statistics(ptr::null(), ptr::null_mut()),
-            WapError::NullPointer
-        );
-        let apm = wap_create();
-        assert_eq!(
-            wap_get_statistics(apm, ptr::null_mut()),
-            WapError::NullPointer
-        );
-        wap_destroy(apm);
+        unsafe {
+            assert_eq!(
+                wap_get_statistics(ptr::null(), ptr::null_mut()),
+                WapError::NullPointer
+            );
+            let apm = wap_create();
+            assert_eq!(
+                wap_get_statistics(apm, ptr::null_mut()),
+                WapError::NullPointer
+            );
+            wap_destroy(apm);
+        }
     }
 
     #[test]
@@ -1058,13 +1207,13 @@ mod tests {
             has_delay_ms: false,
             delay_ms: 0,
         };
-        let err = wap_get_statistics(apm, &mut stats);
+        let err = unsafe { wap_get_statistics(apm, &mut stats) };
         assert_eq!(err, WapError::None);
         // With no processing done, no stats should be available.
         assert!(!stats.has_echo_return_loss);
         assert!(!stats.has_echo_return_loss_enhancement);
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     // ─── Processing error tests (continued) ──────────────────────
@@ -1083,10 +1232,11 @@ mod tests {
         let mut dest_data = [0.0f32; 1];
         let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
 
-        let err =
-            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        let err = unsafe {
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr())
+        };
         assert_eq!(err, WapError::BadSampleRate);
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     // ─── End-to-end integration tests ────────────────────────────
@@ -1122,17 +1272,19 @@ mod tests {
             let mut render_out = vec![0.0f32; num_frames];
             let render_out_ptrs: [*mut f32; 1] = [render_out.as_mut_ptr()];
 
-            let err = wap_process_reverse_stream_f32(
-                apm,
-                render_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                render_out_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_reverse_stream_f32(
+                    apm,
+                    render_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    render_out_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "render frame {i}");
 
             // Set stream delay before capture processing.
-            let err = wap_set_stream_delay_ms(apm, 10);
+            let err = unsafe { wap_set_stream_delay_ms(apm, 10) };
             assert_eq!(err, WapError::None);
 
             // Capture (near-end) signal: same sine (simulating echo).
@@ -1141,13 +1293,15 @@ mod tests {
             let mut capture_out = vec![0.0f32; num_frames];
             let capture_out_ptrs: [*mut f32; 1] = [capture_out.as_mut_ptr()];
 
-            let err = wap_process_stream_f32(
-                apm,
-                capture_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                capture_out_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_stream_f32(
+                    apm,
+                    capture_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    capture_out_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "capture frame {i}");
         }
 
@@ -1170,7 +1324,7 @@ mod tests {
             has_delay_ms: false,
             delay_ms: 0,
         };
-        let err = wap_get_statistics(apm, &mut stats);
+        let err = unsafe { wap_get_statistics(apm, &mut stats) };
         assert_eq!(err, WapError::None);
         // delay_ms should be populated after AEC processing.
         assert!(
@@ -1178,7 +1332,7 @@ mod tests {
             "expected delay_ms stat after AEC3 processing"
         );
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -1211,37 +1365,40 @@ mod tests {
             let mut render_out = vec![0.0f32; num_frames];
             let render_out_ptrs: [*mut f32; 1] = [render_out.as_mut_ptr()];
 
-            let err = wap_process_reverse_stream_f32(
-                apm,
-                render_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                render_out_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_reverse_stream_f32(
+                    apm,
+                    render_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    render_out_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "render frame {i}");
 
-            let err = wap_set_stream_delay_ms(apm, 20);
+            let err = unsafe { wap_set_stream_delay_ms(apm, 20) };
             assert_eq!(err, WapError::None);
 
             // Process capture with some noise-like content.
             let capture: Vec<f32> = (0..num_frames)
                 .map(|j| {
                     let t = (i * num_frames + j) as f32 / 48000.0;
-                    (2.0 * std::f32::consts::PI * 300.0 * t).sin() * 0.3
-                        + (2.0 * std::f32::consts::PI * 1500.0 * t).sin() * 0.1
+                    (2.0 * PI * 300.0 * t).sin() * 0.3 + (2.0 * PI * 1500.0 * t).sin() * 0.1
                 })
                 .collect();
             let capture_ptrs: [*const f32; 1] = [capture.as_ptr()];
             let mut capture_out = vec![0.0f32; num_frames];
             let capture_out_ptrs: [*mut f32; 1] = [capture_out.as_mut_ptr()];
 
-            let err = wap_process_stream_f32(
-                apm,
-                capture_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                capture_out_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_stream_f32(
+                    apm,
+                    capture_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    capture_out_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "capture frame {i}");
 
             // Output should be finite.
@@ -1253,7 +1410,7 @@ mod tests {
             }
         }
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -1274,13 +1431,15 @@ mod tests {
         for i in 0..10 {
             let mut dest = vec![0.0f32; num_frames];
             let dest_ptrs: [*mut f32; 1] = [dest.as_mut_ptr()];
-            let err = wap_process_stream_f32(
-                apm,
-                src_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                dest_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_stream_f32(
+                    apm,
+                    src_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    dest_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "pre-config frame {i}");
             // With no processing, output should equal input.
             for j in 0..num_frames {
@@ -1296,12 +1455,12 @@ mod tests {
         config.high_pass_filter_enabled = true;
         config.noise_suppression_enabled = true;
         config.noise_suppression_level = WapNoiseSuppressionLevel::VeryHigh;
-        let err = wap_apply_config(apm, config);
+        let err = unsafe { wap_apply_config(apm, config) };
         assert_eq!(err, WapError::None);
 
         // Verify config took effect.
         let mut readback = wap_config_default();
-        let err = wap_get_config(apm, &mut readback);
+        let err = unsafe { wap_get_config(apm, &mut readback) };
         assert_eq!(err, WapError::None);
         assert!(readback.high_pass_filter_enabled);
         assert!(readback.noise_suppression_enabled);
@@ -1314,13 +1473,15 @@ mod tests {
         for i in 0..20 {
             let mut dest = vec![0.0f32; num_frames];
             let dest_ptrs: [*mut f32; 1] = [dest.as_mut_ptr()];
-            let err = wap_process_stream_f32(
-                apm,
-                src_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                dest_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_stream_f32(
+                    apm,
+                    src_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    dest_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "post-config frame {i}");
             // Output should still be finite.
             for &s in &dest {
@@ -1332,24 +1493,26 @@ mod tests {
         config.noise_suppression_enabled = false;
         config.gain_controller2_enabled = true;
         config.gain_controller2_adaptive_digital_enabled = true;
-        let err = wap_apply_config(apm, config);
+        let err = unsafe { wap_apply_config(apm, config) };
         assert_eq!(err, WapError::None);
 
         // Process 10 more frames.
         for i in 0..10 {
             let mut dest = vec![0.0f32; num_frames];
             let dest_ptrs: [*mut f32; 1] = [dest.as_mut_ptr()];
-            let err = wap_process_stream_f32(
-                apm,
-                src_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                dest_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_stream_f32(
+                    apm,
+                    src_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    dest_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "agc2 frame {i}");
         }
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -1373,25 +1536,27 @@ mod tests {
                 let src: Vec<i16> = (0..num_frames)
                     .map(|j| {
                         let t = (i * num_frames + j) as f32 / rate as f32;
-                        (f32::sin(2.0 * std::f32::consts::PI * 440.0 * t) * 16000.0) as i16
+                        (f32::sin(2.0 * PI * 440.0 * t) * 16000.0) as i16
                     })
                     .collect();
                 let mut dest = vec![0i16; num_frames];
 
-                let err = wap_process_stream_i16(
-                    apm,
-                    src.as_ptr(),
-                    num_frames as i32,
-                    stream_config,
-                    stream_config,
-                    dest.as_mut_ptr(),
-                    num_frames as i32,
-                );
+                let err = unsafe {
+                    wap_process_stream_i16(
+                        apm,
+                        src.as_ptr(),
+                        num_frames as i32,
+                        stream_config,
+                        stream_config,
+                        dest.as_mut_ptr(),
+                        num_frames as i32,
+                    )
+                };
                 assert_eq!(err, WapError::None, "rate={rate} frame={i}");
             }
         }
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 
     #[test]
@@ -1420,16 +1585,18 @@ mod tests {
             let mut out_r = vec![0.0f32; num_frames];
             let out_ptrs: [*mut f32; 2] = [out_l.as_mut_ptr(), out_r.as_mut_ptr()];
 
-            let err = wap_process_reverse_stream_f32(
-                apm,
-                render_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                out_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_reverse_stream_f32(
+                    apm,
+                    render_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    out_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "render frame {i}");
 
-            let err = wap_set_stream_delay_ms(apm, 15);
+            let err = unsafe { wap_set_stream_delay_ms(apm, 15) };
             assert_eq!(err, WapError::None);
 
             // Stereo capture.
@@ -1440,13 +1607,15 @@ mod tests {
             let mut cap_out_r = vec![0.0f32; num_frames];
             let cap_out_ptrs: [*mut f32; 2] = [cap_out_l.as_mut_ptr(), cap_out_r.as_mut_ptr()];
 
-            let err = wap_process_stream_f32(
-                apm,
-                cap_ptrs.as_ptr(),
-                stream_config,
-                stream_config,
-                cap_out_ptrs.as_ptr(),
-            );
+            let err = unsafe {
+                wap_process_stream_f32(
+                    apm,
+                    cap_ptrs.as_ptr(),
+                    stream_config,
+                    stream_config,
+                    cap_out_ptrs.as_ptr(),
+                )
+            };
             assert_eq!(err, WapError::None, "capture frame {i}");
 
             // Both channels should have finite output.
@@ -1455,6 +1624,6 @@ mod tests {
             }
         }
 
-        wap_destroy(apm);
+        unsafe { wap_destroy(apm) };
     }
 }

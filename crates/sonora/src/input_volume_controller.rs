@@ -69,8 +69,8 @@ fn compute_clipped_ratio(audio: &AudioBuffer) -> f32 {
     for ch in 0..audio.num_channels() {
         let channel = audio.channel(ch);
         let mut num_clipped_in_ch = 0;
-        for i in 0..samples_per_channel {
-            if channel[i] >= 32767.0 || channel[i] <= -32768.0 {
+        for &sample in &channel[..samples_per_channel] {
+            if sample >= 32767.0 || sample <= -32768.0 {
                 num_clipped_in_ch += 1;
             }
         }
@@ -245,11 +245,11 @@ impl MonoInputVolumeController {
 
             if !self.is_first_frame
                 && speech_ratio >= self.speech_ratio_threshold
-                && rms_error_db.is_some()
+                && let Some(rms_error) = rms_error_db
             {
                 // Convert from f32 to i32, rounding. The C++ code passes int directly,
                 // but some callers (tests) pass float.
-                self.update_input_volume(rms_error_db.unwrap() as i32);
+                self.update_input_volume(rms_error as i32);
             }
         }
 
@@ -266,6 +266,7 @@ impl MonoInputVolumeController {
     }
 
     #[cfg(test)]
+    #[allow(dead_code, reason = "test utility")]
     pub(crate) fn min_input_volume(&self) -> i32 {
         self.min_input_volume
     }
@@ -275,7 +276,7 @@ impl MonoInputVolumeController {
         if applied_input_volume == 0 {
             return;
         }
-        if applied_input_volume < 0 || applied_input_volume > MAX_INPUT_VOLUME {
+        if !(0..=MAX_INPUT_VOLUME).contains(&applied_input_volume) {
             return;
         }
 
@@ -312,7 +313,7 @@ impl MonoInputVolumeController {
         if input_volume == 0 && !self.startup {
             return 0;
         }
-        if input_volume < 0 || input_volume > MAX_INPUT_VOLUME {
+        if !(0..=MAX_INPUT_VOLUME).contains(&input_volume) {
             return -1;
         }
 
@@ -514,9 +515,7 @@ impl InputVolumeController {
         speech_probability: f32,
         speech_level_dbfs: Option<f32>,
     ) -> Option<i32> {
-        if self.applied_input_volume.is_none() {
-            return None;
-        }
+        self.applied_input_volume?;
 
         self.aggregate_channel_levels();
         let _volume_after_clipping_handling = self.recommended_input_volume;
@@ -549,18 +548,22 @@ impl InputVolumeController {
         self.capture_output_used = capture_output_used;
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn recommended_input_volume(&self) -> i32 {
         self.recommended_input_volume
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn capture_output_used(&self) -> bool {
         self.capture_output_used
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn clipping_predictor_enabled(&self) -> bool {
         self.clipping_predictor.is_some()
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn use_clipping_predictor_step(&self) -> bool {
         self.use_clipping_predictor_step
     }
@@ -585,10 +588,10 @@ impl InputVolumeController {
         }
 
         // Enforce the minimum input volume when a recommendation is made.
-        if let Some(applied) = self.applied_input_volume {
-            if applied > 0 {
-                new_recommended = new_recommended.max(self.min_input_volume);
-            }
+        if let Some(applied) = self.applied_input_volume
+            && applied > 0
+        {
+            new_recommended = new_recommended.max(self.min_input_volume);
         }
 
         self.recommended_input_volume = new_recommended;
@@ -1299,6 +1302,7 @@ mod tests {
     const CLIPPED_WAIT_FRAMES: i32 = 300;
     const SPEECH_LEVEL: f32 = -25.0;
 
+    #[allow(dead_code, reason = "test utility")]
     const MIN_SAMPLE: f32 = i16::MIN as f32;
     const MAX_SAMPLE: f32 = i16::MAX as f32;
 
@@ -1328,11 +1332,11 @@ mod tests {
         let num_clipping_samples = (clipped_ratio * num_samples as f32) as usize;
         for ch in 0..num_channels {
             let channel = audio_buffer.channel_mut(ch);
-            for i in 0..num_clipping_samples {
-                channel[i] = 32767.0;
+            for sample in &mut channel[..num_clipping_samples] {
+                *sample = 32767.0;
             }
-            for i in num_clipping_samples..num_samples {
-                channel[i] = samples_value;
+            for sample in &mut channel[num_clipping_samples..num_samples] {
+                *sample = samples_value;
             }
         }
     }

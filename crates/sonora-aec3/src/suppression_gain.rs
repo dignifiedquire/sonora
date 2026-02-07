@@ -5,7 +5,7 @@
 use crate::aec_state::AecState;
 use crate::block::Block;
 use crate::common::{BLOCK_SIZE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
-use crate::config::EchoCanceller3Config;
+use crate::config::{EchoCanceller3Config, Suppressor, Tuning};
 use crate::moving_average::MovingAverage;
 use crate::nearend_detector::{DominantNearendDetector, NearendDetector, SubbandNearendDetector};
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
@@ -20,10 +20,7 @@ fn limit_low_frequency_gains(gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
 
 /// Limits the high frequency gains to avoid echo leakage due to an imperfect
 /// filter.
-fn limit_high_frequency_gains(
-    config: &crate::config::Suppressor,
-    gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
-) {
+fn limit_high_frequency_gains(config: &Suppressor, gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
     let limiting_gain_band = config.high_frequency_suppression.limiting_gain_band as usize;
     let bands_in_limiting_gain = config.high_frequency_suppression.bands_in_limiting_gain as usize;
     if bands_in_limiting_gain > 0 {
@@ -97,6 +94,7 @@ fn weight_echo_for_audibility(
 }
 
 /// Per-band masking thresholds computed from the tuning config.
+#[derive(Debug)]
 struct GainParameters {
     max_inc_factor: f32,
     max_dec_factor_lf: f32,
@@ -106,7 +104,7 @@ struct GainParameters {
 }
 
 impl GainParameters {
-    fn new(last_lf_band: i32, first_hf_band: i32, tuning: &crate::config::Tuning) -> Self {
+    fn new(last_lf_band: i32, first_hf_band: i32, tuning: &Tuning) -> Self {
         let mut enr_transparent = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         let mut enr_suppress = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         let mut emr_transparent = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
@@ -141,6 +139,7 @@ impl GainParameters {
 
 /// Detects when the render signal can be considered to have low power and
 /// consist of stationary noise.
+#[derive(Debug)]
 struct LowNoiseRenderDetector {
     average_power: f32,
 }
@@ -173,6 +172,7 @@ impl LowNoiseRenderDetector {
 }
 
 /// Computes the frequency-domain suppression gain.
+#[derive(Debug)]
 pub(crate) struct SuppressionGain {
     vector_math: VectorMath,
     config: EchoCanceller3Config,
@@ -338,11 +338,10 @@ impl SuppressionGain {
         }
         let num_render_channels = render.num_channels();
 
-        if let Some(peak_band) = narrow_peak_band {
-            if peak_band > FFT_LENGTH_BY_2_PLUS_1 - 10 {
+        if let Some(peak_band) = narrow_peak_band
+            && peak_band > FFT_LENGTH_BY_2_PLUS_1 - 10 {
                 return 0.001;
             }
-        }
 
         const K_LOW_BAND_GAIN_LIMIT: usize = FFT_LENGTH_BY_2 / 2;
         let gain_below_8_khz = low_band_gain[K_LOW_BAND_GAIN_LIMIT..]

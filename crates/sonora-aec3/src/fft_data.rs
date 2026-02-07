@@ -10,7 +10,7 @@ use crate::common::{FFT_LENGTH, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
 /// The FFT of a real 128-sample signal produces 65 complex bins (DC through
 /// Nyquist). The DC and Nyquist bins are always real-valued, so `im[0]` and
 /// `im[64]` are kept at zero.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct FftData {
     pub re: [f32; FFT_LENGTH_BY_2_PLUS_1],
     pub im: [f32; FFT_LENGTH_BY_2_PLUS_1],
@@ -27,7 +27,7 @@ impl Default for FftData {
 
 impl FftData {
     /// Copies data from `src`, forcing `im[0]` and `im[N/2]` to zero.
-    pub(crate) fn assign(&mut self, src: &FftData) {
+    pub(crate) fn assign(&mut self, src: &Self) {
         self.re = src.re;
         self.im = src.im;
         self.im[0] = 0.0;

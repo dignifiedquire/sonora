@@ -13,6 +13,7 @@ pub(crate) struct MovingMax {
 }
 
 impl MovingMax {
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new(window_size: usize) -> Self {
         debug_assert!(window_size > 0);
         Self {

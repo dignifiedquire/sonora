@@ -41,6 +41,7 @@ fn compute_buffer_delay(
 }
 
 /// Aligns render and capture signals using delay estimation.
+#[derive(Debug)]
 pub(crate) struct RenderDelayController {
     hysteresis_limit_blocks: i32,
     delay: Option<DelayEstimate>,

@@ -6,6 +6,9 @@
 //! Ported from `AudioProcessing` / `AudioProcessingBuilderInterface` in
 //! `api/audio/audio_processing.h`.
 
+use std::error;
+use std::fmt;
+
 use crate::audio_processing_impl::AudioProcessingImpl;
 use crate::config::{Config, RuntimeSetting};
 use crate::stats::AudioProcessingStats;
@@ -24,8 +27,8 @@ pub enum Error {
     BadStreamParameter,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BadSampleRate => write!(f, "bad sample rate"),
             Self::BadNumberChannels => write!(f, "bad number of channels"),
@@ -34,7 +37,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl error::Error for Error {}
 
 // ─── Format validation ──────────────────────────────────────────────
 
@@ -280,6 +283,7 @@ fn handle_unsupported_formats_i16(
 ///     .config(config)
 ///     .build();
 /// ```
+#[derive(Debug)]
 pub struct AudioProcessingBuilder {
     config: Config,
 }
@@ -328,6 +332,15 @@ pub struct AudioProcessing {
     inner: AudioProcessingImpl,
     stream_delay_ms: i32,
     was_stream_delay_set: bool,
+}
+
+impl fmt::Debug for AudioProcessing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AudioProcessing")
+            .field("stream_delay_ms", &self.stream_delay_ms)
+            .field("was_stream_delay_set", &self.was_stream_delay_set)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AudioProcessing {
@@ -412,7 +425,7 @@ impl AudioProcessing {
 
         self.inner
             .recommended_input_volume()
-            .or(self.inner.applied_input_volume())
+            .or_else(|| self.inner.applied_input_volume())
             .unwrap_or(FALLBACK_INPUT_VOLUME)
     }
 
@@ -538,6 +551,7 @@ impl Default for AudioProcessing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::NoiseSuppressionLevel;
 
     #[test]
     fn builder_creates_default_instance() {
@@ -722,9 +736,9 @@ mod tests {
         let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadNumberChannels));
         // Both output channels should be a copy of input channel 0.
-        for i in 0..160 {
-            assert_eq!(dest[0][i], 0.5, "dest[0][{i}] should be ch0 value");
-            assert_eq!(dest[1][i], 0.5, "dest[1][{i}] should be ch0 value");
+        for (i, (&d0, &d1)) in dest[0].iter().zip(dest[1].iter()).enumerate().take(160) {
+            assert_eq!(d0, 0.5, "dest[0][{i}] should be ch0 value");
+            assert_eq!(d1, 0.5, "dest[1][{i}] should be ch0 value");
         }
     }
 
@@ -994,7 +1008,7 @@ mod tests {
     fn noise_suppression_processes_multiple_frames() {
         let mut config = Config::default();
         config.noise_suppression.enabled = true;
-        config.noise_suppression.level = crate::config::NoiseSuppressionLevel::High;
+        config.noise_suppression.level = NoiseSuppressionLevel::High;
         let mut apm = AudioProcessing::builder().config(config).build();
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;

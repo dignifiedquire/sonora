@@ -2,6 +2,8 @@
 //!
 //! Ported from `modules/audio_processing/aec3/block.h`.
 
+use std::mem;
+
 use crate::common::BLOCK_SIZE;
 
 /// Contains one or more channels of 4 ms of audio data.
@@ -9,7 +11,7 @@ use crate::common::BLOCK_SIZE;
 /// The audio is split into one or more frequency bands, each with a sampling
 /// rate of 16 kHz. Each band/channel combination holds `BLOCK_SIZE` (64)
 /// samples.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Block {
     num_bands: usize,
     num_channels: usize,
@@ -62,10 +64,10 @@ impl Block {
     }
 
     /// Swaps audio data with another block.
-    pub fn swap(&mut self, other: &mut Block) {
-        std::mem::swap(&mut self.num_bands, &mut other.num_bands);
-        std::mem::swap(&mut self.num_channels, &mut other.num_channels);
-        std::mem::swap(&mut self.data, &mut other.data);
+    pub fn swap(&mut self, other: &mut Self) {
+        mem::swap(&mut self.num_bands, &mut other.num_bands);
+        mem::swap(&mut self.num_channels, &mut other.num_channels);
+        mem::swap(&mut self.data, &mut other.data);
     }
 
     fn get_index(&self, band: usize, channel: usize) -> usize {

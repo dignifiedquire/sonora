@@ -39,7 +39,7 @@ const HIGH_PASS_FILTER_COEFFICIENTS_32KHZ: [BiQuadCoefficients; 3] = [
 const HIGH_PASS_FILTER_COEFFICIENTS_48KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [0.921_379_f32, -1.842_755_2_f32, 0.921_379_f32],
-        a: [-1.960_450_f32, 0.961_186_3_f32],
+        a: [-1.960_45_f32, 0.961_186_3_f32],
     },
     BiQuadCoefficients {
         b: [1.0, -1.999_979_f32, 1.0],
@@ -102,12 +102,14 @@ impl HighPassFilter {
         }
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn reset(&mut self) {
         for filter in &mut self.filters {
             filter.reset();
         }
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn reset_with_channels(&mut self, num_channels: usize) {
         let old_num_channels = self.filters.len();
         self.filters.resize_with(num_channels, || {
@@ -144,7 +146,7 @@ mod tests {
         stream_config: &StreamConfig,
         hpf: &mut HighPassFilter,
     ) -> Vec<f32> {
-        let rate = stream_config.sample_rate_hz() as usize;
+        let rate = stream_config.sample_rate_hz();
         let ch_count = stream_config.num_channels();
         let mut audio_buffer = AudioBuffer::new(rate, ch_count, rate, ch_count, rate);
 

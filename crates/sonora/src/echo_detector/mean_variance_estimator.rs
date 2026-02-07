@@ -12,6 +12,7 @@ pub(crate) struct MeanVarianceEstimator {
 }
 
 impl MeanVarianceEstimator {
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new() -> Self {
         Self {
             mean: 0.0,

@@ -4,6 +4,7 @@
 
 /// Configuration for the Echo Canceller 3.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct EchoCanceller3Config {
     pub buffering: Buffering,
     pub delay: Delay,
@@ -19,24 +20,6 @@ pub struct EchoCanceller3Config {
     pub multi_channel: MultiChannel,
 }
 
-impl Default for EchoCanceller3Config {
-    fn default() -> Self {
-        Self {
-            buffering: Buffering::default(),
-            delay: Delay::default(),
-            filter: Filter::default(),
-            erle: Erle::default(),
-            ep_strength: EpStrength::default(),
-            echo_audibility: EchoAudibility::default(),
-            render_levels: RenderLevels::default(),
-            echo_removal_control: EchoRemovalControl::default(),
-            echo_model: EchoModel::default(),
-            comfort_noise: ComfortNoise::default(),
-            suppressor: Suppressor::default(),
-            multi_channel: MultiChannel::default(),
-        }
-    }
-}
 
 impl EchoCanceller3Config {
     /// Validates and clamps config parameters to reasonable ranges.
@@ -618,19 +601,12 @@ impl Default for RenderLevels {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct EchoRemovalControl {
     pub has_clock_drift: bool,
     pub linear_and_stable_echo_path: bool,
 }
 
-impl Default for EchoRemovalControl {
-    fn default() -> Self {
-        Self {
-            has_clock_drift: false,
-            linear_and_stable_echo_path: false,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct EchoModel {

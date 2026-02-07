@@ -11,6 +11,7 @@ const LOOKBACK_FRAMES: usize = 650;
 const RENDER_BUFFER_SIZE: usize = 30;
 const ALPHA: f32 = 0.001;
 /// 10 seconds of data, updated every 10 ms.
+#[allow(dead_code, reason = "API completeness")]
 const AGGREGATION_BUFFER_SIZE: usize = 10 * 100;
 
 fn power(input: &[f32]) -> f32 {
@@ -47,6 +48,7 @@ pub(crate) struct ResidualEchoDetector {
 }
 
 impl ResidualEchoDetector {
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new() -> Self {
         Self {
             first_process_call: true,
@@ -88,9 +90,8 @@ impl ResidualEchoDetector {
             self.first_process_call = false;
         }
 
-        let buffered_render_power = match self.render_buffer.pop() {
-            Some(v) => v,
-            None => return,
+        let Some(buffered_render_power) = self.render_buffer.pop() else {
+            return;
         };
 
         // Update render statistics and store in circular buffers.
@@ -132,15 +133,13 @@ impl ResidualEchoDetector {
             }
         }
 
-        if self.echo_likelihood > 1.1 {
-            if self.log_counter < 5 {
-                tracing::error!(
-                    echo_likelihood = self.echo_likelihood,
-                    reliability = self.reliability,
-                    "echo detector internal state: echo likelihood > 1.1"
-                );
-                self.log_counter += 1;
-            }
+        if self.echo_likelihood > 1.1 && self.log_counter < 5 {
+            tracing::error!(
+                echo_likelihood = self.echo_likelihood,
+                reliability = self.reliability,
+                "echo detector internal state: echo likelihood > 1.1"
+            );
+            self.log_counter += 1;
         }
         debug_assert!(self.echo_likelihood < 1.1);
 

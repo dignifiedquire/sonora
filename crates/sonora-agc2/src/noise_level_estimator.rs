@@ -43,6 +43,7 @@ fn smooth_noise_floor_estimate(current_estimate: f32, new_estimate: f32) -> f32 
 }
 
 /// Noise level estimator based on noise floor detection.
+#[derive(Debug)]
 pub struct NoiseLevelEstimator {
     sample_rate_hz: i32,
     min_noise_energy: f32,

@@ -23,6 +23,7 @@ fn has_stereo_content(frame: &[Vec<Vec<f32>>], detection_threshold: f32) -> bool
 
 /// Analyzes audio content to determine whether it is proper multichannel
 /// or only upmixed mono.
+#[derive(Debug)]
 pub struct MultiChannelContentDetector {
     detect_stereo_content: bool,
     detection_threshold: f32,
@@ -94,10 +95,10 @@ impl MultiChannelContentDetector {
         if self.consecutive_frames_with_stereo > self.stereo_detection_hysteresis_frames {
             self.persistent_multichannel_content_detected = true;
         }
-        if let Some(timeout) = self.detection_timeout_threshold_frames {
-            if self.frames_since_stereo_detected_last >= timeout {
-                self.persistent_multichannel_content_detected = false;
-            }
+        if let Some(timeout) = self.detection_timeout_threshold_frames
+            && self.frames_since_stereo_detected_last >= timeout
+        {
+            self.persistent_multichannel_content_detected = false;
         }
 
         // Detect temporary multichannel content.

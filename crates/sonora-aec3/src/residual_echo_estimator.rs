@@ -4,7 +4,7 @@
 
 use crate::aec_state::AecState;
 use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
-use crate::config::EchoCanceller3Config;
+use crate::config::{EchoCanceller3Config, EchoModel};
 use crate::render_buffer::RenderBuffer;
 use crate::reverb_model::ReverbModel;
 use crate::spectrum_buffer::SpectrumBuffer;
@@ -42,7 +42,7 @@ fn non_linear_estimate(
 }
 
 /// Applies a soft noise gate to the echo generating power.
-fn apply_noise_gate(config: &crate::config::EchoModel, x2: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
+fn apply_noise_gate(config: &EchoModel, x2: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
     for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
         if config.noise_gate_power > x2[k] {
             x2[k] = (x2[k] - config.noise_gate_slope * (config.noise_gate_power - x2[k])).max(0.0);
@@ -53,7 +53,7 @@ fn apply_noise_gate(config: &crate::config::EchoModel, x2: &mut [f32; FFT_LENGTH
 /// Computes the render indexes to analyze around the delay.
 fn get_render_indexes_to_analyze(
     spectrum_buffer: &SpectrumBuffer,
-    echo_model: &crate::config::EchoModel,
+    echo_model: &EchoModel,
     filter_delay_blocks: i32,
 ) -> (usize, usize) {
     let window_start = (filter_delay_blocks - echo_model.render_pre_window_size as i32).max(0);
@@ -72,7 +72,7 @@ fn get_render_indexes_to_analyze(
 fn echo_generating_power(
     num_render_channels: usize,
     spectrum_buffer: &SpectrumBuffer,
-    echo_model: &crate::config::EchoModel,
+    echo_model: &EchoModel,
     filter_delay_blocks: i32,
     x2: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
 ) {
@@ -107,6 +107,7 @@ fn echo_generating_power(
 }
 
 /// Estimates the residual echo power after echo cancellation.
+#[derive(Debug)]
 pub(crate) struct ResidualEchoEstimator {
     config: EchoCanceller3Config,
     num_render_channels: usize,
@@ -387,7 +388,7 @@ impl ResidualEchoEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Block;
+    
     use crate::block_buffer::BlockBuffer;
     use crate::fft_buffer::FftBuffer;
     use crate::spectrum_buffer::SpectrumBuffer;

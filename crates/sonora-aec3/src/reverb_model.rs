@@ -6,6 +6,7 @@ use crate::common::FFT_LENGTH_BY_2_PLUS_1;
 
 /// Describes an exponential reverberant model that can be applied over power
 /// spectra.
+#[derive(Debug)]
 pub(crate) struct ReverbModel {
     reverb: [f32; FFT_LENGTH_BY_2_PLUS_1],
 }

@@ -198,6 +198,12 @@ extern "C" {
  * Destroys an audio processing instance and frees its memory.
  *
  * Passing `NULL` is a safe no-op. After this call the pointer is invalid.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * After this call the pointer is invalid and must not be used again.
  */
  void wap_destroy(struct WapAudioProcessing *apm);
 
@@ -205,6 +211,11 @@ extern "C" {
  * Applies a new configuration to the audio processing instance.
  *
  * Returns `WapError::NullPointer` if `apm` is null.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_apply_config(struct WapAudioProcessing *apm, struct WapConfig config);
 
@@ -212,6 +223,12 @@ extern "C" {
  * Retrieves the current configuration.
  *
  * Returns `WapError::NullPointer` if `apm` or `config_out` is null.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * All pointer arguments must be valid and properly aligned.
  */
  WapError wap_get_config(const struct WapAudioProcessing *apm, struct WapConfig *config_out);
 
@@ -223,6 +240,11 @@ extern "C" {
  * triggering a full reinitialisation of internal buffers and submodules.
  *
  * Returns `WapError::NullPointer` if `apm` is null.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
 
 WapError wap_initialize(struct WapAudioProcessing *apm,
@@ -239,6 +261,14 @@ WapError wap_initialize(struct WapAudioProcessing *apm,
  * - `dest`: array of `output_config.num_channels` pointers (output buffers).
  *
  * Returns `WapError::None` on success.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * `src` and `dest` channel pointer arrays must have the correct number
+ * of channels and each channel pointer must point to at least the
+ * required number of frames.
  */
 
 WapError wap_process_stream_f32(struct WapAudioProcessing *apm,
@@ -249,6 +279,14 @@ WapError wap_process_stream_f32(struct WapAudioProcessing *apm,
 
 /**
  * Processes a reverse (render / far-end) audio frame (float, deinterleaved).
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * `src` and `dest` channel pointer arrays must have the correct number
+ * of channels and each channel pointer must point to at least the
+ * required number of frames.
  */
 
 WapError wap_process_reverse_stream_f32(struct WapAudioProcessing *apm,
@@ -264,6 +302,12 @@ WapError wap_process_reverse_stream_f32(struct WapAudioProcessing *apm,
  * - `dest`: pointer to output buffer of same size.
  * - Input and output configs must have native rates (8k/16k/32k/48k) and
  *   matching rates and channel counts.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * `src` and `dest` must point to at least the specified number of samples.
  */
 
 WapError wap_process_stream_i16(struct WapAudioProcessing *apm,
@@ -276,6 +320,12 @@ WapError wap_process_stream_i16(struct WapAudioProcessing *apm,
 
 /**
  * Processes a reverse (render / far-end) audio frame (int16, interleaved).
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * `src` and `dest` must point to at least the specified number of samples.
  */
 
 WapError wap_process_reverse_stream_i16(struct WapAudioProcessing *apm,
@@ -291,6 +341,11 @@ WapError wap_process_reverse_stream_i16(struct WapAudioProcessing *apm,
  *
  * Must be called before [`wap_process_stream_f32()`] if the input volume
  * controller is enabled. Value should be in range `[0, 255]`.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_stream_analog_level(struct WapAudioProcessing *apm, int32_t level);
 
@@ -299,6 +354,11 @@ WapError wap_process_reverse_stream_i16(struct WapAudioProcessing *apm,
  *
  * Should be called after [`wap_process_stream_f32()`] to obtain the
  * recommended new analog level. Returns 0 if `apm` is null.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  int32_t wap_recommended_stream_analog_level(const struct WapAudioProcessing *apm);
 
@@ -307,36 +367,71 @@ WapError wap_process_reverse_stream_i16(struct WapAudioProcessing *apm,
  *
  * The delay is clamped to `[0, 500]`. Returns `WapError::BadStreamParameter`
  * if clamping was necessary (processing still proceeds).
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_stream_delay_ms(struct WapAudioProcessing *apm, int32_t delay);
 
 /**
  * Returns the current stream delay in ms. Returns 0 if `apm` is null.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  int32_t wap_stream_delay_ms(const struct WapAudioProcessing *apm);
 
 /**
  * Sets the capture pre-gain factor via runtime setting.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_capture_pre_gain(struct WapAudioProcessing *apm, float gain);
 
 /**
  * Sets the capture post-gain factor via runtime setting.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_capture_post_gain(struct WapAudioProcessing *apm, float gain);
 
 /**
  * Sets the fixed post-gain in dB via runtime setting (range: 0..=90).
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_capture_fixed_post_gain(struct WapAudioProcessing *apm, float gain_db);
 
 /**
  * Notifies of a playout volume change via runtime setting.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_playout_volume(struct WapAudioProcessing *apm, int32_t volume);
 
 /**
  * Notifies of a playout audio device change via runtime setting.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
 
 WapError wap_set_playout_audio_device(struct WapAudioProcessing *apm,
@@ -345,6 +440,11 @@ WapError wap_set_playout_audio_device(struct WapAudioProcessing *apm,
 
 /**
  * Sets whether the capture output is used via runtime setting.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
  */
  WapError wap_set_capture_output_used(struct WapAudioProcessing *apm, bool used);
 
@@ -352,6 +452,12 @@ WapError wap_set_playout_audio_device(struct WapAudioProcessing *apm,
  * Retrieves current processing statistics.
  *
  * Returns `WapError::NullPointer` if `apm` or `stats_out` is null.
+ *
+ * # Safety
+ *
+ * `apm` must be a valid pointer returned by [`wap_create`] or
+ * [`wap_create_with_config`] and must not be concurrently accessed.
+ * All pointer arguments must be valid and properly aligned.
  */
  WapError wap_get_statistics(const struct WapAudioProcessing *apm, struct WapStats *stats_out);
 

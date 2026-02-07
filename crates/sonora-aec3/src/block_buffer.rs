@@ -6,6 +6,7 @@ use crate::block::Block;
 use crate::circular_buffer::RingIndex;
 
 /// Circular buffer of `Block` objects with read/write indices.
+#[derive(Debug)]
 pub(crate) struct BlockBuffer {
     pub index: RingIndex,
     pub buffer: Vec<Block>,

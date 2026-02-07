@@ -8,6 +8,7 @@ use crate::fft_data::FftData;
 /// Circular buffer of per-channel `FftData` with read/write indices.
 ///
 /// Each slot holds `num_channels` `FftData` structs.
+#[derive(Debug)]
 pub(crate) struct FftBuffer {
     pub index: RingIndex,
     /// `buffer[slot][channel]` — FFT data.

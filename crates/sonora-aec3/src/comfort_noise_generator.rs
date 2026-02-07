@@ -3,15 +3,18 @@
 //!
 //! Ported from `modules/audio_processing/aec3/comfort_noise_generator.h/cc`.
 
+use std::f32::consts;
+
+use crate::common;
 use crate::common::FFT_LENGTH_BY_2_PLUS_1;
 use crate::config::EchoCanceller3Config;
 use crate::fft_data::FftData;
 use crate::vector_math::VectorMath;
 
-const FFT_LENGTH_BY_2: usize = crate::common::FFT_LENGTH_BY_2;
+const FFT_LENGTH_BY_2: usize = common::FFT_LENGTH_BY_2;
 
 /// Table of sqrt(2) * sin(2*pi*i/32).
-const SQRT2: f32 = std::f32::consts::SQRT_2;
+const SQRT2: f32 = consts::SQRT_2;
 
 #[allow(clippy::excessive_precision, reason = "exact upstream table values")]
 const K_SQRT2_SIN: [f32; 32] = [
@@ -79,6 +82,7 @@ fn generate_comfort_noise(
 }
 
 /// Generates the comfort noise.
+#[derive(Debug)]
 pub(crate) struct ComfortNoiseGenerator {
     vector_math: VectorMath,
     seed: u32,

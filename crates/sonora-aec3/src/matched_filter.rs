@@ -44,6 +44,7 @@ impl LagEstimate {
 /// Performs NLMS cross-correlation of filter `h` with render signal `x` and
 /// capture signal `y`. Optionally computes accumulated error for pre-echo
 /// detection.
+#[allow(clippy::too_many_arguments, reason = "Matches C++ original signature")]
 pub(crate) fn matched_filter_core(
     mut x_start_index: usize,
     x2_sum_threshold: f32,
@@ -343,6 +344,7 @@ fn compute_pre_echo_lag(
 ///
 /// Produces recursively updated cross-correlation estimates for several signal
 /// shifts where the intra-shift spacing is uniform.
+#[derive(Debug)]
 pub(crate) struct MatchedFilter {
     backend: SimdBackend,
     sub_block_size: usize,
@@ -380,8 +382,8 @@ impl MatchedFilter {
         detect_pre_echo: bool,
     ) -> Self {
         debug_assert!(window_size_sub_blocks > 0);
-        debug_assert!(BLOCK_SIZE % sub_block_size == 0);
-        debug_assert!(sub_block_size % 4 == 0);
+        debug_assert!(BLOCK_SIZE.is_multiple_of(sub_block_size));
+        debug_assert!(sub_block_size.is_multiple_of(4));
 
         let filter_intra_lag_shift = alignment_shift_sub_blocks * sub_block_size;
         let filter_size = window_size_sub_blocks * sub_block_size;

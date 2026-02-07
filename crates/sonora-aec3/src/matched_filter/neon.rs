@@ -11,17 +11,16 @@ use std::arch::aarch64::*;
 /// Requires NEON support (always available on aarch64).
 #[target_feature(enable = "neon")]
 unsafe fn sum_all_elements(elements: float32x4_t) -> f32 {
-    unsafe {
-        let sum = vpadd_f32(vget_low_f32(elements), vget_high_f32(elements));
-        let sum = vpadd_f32(sum, sum);
-        vget_lane_f32::<0>(sum)
-    }
+    let sum = vpadd_f32(vget_low_f32(elements), vget_high_f32(elements));
+    let sum = vpadd_f32(sum, sum);
+    vget_lane_f32::<0>(sum)
 }
 
 /// NEON matched filter core without accumulated error.
 ///
 /// # Safety
 /// Requires NEON support. `h.len()` must be divisible by 4.
+#[allow(clippy::too_many_arguments, reason = "Matches C++ original signature")]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn matched_filter_core(
     mut x_start_index: usize,
@@ -121,6 +120,7 @@ pub(super) unsafe fn matched_filter_core(
 /// # Safety
 /// Requires NEON support. `h.len()` must be divisible by 4.
 /// `scratch_memory.len()` must be >= `h.len()`.
+#[allow(clippy::too_many_arguments, reason = "Matches C++ original signature")]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn matched_filter_core_accumulated_error(
     mut x_start_index: usize,

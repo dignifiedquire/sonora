@@ -8,6 +8,7 @@ use crate::common::FFT_LENGTH_BY_2_PLUS_1;
 /// Circular buffer of per-channel power spectra with read/write indices.
 ///
 /// Each slot holds `num_channels` spectra, each `FFT_LENGTH_BY_2_PLUS_1` bins.
+#[derive(Debug)]
 pub(crate) struct SpectrumBuffer {
     pub index: RingIndex,
     /// `buffer[slot][channel]` — power spectrum array.

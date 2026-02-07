@@ -3,6 +3,8 @@
 //!
 //! Ported from `modules/audio_processing/aec3/echo_remover.h/cc`.
 
+use std::ptr;
+
 use crate::aec_state::AecState;
 use crate::aec3_fft::{Aec3Fft, Window};
 use crate::block::Block;
@@ -13,7 +15,7 @@ use crate::common::{
 };
 use crate::config::EchoCanceller3Config;
 use crate::delay_estimate::DelayEstimate;
-use crate::echo_path_variability::EchoPathVariability;
+use crate::echo_path_variability::{DelayAdjustment, EchoPathVariability};
 use crate::echo_remover_metrics::EchoRemoverMetrics;
 use crate::fft_data::FftData;
 use crate::render_buffer::RenderBuffer;
@@ -44,7 +46,7 @@ fn signal_transition(from: &[f32], to: &[f32], out: &mut [f32]) {
     debug_assert_eq!(from.len(), to.len());
     debug_assert_eq!(from.len(), out.len());
 
-    if std::ptr::eq(from.as_ptr(), to.as_ptr()) {
+    if ptr::eq(from.as_ptr(), to.as_ptr()) {
         out.copy_from_slice(to);
     } else {
         const TRANSITION_SIZE: usize = 30;
@@ -73,6 +75,7 @@ fn windowed_padded_fft(
 }
 
 /// Removes echo from the capture signal.
+#[derive(Debug)]
 pub(crate) struct EchoRemover {
     config: EchoCanceller3Config,
     fft: Aec3Fft,
@@ -199,9 +202,7 @@ impl EchoRemover {
             self.aec_state
                 .handle_echo_path_change(&echo_path_variability);
 
-            if echo_path_variability.delay_change
-                != crate::echo_path_variability::DelayAdjustment::None
-            {
+            if echo_path_variability.delay_change != DelayAdjustment::None {
                 self.suppression_gain.set_initial_state(true);
             }
         }
@@ -439,6 +440,7 @@ mod tests {
     use crate::block::Block;
     use crate::block_buffer::BlockBuffer;
     use crate::common::num_bands_for_rate;
+    use crate::echo_path_variability::DelayAdjustment;
     use crate::fft_buffer::FftBuffer;
     use crate::render_buffer::RenderBuffer;
     use crate::spectrum_buffer::SpectrumBuffer;
@@ -476,9 +478,9 @@ mod tests {
                         let echo_path_variability = EchoPathVariability::new(
                             k % 3 == 0,
                             if k % 5 == 0 {
-                                crate::echo_path_variability::DelayAdjustment::NewDetectedDelay
+                                DelayAdjustment::NewDetectedDelay
                             } else {
-                                crate::echo_path_variability::DelayAdjustment::None
+                                DelayAdjustment::None
                             },
                             false,
                         );

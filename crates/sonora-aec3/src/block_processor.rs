@@ -17,6 +17,7 @@ use crate::render_delay_controller::RenderDelayController;
 use sonora_simd::SimdBackend;
 
 /// Block-level echo cancellation processor.
+#[derive(Debug)]
 pub struct BlockProcessor {
     backend: SimdBackend,
     config: EchoCanceller3Config,
@@ -162,10 +163,10 @@ impl BlockProcessor {
         // Update the render buffers and prepare for reading.
         let buffer_event = self.render_buffer.prepare_capture_processing();
         // Reset the delay controller at render buffer underrun.
-        if buffer_event == BufferingEvent::RenderUnderrun {
-            if let Some(ref mut dc) = self.delay_controller {
-                dc.reset(false);
-            }
+        if buffer_event == BufferingEvent::RenderUnderrun
+            && let Some(ref mut dc) = self.delay_controller
+        {
+            dc.reset(false);
         }
 
         let has_delay_estimator = !self.config.delay.use_external_delay_estimator;

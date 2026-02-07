@@ -50,6 +50,7 @@ impl DbMetric {
 }
 
 /// Handles the reporting of metrics for the echo remover.
+#[derive(Debug)]
 pub(crate) struct EchoRemoverMetrics {
     block_counter: usize,
     erl_time_domain: DbMetric,

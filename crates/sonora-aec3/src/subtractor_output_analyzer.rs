@@ -10,6 +10,7 @@ use crate::common::BLOCK_SIZE;
 use crate::subtractor_output::SubtractorOutput;
 
 /// Analyzes the subtractor output for convergence/divergence.
+#[derive(Debug)]
 pub(crate) struct SubtractorOutputAnalyzer {
     filters_converged: Vec<bool>,
 }
@@ -86,12 +87,13 @@ mod tests {
     #[test]
     fn convergence_detection() {
         let mut analyzer = SubtractorOutputAnalyzer::new(1);
-        let mut output = SubtractorOutput::default();
-
-        // Set y2 high, e2_refined low → converged.
-        output.y2 = 200_000.0;
-        output.e2_refined_sum = 10_000.0; // < 0.5 * y2
-        output.e2_coarse_sum = 200_000.0;
+        let output = SubtractorOutput {
+            // Set y2 high, e2_refined low → converged.
+            y2: 200_000.0,
+            e2_refined_sum: 10_000.0, // < 0.5 * y2
+            e2_coarse_sum: 200_000.0,
+            ..Default::default()
+        };
 
         let (any_converged, _, _) = analyzer.update(&[output]);
         assert!(any_converged);
@@ -101,12 +103,13 @@ mod tests {
     #[test]
     fn divergence_detection() {
         let mut analyzer = SubtractorOutputAnalyzer::new(1);
-        let mut output = SubtractorOutput::default();
-
-        // min(e2_refined, e2_coarse) > 1.5 * y2, and y2 > threshold.
-        output.y2 = 100_000.0;
-        output.e2_refined_sum = 200_000.0;
-        output.e2_coarse_sum = 200_000.0;
+        let output = SubtractorOutput {
+            // min(e2_refined, e2_coarse) > 1.5 * y2, and y2 > threshold.
+            y2: 100_000.0,
+            e2_refined_sum: 200_000.0,
+            e2_coarse_sum: 200_000.0,
+            ..Default::default()
+        };
 
         let (_, _, all_diverged) = analyzer.update(&[output]);
         assert!(all_diverged);
@@ -115,10 +118,12 @@ mod tests {
     #[test]
     fn handle_echo_path_change_resets() {
         let mut analyzer = SubtractorOutputAnalyzer::new(2);
-        let mut output = SubtractorOutput::default();
-        output.y2 = 200_000.0;
-        output.e2_refined_sum = 10_000.0;
-        output.e2_coarse_sum = 200_000.0;
+        let output = SubtractorOutput {
+            y2: 200_000.0,
+            e2_refined_sum: 10_000.0,
+            e2_coarse_sum: 200_000.0,
+            ..Default::default()
+        };
 
         analyzer.update(&[output, SubtractorOutput::default()]);
         assert!(analyzer.converged_filters()[0]);

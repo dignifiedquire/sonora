@@ -20,6 +20,7 @@ fn average_decay_within_filter(
 }
 
 /// Estimates the frequency response of the reverb tail.
+#[derive(Debug)]
 pub(crate) struct ReverbFrequencyResponse {
     use_conservative_tail_frequency_response: bool,
     average_decay: f32,

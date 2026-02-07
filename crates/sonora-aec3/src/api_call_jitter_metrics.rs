@@ -44,6 +44,7 @@ fn time_to_report_metrics(frames_since_last_report: i32) -> bool {
 }
 
 /// Stores data for reporting metrics on the API call jitter.
+#[derive(Debug)]
 pub struct ApiCallJitterMetrics {
     render_jitter: Jitter,
     capture_jitter: Jitter,
@@ -51,6 +52,12 @@ pub struct ApiCallJitterMetrics {
     frames_since_last_report: i32,
     last_call_was_render: bool,
     proper_call_observed: bool,
+}
+
+impl Default for ApiCallJitterMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ApiCallJitterMetrics {
@@ -154,10 +161,10 @@ mod tests {
                     metrics.report_capture_call();
 
                     if metrics.will_report_metrics_at_next_capture() {
-                        assert_eq!(jitter as i32, metrics.render_jitter().min());
-                        assert_eq!(jitter as i32, metrics.render_jitter().max());
-                        assert_eq!(jitter as i32, metrics.capture_jitter().min());
-                        assert_eq!(jitter as i32, metrics.capture_jitter().max());
+                        assert_eq!(jitter, metrics.render_jitter().min());
+                        assert_eq!(jitter, metrics.render_jitter().max());
+                        assert_eq!(jitter, metrics.capture_jitter().min());
+                        assert_eq!(jitter, metrics.capture_jitter().max());
                     }
                 }
             }

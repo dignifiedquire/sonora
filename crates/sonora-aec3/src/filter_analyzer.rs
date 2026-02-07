@@ -6,7 +6,9 @@
 //! Ported from `modules/audio_processing/aec3/filter_analyzer.h/cc`.
 
 use crate::block::Block;
-use crate::common::{BLOCK_SIZE, BLOCK_SIZE_LOG2, FFT_LENGTH_BY_2, NUM_BLOCKS_PER_SECOND};
+use crate::common::{
+    BLOCK_SIZE, BLOCK_SIZE_LOG2, FFT_LENGTH_BY_2, NUM_BLOCKS_PER_SECOND, get_time_domain_length,
+};
 use crate::config::EchoCanceller3Config;
 use crate::render_buffer::RenderBuffer;
 
@@ -38,6 +40,7 @@ struct FilterRegion {
 
 /// Detects whether the filter impulse response shape has been consistent
 /// over time.
+#[derive(Debug)]
 struct ConsistentFilterDetector {
     significant_peak: bool,
     filter_floor_accum: f32,
@@ -88,7 +91,7 @@ impl ConsistentFilterDetector {
         if region.start_sample == 0 {
             self.filter_floor_accum = 0.0;
             self.filter_secondary_peak = 0.0;
-            self.filter_floor_low_limit = if peak_index < 64 { 0 } else { peak_index - 64 };
+            self.filter_floor_low_limit = peak_index.saturating_sub(64);
             self.filter_floor_high_limit = if peak_index > filter_to_analyze.len() - 129 {
                 0
             } else {
@@ -150,6 +153,7 @@ impl ConsistentFilterDetector {
 }
 
 /// Per-channel filter analysis state.
+#[derive(Debug)]
 struct FilterAnalysisState {
     gain: f32,
     peak_index: usize,
@@ -179,6 +183,7 @@ impl FilterAnalysisState {
 }
 
 /// Analyzes the properties of the adaptive filter.
+#[derive(Debug)]
 pub(crate) struct FilterAnalyzer {
     bounded_erl: bool,
     default_gain: f32,
@@ -192,8 +197,7 @@ pub(crate) struct FilterAnalyzer {
 
 impl FilterAnalyzer {
     pub(crate) fn new(config: &EchoCanceller3Config, num_capture_channels: usize) -> Self {
-        let time_domain_len =
-            crate::common::get_time_domain_length(config.filter.refined.length_blocks);
+        let time_domain_len = get_time_domain_length(config.filter.refined.length_blocks);
         let mut analyzer = Self {
             bounded_erl: config.ep_strength.bounded_erl,
             default_gain: config.ep_strength.default_gain,

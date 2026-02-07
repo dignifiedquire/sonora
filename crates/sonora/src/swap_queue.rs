@@ -5,6 +5,7 @@
 //!
 //! Ported from `rtc_base/swap_queue.h`.
 
+use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A fixed-size, lock-free, single-producer/single-consumer queue.
@@ -20,6 +21,7 @@ pub(crate) struct SwapQueue<T> {
 
 impl<T: Default> SwapQueue<T> {
     /// Creates a queue of the given size filled with default-constructed Ts.
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new(size: usize) -> Self {
         let mut queue = Vec::with_capacity(size);
         for _ in 0..size {
@@ -68,7 +70,7 @@ impl<T> SwapQueue<T> {
             return false;
         }
 
-        std::mem::swap(input, &mut self.queue[self.next_write_index]);
+        mem::swap(input, &mut self.queue[self.next_write_index]);
 
         self.num_elements.fetch_add(1, Ordering::Release);
 
@@ -89,7 +91,7 @@ impl<T> SwapQueue<T> {
             return false;
         }
 
-        std::mem::swap(output, &mut self.queue[self.next_read_index]);
+        mem::swap(output, &mut self.queue[self.next_read_index]);
 
         self.num_elements.fetch_sub(1, Ordering::Release);
 
@@ -106,6 +108,7 @@ impl<T> SwapQueue<T> {
     /// Since elements may be concurrently added, the caller must treat this
     /// as a lower bound, not an exact count. May only be called by the
     /// consumer.
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn size_at_least(&self) -> usize {
         self.num_elements.load(Ordering::Acquire)
     }

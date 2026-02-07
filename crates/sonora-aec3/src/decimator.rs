@@ -35,6 +35,7 @@ const HIGH_PASS_FILTER: [BiQuadCoefficients; 1] = [BiQuadCoefficients {
 }];
 
 /// Downsamples a 64-sample block by factor 4 or 8 with anti-aliasing.
+#[derive(Debug)]
 pub(crate) struct Decimator {
     down_sampling_factor: usize,
     anti_aliasing_filter: CascadedBiQuadFilter,

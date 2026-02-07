@@ -45,7 +45,7 @@ fn identify_strong_narrow_band_component(
     narrow_peak_band: &mut Option<usize>,
     narrow_peak_counter: &mut usize,
 ) {
-    if let Some(_) = narrow_peak_band {
+    if narrow_peak_band.is_some() {
         *narrow_peak_counter += 1;
         if *narrow_peak_counter > strong_peak_freeze_duration {
             *narrow_peak_band = None;
@@ -91,17 +91,17 @@ fn identify_strong_narrow_band_component(
 
         // Detect whether the spectral peak has a strong narrowband nature.
         let peak_level = x2_latest[peak_bin];
-        if peak_bin > 0 && max_abs > 100.0 && peak_level > 100.0 * non_peak_power {
-            if peak_level > max_peak_level {
+        if peak_bin > 0 && max_abs > 100.0 && peak_level > 100.0 * non_peak_power
+            && peak_level > max_peak_level {
                 max_peak_level = peak_level;
                 *narrow_peak_band = Some(peak_bin);
                 *narrow_peak_counter = 0;
             }
-        }
     }
 }
 
 /// Analyzes the properties of the render signal.
+#[derive(Debug)]
 pub(crate) struct RenderSignalAnalyzer {
     strong_peak_freeze_duration: usize,
     narrow_band_counters: [usize; FFT_LENGTH_BY_2 - 1],
@@ -180,7 +180,6 @@ impl RenderSignalAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Block;
     use crate::block_buffer::BlockBuffer;
     use crate::fft_buffer::FftBuffer;
     use crate::spectrum_buffer::SpectrumBuffer;

@@ -20,6 +20,7 @@ const DECAY_FILTER_CONSTANT: f32 = 0.9971259;
 
 /// Produces a smooth signal level estimate from an input audio stream.
 /// The estimate smoothing is done through exponential filtering.
+#[derive(Debug)]
 pub(crate) struct FixedDigitalLevelEstimator {
     filter_state_level: f32,
     samples_in_frame: i32,

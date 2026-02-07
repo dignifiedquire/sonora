@@ -14,6 +14,7 @@ pub(crate) struct NormalizedCovarianceEstimator {
 }
 
 impl NormalizedCovarianceEstimator {
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new() -> Self {
         Self {
             normalized_cross_correlation: 0.0,
@@ -40,6 +41,7 @@ impl NormalizedCovarianceEstimator {
         self.normalized_cross_correlation
     }
 
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn covariance(&self) -> f32 {
         self.covariance
     }

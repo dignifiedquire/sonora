@@ -32,6 +32,7 @@ pub(crate) enum BufferingEvent {
 
 /// Buffers incoming render blocks such that these may be extracted with a
 /// specified delay.
+#[derive(Debug)]
 pub(crate) struct RenderDelayBuffer {
     config: EchoCanceller3Config,
     render_linear_amplitude_gain: f32,

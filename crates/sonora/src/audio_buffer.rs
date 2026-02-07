@@ -13,14 +13,16 @@ use crate::splitting_filter::SplittingFilter;
 use crate::stream_config::StreamConfig;
 
 /// Maximum samples per channel in a 10ms frame (384 kHz / 100).
+#[allow(dead_code, reason = "API completeness")]
 const MAX_SAMPLES_PER_CHANNEL_10MS: usize = 3840;
 
 /// Frequency band indices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code, reason = "API completeness")]
 pub(crate) enum Band {
-    Band0To8kHz = 0,
-    Band8To16kHz = 1,
-    Band16To24kHz = 2,
+    Low = 0,
+    Mid = 1,
+    High = 2,
 }
 
 fn num_bands_from_frames_per_channel(num_frames: usize) -> usize {
@@ -171,12 +173,14 @@ impl AudioBuffer {
 
     /// Get a pointer-like array of channel slices (for compatibility).
     #[inline]
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn channels(&self) -> &ChannelBuffer<f32> {
         &self.data
     }
 
     /// Get a mutable reference to the channel buffer.
     #[inline]
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn channels_mut(&mut self) -> &mut ChannelBuffer<f32> {
         &mut self.data
     }
@@ -200,6 +204,7 @@ impl AudioBuffer {
     }
 
     /// Get split channels for a specific band (all channels for one band).
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn split_channel(&self, band: Band) -> Option<Vec<&[f32]>> {
         let band_idx = band as usize;
         if let Some(ref split) = self.split_data {
@@ -270,12 +275,12 @@ impl AudioBuffer {
 
             if self.downmix_by_averaging {
                 let scale = 1.0 / self.input_num_channels as f32;
-                for i in 0..self.input_num_frames {
+                for (i, d) in downmix.iter_mut().enumerate() {
                     let mut value = stacked_data[0][i];
-                    for ch in 1..self.input_num_channels {
-                        value += stacked_data[ch][i];
+                    for sd in &stacked_data[1..self.input_num_channels] {
+                        value += sd[i];
                     }
-                    downmix[i] = value * scale;
+                    *d = value * scale;
                 }
             } else {
                 downmix.copy_from_slice(
@@ -299,15 +304,15 @@ impl AudioBuffer {
                 audio_util::float_to_float_s16_slice(downmixed_data, ch0);
             }
         } else if resampling_needed {
-            for i in 0..self.num_channels {
+            for (i, sd) in stacked_data.iter().enumerate().take(self.num_channels) {
                 let ch = self.data.bands_mut(i);
-                self.input_resamplers[i].resample(&stacked_data[i][..self.input_num_frames], ch);
+                self.input_resamplers[i].resample(&sd[..self.input_num_frames], ch);
                 audio_util::float_to_float_s16_slice_inplace(ch);
             }
         } else {
-            for i in 0..self.num_channels {
+            for (i, sd) in stacked_data.iter().enumerate().take(self.num_channels) {
                 let ch = self.data.bands_mut(i);
-                audio_util::float_to_float_s16_slice(&stacked_data[i][..self.input_num_frames], ch);
+                audio_util::float_to_float_s16_slice(&sd[..self.input_num_frames], ch);
             }
         }
     }
@@ -325,20 +330,16 @@ impl AudioBuffer {
         let resampling_needed = self.output_num_frames != self.buffer_num_frames;
 
         if resampling_needed {
-            for i in 0..self.num_channels {
+            for (i, sd) in stacked_data.iter_mut().enumerate().take(self.num_channels) {
                 // Convert from FloatS16 to float first, then resample.
                 let ch = self.data.bands_mut(i);
                 audio_util::float_s16_to_float_slice_inplace(ch);
-                self.output_resamplers[i]
-                    .resample(ch, &mut stacked_data[i][..self.output_num_frames]);
+                self.output_resamplers[i].resample(ch, &mut sd[..self.output_num_frames]);
             }
         } else {
-            for i in 0..self.num_channels {
+            for (i, sd) in stacked_data.iter_mut().enumerate().take(self.num_channels) {
                 let ch = self.data.bands(i);
-                audio_util::float_s16_to_float_slice(
-                    ch,
-                    &mut stacked_data[i][..self.output_num_frames],
-                );
+                audio_util::float_s16_to_float_slice(ch, &mut sd[..self.output_num_frames]);
             }
         }
 
@@ -353,7 +354,7 @@ impl AudioBuffer {
     }
 
     /// Copy data from this buffer to another AudioBuffer (with optional resampling).
-    pub(crate) fn copy_to_buffer(&mut self, buffer: &mut AudioBuffer) {
+    pub(crate) fn copy_to_buffer(&mut self, buffer: &mut Self) {
         debug_assert_eq!(buffer.num_frames(), self.output_num_frames);
 
         let resampling_needed = self.output_num_frames != self.buffer_num_frames;
@@ -489,13 +490,13 @@ impl AudioBuffer {
             }
 
             if config_num_channels == 1 {
-                for j in 0..self.output_num_frames {
-                    interleaved_data[j] = audio_util::float_s16_to_s16(float_buffer[j]);
+                for (dst, &src) in interleaved_data.iter_mut().zip(float_buffer.iter()) {
+                    *dst = audio_util::float_s16_to_s16(src);
                 }
             } else {
                 let mut k = 0;
-                for j in 0..self.output_num_frames {
-                    let tmp = audio_util::float_s16_to_s16(float_buffer[j]);
+                for &fb in &float_buffer[..self.output_num_frames] {
+                    let tmp = audio_util::float_s16_to_s16(fb);
                     for _ in 0..config_num_channels {
                         interleaved_data[k] = tmp;
                         k += 1;
@@ -573,8 +574,8 @@ mod tests {
         let num_fr = ab1.num_frames();
         for ch in 0..num_ch {
             let channel = ab1.channel_mut(ch);
-            for i in 0..num_fr {
-                channel[i] = (i + ch) as f32;
+            for (i, sample) in channel.iter_mut().enumerate().take(num_fr) {
+                *sample = (i + ch) as f32;
             }
         }
 
@@ -584,8 +585,8 @@ mod tests {
         // Verify content.
         for ch in 0..ab2.num_channels() {
             let channel = ab2.channel(ch);
-            for i in 0..ab2.num_frames() {
-                assert_eq!(channel[i], (i + ch) as f32);
+            for (i, &sample) in channel.iter().enumerate() {
+                assert_eq!(sample, (i + ch) as f32);
             }
         }
     }
@@ -595,17 +596,18 @@ mod tests {
         let mut ab1 = AudioBuffer::new(32000, 2, 32000, 2, 48000);
         let mut ab2 = AudioBuffer::new(48000, 2, 48000, 2, 48000);
 
+        use std::f32::consts::PI;
+
         let mut energy_ab1 = 0.0f32;
-        let pi = std::f32::consts::PI;
         let num_ch = ab1.num_channels();
         let num_fr = ab1.num_frames();
 
         // Put a sine and compute energy of first buffer.
         for ch in 0..num_ch {
             let channel = ab1.channel_mut(ch);
-            for i in 0..num_fr {
-                channel[i] = (2.0 * pi * 100.0 / 32000.0 * i as f32).sin();
-                energy_ab1 += channel[i] * channel[i];
+            for (i, sample) in channel.iter_mut().enumerate().take(num_fr) {
+                *sample = (2.0 * PI * 100.0 / 32000.0 * i as f32).sin();
+                energy_ab1 += *sample * *sample;
             }
         }
 
@@ -616,8 +618,8 @@ mod tests {
         let mut energy_ab2 = 0.0f32;
         for ch in 0..ab2.num_channels() {
             let channel = ab2.channel(ch);
-            for i in 0..ab2.num_frames() {
-                energy_ab2 += channel[i] * channel[i];
+            for &sample in channel.iter() {
+                energy_ab2 += sample * sample;
             }
         }
 
@@ -636,10 +638,9 @@ mod tests {
         assert_eq!(ab.num_frames_per_band(), 160);
 
         // Fill with a signal.
-        let num_fr = ab.num_frames();
         let channel = ab.channel_mut(0);
-        for i in 0..num_fr {
-            channel[i] = (i as f32 / 48.0).sin() * 8192.0;
+        for (i, sample) in channel.iter_mut().enumerate() {
+            *sample = (i as f32 / 48.0).sin() * 8192.0;
         }
 
         ab.split_into_frequency_bands();

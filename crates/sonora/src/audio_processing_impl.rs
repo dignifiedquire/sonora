@@ -23,6 +23,7 @@ use crate::stats::AudioProcessingStats;
 use crate::stream_config::StreamConfig;
 use crate::submodule_states::SubmoduleStates;
 use crate::swap_queue::SwapQueue;
+use sonora_aec3::config::EchoCanceller3Config;
 use sonora_ns::config::{NsConfig, SuppressionLevel};
 use sonora_ns::noise_suppressor::NoiseSuppressor;
 use std::collections::VecDeque;
@@ -119,18 +120,10 @@ impl Default for CaptureNonlocked {
 
 // ─── Render State ────────────────────────────────────────────────────
 
+#[derive(Default)]
 struct RenderState {
     render_audio: Option<AudioBuffer>,
     render_converter: Option<AudioConverter>,
-}
-
-impl Default for RenderState {
-    fn default() -> Self {
-        Self {
-            render_audio: None,
-            render_converter: None,
-        }
-    }
 }
 
 // ─── Format State ────────────────────────────────────────────────────
@@ -165,6 +158,7 @@ pub(crate) struct AudioProcessingImpl {
     capture_nonlocked: CaptureNonlocked,
     render: RenderState,
     capture_runtime_settings: VecDeque<RuntimeSetting>,
+    #[allow(dead_code, reason = "API completeness")]
     render_runtime_settings: VecDeque<RuntimeSetting>,
     // Render queue for the residual echo detector.
     red_render_queue: Option<SwapQueue<Vec<f32>>>,
@@ -174,6 +168,7 @@ pub(crate) struct AudioProcessingImpl {
 
 impl AudioProcessingImpl {
     /// Creates a new audio processing instance with default configuration.
+    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new() -> Self {
         Self::with_config(Config::default())
     }
@@ -326,12 +321,8 @@ impl AudioProcessingImpl {
 
         self.process_capture_stream_locked();
 
-        if self.capture.capture_fullband_audio.is_some() {
-            self.capture
-                .capture_fullband_audio
-                .as_mut()
-                .unwrap()
-                .copy_to_float(output_config, dest);
+        if let Some(ref mut fullband) = self.capture.capture_fullband_audio {
+            fullband.copy_to_float(output_config, dest);
         } else {
             self.capture
                 .capture_audio
@@ -403,12 +394,8 @@ impl AudioProcessingImpl {
             .capture_multi_band_processing_present()
             || self.submodule_states.capture_full_band_processing_active()
         {
-            if self.capture.capture_fullband_audio.is_some() {
-                self.capture
-                    .capture_fullband_audio
-                    .as_mut()
-                    .unwrap()
-                    .copy_to_interleaved_i16(output_config, dest);
+            if let Some(ref mut fullband) = self.capture.capture_fullband_audio {
+                fullband.copy_to_interleaved_i16(output_config, dest);
             } else {
                 self.capture
                     .capture_audio
@@ -461,10 +448,10 @@ impl AudioProcessingImpl {
         let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
 
         // Phase 1: Full-band high-pass filter (before splitting).
-        if self.config.high_pass_filter.apply_in_full_band {
-            if let Some(hpf) = &mut self.submodules.high_pass_filter {
-                hpf.process(capture_buffer, false);
-            }
+        if self.config.high_pass_filter.apply_in_full_band
+            && let Some(hpf) = &mut self.submodules.high_pass_filter
+        {
+            hpf.process(capture_buffer, false);
         }
 
         // Phase 1b: Pre-level adjustment.
@@ -507,12 +494,11 @@ impl AudioProcessingImpl {
         }
 
         // Phase 2c: AGC2 input volume analysis.
-        if let Some(gc2) = &mut self.submodules.gain_controller2 {
-            if self.config.gain_controller2.input_volume_controller.enabled {
-                if let Some(vol) = self.capture.applied_input_volume {
-                    gc2.analyze(vol, capture_buffer);
-                }
-            }
+        if let Some(gc2) = &mut self.submodules.gain_controller2
+            && self.config.gain_controller2.input_volume_controller.enabled
+            && let Some(vol) = self.capture.applied_input_volume
+        {
+            gc2.analyze(vol, capture_buffer);
         }
 
         // Phase 3: Frequency band splitting.
@@ -537,11 +523,11 @@ impl AudioProcessingImpl {
         }
 
         // Phase 5: Split-band high-pass filter.
-        if !self.config.high_pass_filter.apply_in_full_band {
-            if let Some(hpf) = &mut self.submodules.high_pass_filter {
-                let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
-                hpf.process(capture_buffer, true);
-            }
+        if !self.config.high_pass_filter.apply_in_full_band
+            && let Some(hpf) = &mut self.submodules.high_pass_filter
+        {
+            let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+            hpf.process(capture_buffer, true);
         }
 
         // Phase 6: Noise suppression analysis (before echo cancellation).
@@ -639,7 +625,7 @@ impl AudioProcessingImpl {
         // Phase 9: Full-band post-processing.
         if self.capture.capture_output_used {
             // Copy to fullband buffer if needed.
-            if self.capture.capture_fullband_audio.is_some() {
+            if let Some(fullband) = self.capture.capture_fullband_audio.as_mut() {
                 let ec_active = self
                     .submodules
                     .echo_controller
@@ -652,7 +638,6 @@ impl AudioProcessingImpl {
                     // Copy the multi-band processed audio to the fullband buffer.
                     // Temporarily take capture_audio to avoid double &mut borrow.
                     let mut capture = self.capture.capture_audio.take().unwrap();
-                    let fullband = self.capture.capture_fullband_audio.as_mut().unwrap();
                     capture.copy_to_buffer(fullband);
                     self.capture.capture_audio = Some(capture);
                 }
@@ -686,9 +671,9 @@ impl AudioProcessingImpl {
             if let Some(red) = &self.submodules.echo_detector {
                 let metrics = red.get_metrics();
                 self.capture.stats.residual_echo_likelihood =
-                    metrics.echo_likelihood.map(|v| f64::from(v));
+                    metrics.echo_likelihood.map(f64::from);
                 self.capture.stats.residual_echo_likelihood_recent_max =
-                    metrics.echo_likelihood_recent_max.map(|v| f64::from(v));
+                    metrics.echo_likelihood_recent_max.map(f64::from);
             }
         }
 
@@ -719,10 +704,9 @@ impl AudioProcessingImpl {
                 .capture_level_adjustment
                 .analog_mic_gain_emulation
                 .enabled
+                && let Some(vol) = self.capture.recommended_input_volume
             {
-                if let Some(vol) = self.capture.recommended_input_volume {
-                    adjuster.set_analog_mic_gain_level(vol);
-                }
+                adjuster.set_analog_mic_gain_level(vol);
             }
         }
 
@@ -794,10 +778,10 @@ impl AudioProcessingImpl {
         }
 
         let mut needs_flush = false;
-        if let Some(queue) = &mut self.red_render_queue {
-            if !queue.insert(&mut self.red_render_queue_buffer) {
-                needs_flush = true;
-            }
+        if let Some(queue) = &mut self.red_render_queue
+            && !queue.insert(&mut self.red_render_queue_buffer)
+        {
+            needs_flush = true;
         }
 
         if needs_flush {
@@ -935,11 +919,11 @@ impl AudioProcessingImpl {
             return;
         }
 
-        if let Some(gc2) = &self.submodules.gain_controller2 {
-            if self.config.gain_controller2.input_volume_controller.enabled {
-                self.capture.recommended_input_volume = gc2.recommended_input_volume();
-                return;
-            }
+        if let Some(gc2) = &self.submodules.gain_controller2
+            && self.config.gain_controller2.input_volume_controller.enabled
+        {
+            self.capture.recommended_input_volume = gc2.recommended_input_volume();
+            return;
         }
 
         self.capture.recommended_input_volume = self.capture.applied_input_volume;
@@ -1205,9 +1189,8 @@ impl AudioProcessingImpl {
         let num_render_channels = self.num_reverse_channels();
         let num_capture_channels = self.num_proc_channels();
 
-        let config = sonora_aec3::config::EchoCanceller3Config::default();
-        let multichannel_config =
-            Some(sonora_aec3::config::EchoCanceller3Config::create_default_multichannel_config());
+        let config = EchoCanceller3Config::default();
+        let multichannel_config = Some(EchoCanceller3Config::create_default_multichannel_config());
 
         self.submodules.echo_controller = Some(EchoCanceller3::new(
             config,

@@ -63,40 +63,43 @@ fn filter_core(
     output: &mut [f32; SPLIT_BAND_SIZE],
     state: &mut [f32; MEMORY_SIZE],
 ) {
-    debug_assert!(in_shift <= STRIDE - 1);
+    debug_assert!(in_shift < STRIDE);
     output.fill(0.0);
 
     // Part 1: samples that depend entirely on state.
     // C++: for i in 0..kFilterSize, j starts at kMemorySize + k - in_shift, j -= kStride
-    for k in 0..in_shift {
+    for (k, out) in output[..in_shift].iter_mut().enumerate() {
         let mut j = MEMORY_SIZE + k - in_shift;
-        for i in 0..FILTER_SIZE {
-            output[k] += state[j] * filter[i];
+        for f in &filter[..] {
+            *out += state[j] * f;
             j = j.wrapping_sub(STRIDE);
         }
     }
 
     // Part 2: transition samples (partially from input, partially from state).
-    let mut shift = 0usize;
-    for k in in_shift..(FILTER_SIZE * STRIDE) {
+    for (shift, out) in output[in_shift..(FILTER_SIZE * STRIDE)]
+        .iter_mut()
+        .enumerate()
+    {
         let loop_limit = (1 + (shift >> STRIDE_LOG2)).min(FILTER_SIZE);
-        for i in 0..loop_limit {
-            output[k] += input[shift - i * STRIDE] * filter[i];
+        for (i, f) in filter[..loop_limit].iter().enumerate() {
+            *out += input[shift - i * STRIDE] * f;
         }
-        for i in loop_limit..FILTER_SIZE {
+        for (i, f) in filter.iter().enumerate().skip(loop_limit) {
             let j = MEMORY_SIZE + shift - i * STRIDE;
-            output[k] += state[j] * filter[i];
+            *out += state[j] * f;
         }
-        shift += 1;
     }
 
     // Part 3: samples fully within input.
-    let mut shift = FILTER_SIZE * STRIDE - in_shift;
-    for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
-        for i in 0..FILTER_SIZE {
-            output[k] += input[shift - i * STRIDE] * filter[i];
+    for (idx, out) in output[(FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE]
+        .iter_mut()
+        .enumerate()
+    {
+        let shift = FILTER_SIZE * STRIDE - in_shift + idx;
+        for (i, f) in filter.iter().enumerate() {
+            *out += input[shift - i * STRIDE] * f;
         }
-        shift += 1;
     }
 
     // Update state from end of input.
@@ -266,6 +269,8 @@ mod tests {
 
     #[test]
     fn analysis_synthesis_roundtrip() {
+        use std::f32::consts::PI;
+
         let mut fb_analysis = ThreeBandFilterBank::new();
         let mut fb_synthesis = ThreeBandFilterBank::new();
 
@@ -277,9 +282,9 @@ mod tests {
         for frame in 0..num_frames {
             let mut input = [0.0f32; FULL_BAND_SIZE];
             // Sine wave at ~1 kHz (well within band 0).
-            for i in 0..FULL_BAND_SIZE {
+            for (i, sample) in input.iter_mut().enumerate() {
                 let t = (frame * FULL_BAND_SIZE + i) as f32 / 48000.0;
-                input[i] = (2.0 * std::f32::consts::PI * 1000.0 * t).sin();
+                *sample = (2.0 * PI * 1000.0 * t).sin();
             }
 
             let mut bands = [[0.0f32; SPLIT_BAND_SIZE]; NUM_BANDS];

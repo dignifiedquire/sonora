@@ -69,39 +69,50 @@ fuzz_target!(|input: FuzzInput| {
             FuzzOp::ProcessF32 => {
                 let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
                 let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
-                let _ = wap_process_stream_f32(
-                    apm,
-                    src_ptrs.as_ptr(),
-                    stream_config,
-                    stream_config,
-                    dest_ptrs.as_ptr(),
-                );
+                let _ = unsafe {
+                    wap_process_stream_f32(
+                        apm,
+                        src_ptrs.as_ptr(),
+                        stream_config,
+                        stream_config,
+                        dest_ptrs.as_ptr(),
+                    )
+                };
             }
             FuzzOp::ProcessI16 => {
                 let src_i16: Vec<i16> = src_data.iter().map(|&s| (s * 16384.0) as i16).collect();
                 let mut dest_i16 = vec![0i16; total];
-                let _ = wap_process_stream_i16(
-                    apm,
-                    src_i16.as_ptr(),
-                    src_i16.len() as i32,
-                    stream_config,
-                    stream_config,
-                    dest_i16.as_mut_ptr(),
-                    dest_i16.len() as i32,
-                );
+                let _ = unsafe {
+                    wap_process_stream_i16(
+                        apm,
+                        src_i16.as_ptr(),
+                        src_i16.len() as i32,
+                        stream_config,
+                        stream_config,
+                        dest_i16.as_mut_ptr(),
+                        dest_i16.len() as i32,
+                    )
+                };
             }
             FuzzOp::ProcessReverseF32 => {
                 let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
                 let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
-                let _ = wap_process_reverse_stream_f32(
-                    apm,
-                    src_ptrs.as_ptr(),
-                    stream_config,
-                    stream_config,
-                    dest_ptrs.as_ptr(),
-                );
+                let _ = unsafe {
+                    wap_process_reverse_stream_f32(
+                        apm,
+                        src_ptrs.as_ptr(),
+                        stream_config,
+                        stream_config,
+                        dest_ptrs.as_ptr(),
+                    )
+                };
             }
-            FuzzOp::ApplyConfig { ec, ns, ns_level, agc2 } => {
+            FuzzOp::ApplyConfig {
+                ec,
+                ns,
+                ns_level,
+                agc2,
+            } => {
                 let mut config = wap_config_default();
                 config.echo_canceller_enabled = *ec;
                 config.noise_suppression_enabled = *ns;
@@ -112,26 +123,26 @@ fuzz_target!(|input: FuzzInput| {
                     _ => WapNoiseSuppressionLevel::VeryHigh,
                 };
                 config.gain_controller2_enabled = *agc2;
-                let _ = wap_apply_config(apm, config);
+                let _ = unsafe { wap_apply_config(apm, config) };
             }
             FuzzOp::SetAnalogLevel(level) => {
-                let _ = wap_set_stream_analog_level(apm, *level);
+                let _ = unsafe { wap_set_stream_analog_level(apm, *level) };
             }
             FuzzOp::SetDelay(delay) => {
-                let _ = wap_set_stream_delay_ms(apm, *delay);
+                let _ = unsafe { wap_set_stream_delay_ms(apm, *delay) };
             }
             FuzzOp::GetStatistics => {
                 let mut stats = std::mem::MaybeUninit::<WapStats>::zeroed();
-                let _ = wap_get_statistics(apm, stats.as_mut_ptr());
+                let _ = unsafe { wap_get_statistics(apm, stats.as_mut_ptr()) };
             }
             FuzzOp::SetPreGain(gain) => {
-                let _ = wap_set_capture_pre_gain(apm, *gain);
+                let _ = unsafe { wap_set_capture_pre_gain(apm, *gain) };
             }
             FuzzOp::SetPostGain(gain) => {
-                let _ = wap_set_capture_post_gain(apm, *gain);
+                let _ = unsafe { wap_set_capture_post_gain(apm, *gain) };
             }
         }
     }
 
-    wap_destroy(apm);
+    unsafe { wap_destroy(apm) };
 });

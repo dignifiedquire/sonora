@@ -12,6 +12,7 @@ use crate::fft_data::FftData;
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
 
 /// Computes the fixed gain for the coarse adaptive filter.
+#[derive(Debug)]
 pub(crate) struct CoarseFilterUpdateGain {
     current_config: CoarseConfiguration,
     target_config: CoarseConfiguration,

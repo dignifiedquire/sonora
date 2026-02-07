@@ -13,6 +13,7 @@ use crate::subband_erle_estimator::SubbandErleEstimator;
 
 /// Estimates the echo return loss enhancement. One estimate is done per subband
 /// and another one is done using the aggregation of energy over all subbands.
+#[derive(Debug)]
 pub(crate) struct ErleEstimator {
     startup_phase_length_blocks: usize,
     fullband_erle_estimator: FullBandErleEstimator,
@@ -110,13 +111,10 @@ impl ErleEstimator {
 
     /// Returns the non-capped subband ERLE.
     pub(crate) fn erle_unbounded(&self) -> &[[f32; FFT_LENGTH_BY_2_PLUS_1]] {
-        if self.signal_dependent_erle_estimator.is_none() {
-            self.subband_erle_estimator.erle_unbounded()
+        if let Some(ref est) = self.signal_dependent_erle_estimator {
+            est.erle(false)
         } else {
-            self.signal_dependent_erle_estimator
-                .as_ref()
-                .unwrap()
-                .erle(false)
+            self.subband_erle_estimator.erle_unbounded()
         }
     }
 

@@ -21,6 +21,7 @@ const INITIAL_TRANSPARENT_STATE_PROBABILITY: f32 = 0.2;
 
 /// Transparent mode detection — reduces echo suppression when there is
 /// no echo (e.g. headset scenarios).
+#[derive(Debug)]
 pub(crate) enum TransparentMode {
     /// HMM-based transparent mode classifier.
     Hmm(TransparentModeHmm),
@@ -38,23 +39,23 @@ impl TransparentMode {
             None
         } else {
             // Without field trials, use Legacy (the default in C++).
-            Some(TransparentMode::Legacy(LegacyTransparentMode::new(config)))
+            Some(Self::Legacy(LegacyTransparentMode::new(config)))
         }
     }
 
     /// Returns whether transparent mode is currently active.
     pub(crate) fn active(&self) -> bool {
         match self {
-            TransparentMode::Hmm(hmm) => hmm.active(),
-            TransparentMode::Legacy(legacy) => legacy.active(),
+            Self::Hmm(hmm) => hmm.active(),
+            Self::Legacy(legacy) => legacy.active(),
         }
     }
 
     /// Resets the detector state.
     pub(crate) fn reset(&mut self) {
         match self {
-            TransparentMode::Hmm(hmm) => hmm.reset(),
-            TransparentMode::Legacy(legacy) => legacy.reset(),
+            Self::Hmm(hmm) => hmm.reset(),
+            Self::Legacy(legacy) => legacy.reset(),
         }
     }
 
@@ -74,8 +75,8 @@ impl TransparentMode {
         saturated_capture: bool,
     ) {
         match self {
-            TransparentMode::Hmm(hmm) => hmm.update(any_coarse_filter_converged, active_render),
-            TransparentMode::Legacy(legacy) => legacy.update(
+            Self::Hmm(hmm) => hmm.update(any_coarse_filter_converged, active_render),
+            Self::Legacy(legacy) => legacy.update(
                 filter_delay_blocks,
                 any_filter_consistent,
                 any_filter_converged,
@@ -88,6 +89,7 @@ impl TransparentMode {
 }
 
 /// HMM-based transparent mode classifier.
+#[derive(Debug)]
 pub(crate) struct TransparentModeHmm {
     transparency_activated: bool,
     prob_transparent_state: f32,
@@ -152,6 +154,7 @@ impl TransparentModeHmm {
 }
 
 /// Legacy counter-based transparent mode classifier.
+#[derive(Debug)]
 pub(crate) struct LegacyTransparentMode {
     linear_and_stable_echo_path: bool,
     capture_block_counter: usize,
@@ -263,9 +266,9 @@ impl LegacyTransparentMode {
             self.finite_erl_recently_detected = true;
         }
 
-        if self.finite_erl_recently_detected {
-            self.transparency_activated = false;
-        } else if sane_filter_recently_seen && self.recent_convergence_during_activity {
+        if self.finite_erl_recently_detected
+            || (sane_filter_recently_seen && self.recent_convergence_during_activity)
+        {
             self.transparency_activated = false;
         } else {
             let filter_should_have_converged =

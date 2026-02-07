@@ -2,6 +2,7 @@ fn main() {
     #[cfg(feature = "ffi")]
     {
         use std::env;
+        use std::fs;
         use std::path::PathBuf;
 
         let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -15,7 +16,7 @@ fn main() {
         println!("cargo::rerun-if-changed=cbindgen.toml");
 
         // Create the output directory if it doesn't exist.
-        std::fs::create_dir_all(&output_dir).expect("Failed to create include/ directory");
+        fs::create_dir_all(&output_dir).expect("Failed to create include/ directory");
 
         let config = cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml"))
             .expect("Failed to read cbindgen.toml");

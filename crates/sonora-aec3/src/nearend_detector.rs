@@ -12,6 +12,7 @@ use crate::config::{DominantNearendDetection, SubbandNearendDetection};
 use crate::moving_average::MovingAverage;
 
 /// Nearend detector dispatching to either dominant or subband variant.
+#[derive(Debug)]
 pub(crate) enum NearendDetector {
     Dominant(DominantNearendDetector),
     Subband(SubbandNearendDetector),
@@ -48,6 +49,7 @@ impl NearendDetector {
 
 /// Dominant nearend detector — uses low-frequency energy comparison with
 /// trigger/hold counters.
+#[derive(Debug)]
 pub(crate) struct DominantNearendDetector {
     enr_threshold: f32,
     enr_exit_threshold: f32,
@@ -131,6 +133,7 @@ impl DominantNearendDetector {
 }
 
 /// Subband nearend detector — compares nearend energy in two subbands.
+#[derive(Debug)]
 pub(crate) struct SubbandNearendDetector {
     nearend_threshold: f32,
     snr_threshold: f32,
