@@ -246,6 +246,87 @@ pub(crate) unsafe fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
     }
 }
 
+/// SSE2 elementwise min: out[i] = min(a[i], b[i])
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
+    let len = out.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+    let out_ptr = out.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let va = _mm_loadu_ps(a_ptr.add(offset));
+        let vb = _mm_loadu_ps(b_ptr.add(offset));
+        let result = _mm_min_ps(va, vb);
+        _mm_storeu_ps(out_ptr.add(offset), result);
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        out[idx] = a[idx].min(b[idx]);
+    }
+}
+
+/// SSE2 complex multiply-accumulate (AEC3 conjugate convention):
+///   acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]
+///   acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn complex_multiply_accumulate(
+    x_re: &[f32],
+    x_im: &[f32],
+    h_re: &[f32],
+    h_im: &[f32],
+    acc_re: &mut [f32],
+    acc_im: &mut [f32],
+) {
+    let len = acc_re.len();
+    let chunks = len / 4;
+    let remainder = len % 4;
+
+    let xr_ptr = x_re.as_ptr();
+    let xi_ptr = x_im.as_ptr();
+    let hr_ptr = h_re.as_ptr();
+    let hi_ptr = h_im.as_ptr();
+    let ar_ptr = acc_re.as_mut_ptr();
+    let ai_ptr = acc_im.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let vxr = _mm_loadu_ps(xr_ptr.add(offset));
+        let vxi = _mm_loadu_ps(xi_ptr.add(offset));
+        let vhr = _mm_loadu_ps(hr_ptr.add(offset));
+        let vhi = _mm_loadu_ps(hi_ptr.add(offset));
+
+        // acc_re += x_re*h_re + x_im*h_im
+        let var = _mm_loadu_ps(ar_ptr.add(offset));
+        let re_part = _mm_add_ps(_mm_mul_ps(vxr, vhr), _mm_mul_ps(vxi, vhi));
+        _mm_storeu_ps(ar_ptr.add(offset), _mm_add_ps(var, re_part));
+
+        // acc_im += x_re*h_im - x_im*h_re
+        let vai = _mm_loadu_ps(ai_ptr.add(offset));
+        let im_part = _mm_sub_ps(_mm_mul_ps(vxr, vhi), _mm_mul_ps(vxi, vhr));
+        _mm_storeu_ps(ai_ptr.add(offset), _mm_add_ps(vai, im_part));
+    }
+
+    let tail_start = chunks * 4;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        acc_re[idx] += x_re[idx] * h_re[idx] + x_im[idx] * h_im[idx];
+        acc_im[idx] += x_re[idx] * h_im[idx] - x_im[idx] * h_re[idx];
+    }
+}
+
 /// Reduce an __m128 to a scalar sum.
 #[inline(always)]
 #[target_feature(enable = "sse2")]

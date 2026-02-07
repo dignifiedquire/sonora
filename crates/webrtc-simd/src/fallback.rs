@@ -48,6 +48,31 @@ pub(crate) fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
     }
 }
 
+pub(crate) fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
+    for i in 0..out.len() {
+        out[i] = a[i].min(b[i]);
+    }
+}
+
+pub(crate) fn complex_multiply_accumulate(
+    x_re: &[f32],
+    x_im: &[f32],
+    h_re: &[f32],
+    h_im: &[f32],
+    acc_re: &mut [f32],
+    acc_im: &mut [f32],
+) {
+    for i in 0..acc_re.len() {
+        // (x_re + j*x_im) * (h_re + j*h_im) =
+        //   (x_re*h_re - x_im*h_im) + j*(x_re*h_im + x_im*h_re)
+        // Note: AEC3 uses conjugate multiply convention (+ for real, - for imag):
+        //   real = x_re*h_re + x_im*h_im
+        //   imag = x_re*h_im - x_im*h_re
+        acc_re[i] += x_re[i] * h_re[i] + x_im[i] * h_im[i];
+        acc_im[i] += x_re[i] * h_im[i] - x_im[i] * h_re[i];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

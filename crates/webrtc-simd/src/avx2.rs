@@ -246,6 +246,89 @@ pub(crate) unsafe fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
     }
 }
 
+/// AVX2 elementwise min: out[i] = min(a[i], b[i])
+///
+/// # Safety
+/// Caller must ensure AVX2 is available.
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
+    let len = out.len();
+    let chunks = len / 8;
+    let remainder = len % 8;
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+    let out_ptr = out.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 8;
+        let va = _mm256_loadu_ps(a_ptr.add(offset));
+        let vb = _mm256_loadu_ps(b_ptr.add(offset));
+        let result = _mm256_min_ps(va, vb);
+        _mm256_storeu_ps(out_ptr.add(offset), result);
+    }
+
+    let tail_start = chunks * 8;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        out[idx] = a[idx].min(b[idx]);
+    }
+}
+
+/// AVX2+FMA complex multiply-accumulate (AEC3 conjugate convention):
+///   acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]
+///   acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]
+///
+/// # Safety
+/// Caller must ensure AVX2 and FMA are available.
+#[target_feature(enable = "avx2,fma")]
+pub(crate) unsafe fn complex_multiply_accumulate(
+    x_re: &[f32],
+    x_im: &[f32],
+    h_re: &[f32],
+    h_im: &[f32],
+    acc_re: &mut [f32],
+    acc_im: &mut [f32],
+) {
+    let len = acc_re.len();
+    let chunks = len / 8;
+    let remainder = len % 8;
+
+    let xr_ptr = x_re.as_ptr();
+    let xi_ptr = x_im.as_ptr();
+    let hr_ptr = h_re.as_ptr();
+    let hi_ptr = h_im.as_ptr();
+    let ar_ptr = acc_re.as_mut_ptr();
+    let ai_ptr = acc_im.as_mut_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 8;
+        let vxr = _mm256_loadu_ps(xr_ptr.add(offset));
+        let vxi = _mm256_loadu_ps(xi_ptr.add(offset));
+        let vhr = _mm256_loadu_ps(hr_ptr.add(offset));
+        let vhi = _mm256_loadu_ps(hi_ptr.add(offset));
+
+        // acc_re += x_re*h_re + x_im*h_im (two FMAs)
+        let mut var = _mm256_loadu_ps(ar_ptr.add(offset));
+        var = _mm256_fmadd_ps(vxr, vhr, var);
+        var = _mm256_fmadd_ps(vxi, vhi, var);
+        _mm256_storeu_ps(ar_ptr.add(offset), var);
+
+        // acc_im += x_re*h_im - x_im*h_re (FMA + FNMA)
+        let mut vai = _mm256_loadu_ps(ai_ptr.add(offset));
+        vai = _mm256_fmadd_ps(vxr, vhi, vai);
+        vai = _mm256_fnmadd_ps(vxi, vhr, vai);
+        _mm256_storeu_ps(ai_ptr.add(offset), vai);
+    }
+
+    let tail_start = chunks * 8;
+    for i in 0..remainder {
+        let idx = tail_start + i;
+        acc_re[idx] += x_re[idx] * h_re[idx] + x_im[idx] * h_im[idx];
+        acc_im[idx] += x_re[idx] * h_im[idx] - x_im[idx] * h_re[idx];
+    }
+}
+
 /// Reduce an __m256 to a scalar sum.
 #[inline(always)]
 #[target_feature(enable = "avx2")]
