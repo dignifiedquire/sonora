@@ -9,6 +9,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[build-dependencies]
+cbindgen = "0.28"
+
 [dependencies]
 webrtc-common-audio = { workspace = true }
 webrtc-aec3 = { workspace = true }
