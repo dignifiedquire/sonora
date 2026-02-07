@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["cpp"]
+exclude = ["cpp", "fuzz"]
 members = [
     "crates/sonora",
     "crates/sonora-sys",
