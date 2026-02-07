@@ -1,36 +1,34 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/webrtc-apm",
-    "crates/webrtc-apm-sys",
-    "crates/webrtc-common-audio",
-    "crates/webrtc-aec3",
-    "crates/webrtc-agc2",
-    "crates/webrtc-ns",
-    "crates/webrtc-simd",
-    "crates/webrtc-ring-buffer",
-    "crates/webrtc-fft",
-    "crates/webrtc-apm-proptest",
+    "crates/sonora",
+    "crates/sonora-sys",
+    "crates/sonora-common-audio",
+    "crates/sonora-aec3",
+    "crates/sonora-agc2",
+    "crates/sonora-ns",
+    "crates/sonora-simd",
+    "crates/sonora-fft",
+    "crates/sonora-proptest",
 ]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"
 license = "BSD-3-Clause"
-repository = "https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing"
+repository = "https://github.com/dignifiedquire/sonora"
 
 [workspace.dependencies]
 # Internal crates
-webrtc-apm = { path = "crates/webrtc-apm" }
-webrtc-apm-sys = { path = "crates/webrtc-apm-sys" }
-webrtc-common-audio = { path = "crates/webrtc-common-audio" }
-webrtc-aec3 = { path = "crates/webrtc-aec3" }
-webrtc-agc2 = { path = "crates/webrtc-agc2" }
-webrtc-ns = { path = "crates/webrtc-ns" }
-webrtc-simd = { path = "crates/webrtc-simd" }
-webrtc-ring-buffer = { path = "crates/webrtc-ring-buffer" }
-webrtc-fft = { path = "crates/webrtc-fft" }
-webrtc-apm-proptest = { path = "crates/webrtc-apm-proptest" }
+sonora = { path = "crates/sonora" }
+sonora-sys = { path = "crates/sonora-sys" }
+sonora-common-audio = { path = "crates/sonora-common-audio" }
+sonora-aec3 = { path = "crates/sonora-aec3" }
+sonora-agc2 = { path = "crates/sonora-agc2" }
+sonora-ns = { path = "crates/sonora-ns" }
+sonora-simd = { path = "crates/sonora-simd" }
+sonora-fft = { path = "crates/sonora-fft" }
+sonora-proptest = { path = "crates/sonora-proptest" }
 
 # External dependencies
 cpufeatures = "0.3"

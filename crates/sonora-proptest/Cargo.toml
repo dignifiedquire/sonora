@@ -1,0 +1,26 @@
+[package]
+name = "sonora-proptest"
+version = "0.1.0"
+description = "Property-based test framework for WebRTC Audio Processing Rust port"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Enable FFI comparison tests against the C++ library.
+cpp-comparison = ["dep:sonora-sys", "sonora-sys/cxx-bridge"]
+
+[dependencies]
+proptest = { workspace = true }
+test-strategy = { workspace = true }
+sonora-sys = { workspace = true, optional = true }
