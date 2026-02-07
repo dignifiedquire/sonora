@@ -76,6 +76,68 @@ pub(crate) unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> 
     (sum1, sum2)
 }
 
+/// SSE2 sinc resampler convolution: dual dot product with vector interpolation.
+///
+/// Matches C++ `Convolve_SSE`: interpolation happens on __m128 vectors
+/// *before* horizontal reduction, matching the C++ rounding behavior exactly.
+///
+/// # Safety
+/// Caller must ensure SSE2 is available.
+#[target_feature(enable = "sse2")]
+pub(crate) unsafe fn convolve_sinc(
+    input: &[f32],
+    k1: &[f32],
+    k2: &[f32],
+    kernel_interpolation_factor: f64,
+) -> f32 {
+    let len = input.len();
+    let chunks = len / 4;
+
+    let mut acc1 = _mm_setzero_ps();
+    let mut acc2 = _mm_setzero_ps();
+
+    let input_ptr = input.as_ptr();
+    let k1_ptr = k1.as_ptr();
+    let k2_ptr = k2.as_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        let vi = _mm_loadu_ps(input_ptr.add(offset));
+        let vk1 = _mm_loadu_ps(k1_ptr.add(offset));
+        let vk2 = _mm_loadu_ps(k2_ptr.add(offset));
+        acc1 = _mm_add_ps(acc1, _mm_mul_ps(vi, vk1));
+        acc2 = _mm_add_ps(acc2, _mm_mul_ps(vi, vk2));
+    }
+
+    // Linearly interpolate on vectors before horizontal reduction.
+    // C++ casts double to float for the SIMD weights:
+    //   static_cast<float>(1.0 - kernel_interpolation_factor)
+    //   static_cast<float>(kernel_interpolation_factor)
+    acc1 = _mm_mul_ps(
+        acc1,
+        _mm_set1_ps((1.0 - kernel_interpolation_factor) as f32),
+    );
+    acc2 = _mm_mul_ps(acc2, _mm_set1_ps(kernel_interpolation_factor as f32));
+    acc1 = _mm_add_ps(acc1, acc2);
+
+    // Horizontal sum of the interpolated result.
+    let mut result = horizontal_sum(acc1);
+
+    // Scalar tail (sinc resampler always uses KERNEL_SIZE=32 which is
+    // divisible by 4, so this tail is never reached in practice).
+    let tail_start = chunks * 4;
+    let remainder = len % 4;
+    if remainder > 0 {
+        let factor = kernel_interpolation_factor as f32;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            result += (1.0 - factor) * input[idx] * k1[idx] + factor * input[idx] * k2[idx];
+        }
+    }
+
+    result
+}
+
 /// SSE2 multiply-accumulate: acc[i] += a[i] * b[i]
 ///
 /// # Safety

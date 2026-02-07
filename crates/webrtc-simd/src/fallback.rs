@@ -14,6 +14,28 @@ pub(crate) fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f
     (sum1, sum2)
 }
 
+/// Sinc resampler convolution: dual dot product with interpolation in f64.
+///
+/// Matches C++ `Convolve_C` which interpolates in `double` precision.
+pub(crate) fn convolve_sinc(
+    input: &[f32],
+    k1: &[f32],
+    k2: &[f32],
+    kernel_interpolation_factor: f64,
+) -> f32 {
+    let mut sum1 = 0.0f32;
+    let mut sum2 = 0.0f32;
+    for i in 0..input.len() {
+        sum1 += input[i] * k1[i];
+        sum2 += input[i] * k2[i];
+    }
+    // Interpolate in f64 matching C++ Convolve_C:
+    //   static_cast<float>((1.0 - kernel_interpolation_factor) * sum1 +
+    //                       kernel_interpolation_factor * sum2);
+    ((1.0 - kernel_interpolation_factor) * sum1 as f64 + kernel_interpolation_factor * sum2 as f64)
+        as f32
+}
+
 pub(crate) fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
     for i in 0..acc.len() {
         acc[i] += a[i] * b[i];

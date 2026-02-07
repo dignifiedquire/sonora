@@ -124,6 +124,73 @@ fn compute_energy(x: &[f32; FFT_SIZE]) -> f32 {
     x.iter().map(|&v| v * v).sum()
 }
 
+/// Delay an upper-band frame to match the band-0 filter-bank delay.
+///
+/// The delay equals `kFftSize - kNsFrameSize` (96 samples = `OVERLAP_SIZE`).
+/// C++ source: `DelaySignal` in `noise_suppressor.cc`.
+fn delay_signal(
+    frame: &[f32; NS_FRAME_SIZE],
+    delay_buffer: &mut [f32; OVERLAP_SIZE],
+    delayed_frame: &mut [f32; NS_FRAME_SIZE],
+) {
+    // Number of samples taken from the current frame (160 - 96 = 64).
+    const SAMPLES_FROM_FRAME: usize = NS_FRAME_SIZE - OVERLAP_SIZE;
+
+    // First part: old data from delay buffer.
+    delayed_frame[..OVERLAP_SIZE].copy_from_slice(delay_buffer);
+    // Second part: beginning of current frame.
+    delayed_frame[OVERLAP_SIZE..].copy_from_slice(&frame[..SAMPLES_FROM_FRAME]);
+    // Store the tail of the current frame as the new delay buffer.
+    delay_buffer.copy_from_slice(&frame[SAMPLES_FROM_FRAME..]);
+}
+
+/// Compute the gain to apply to upper frequency bands.
+///
+/// Based on the Wiener filter at the top of band 0, the speech probability,
+/// and any change in signal spectrum between analyze and process (e.g. from
+/// AEC suppression). Matches C++ `ComputeUpperBandsGain`.
+fn compute_upper_band_gain(
+    minimum_attenuating_gain: f32,
+    filter: &[f32; FFT_SIZE_BY_2_PLUS_1],
+    speech_probability: &[f32; FFT_SIZE_BY_2_PLUS_1],
+    prev_analysis_signal_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
+    signal_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
+) -> f32 {
+    // Average speech prob and filter gain over the top 32 bins of band 0.
+    const NUM_AVG_BINS: usize = 32;
+    const ONE_BY_NUM_AVG_BINS: f32 = 1.0 / NUM_AVG_BINS as f32;
+
+    let mut avg_prob_speech = 0.0f32;
+    let mut avg_filter_gain = 0.0f32;
+    for i in (FFT_SIZE_BY_2_PLUS_1 - NUM_AVG_BINS - 1)..(FFT_SIZE_BY_2_PLUS_1 - 1) {
+        avg_prob_speech += speech_probability[i];
+        avg_filter_gain += filter[i];
+    }
+    avg_prob_speech *= ONE_BY_NUM_AVG_BINS;
+    avg_filter_gain *= ONE_BY_NUM_AVG_BINS;
+
+    // Scale speech probability by the spectrum change ratio (accounts for
+    // suppression applied between analyze and process, e.g. by AEC).
+    let sum_analysis_spectrum: f32 = prev_analysis_signal_spectrum.iter().sum();
+    let sum_processing_spectrum: f32 = signal_spectrum.iter().sum();
+    // The magnitude spectrum computation enforces strictly positive values.
+    debug_assert!(sum_analysis_spectrum > 0.0);
+    avg_prob_speech *= sum_processing_spectrum / sum_analysis_spectrum;
+
+    // Compute gain based on speech probability.
+    let mut gain = 0.5 * (1.0 + (2.0 * avg_prob_speech - 1.0).tanh());
+
+    // Combine with low band filter gain.
+    if avg_prob_speech >= 0.5 {
+        gain = 0.25 * gain + 0.75 * avg_filter_gain;
+    } else {
+        gain = 0.5 * gain + 0.5 * avg_filter_gain;
+    }
+
+    // Clamp to [minimum_attenuating_gain, 1.0].
+    gain.clamp(minimum_attenuating_gain, 1.0)
+}
+
 /// Per-channel processing state.
 #[derive(Debug)]
 struct ChannelState {
@@ -134,10 +201,13 @@ struct ChannelState {
     analyze_analysis_memory: [f32; FFT_SIZE - NS_FRAME_SIZE],
     process_analysis_memory: [f32; OVERLAP_SIZE],
     process_synthesis_memory: [f32; OVERLAP_SIZE],
+    /// Delay buffers for upper bands (one per upper band).
+    process_delay_memory: Vec<[f32; OVERLAP_SIZE]>,
 }
 
 impl ChannelState {
-    fn new(suppression_params: &'static SuppressionParams) -> Self {
+    fn new(suppression_params: &'static SuppressionParams, num_bands: usize) -> Self {
+        let num_delay_buffers = num_bands.saturating_sub(1);
         Self {
             speech_probability_estimator: SpeechProbabilityEstimator::default(),
             wiener_filter: WienerFilter::new(suppression_params),
@@ -146,6 +216,7 @@ impl ChannelState {
             analyze_analysis_memory: [0.0; FFT_SIZE - NS_FRAME_SIZE],
             process_analysis_memory: [0.0; OVERLAP_SIZE],
             process_synthesis_memory: [0.0; OVERLAP_SIZE],
+            process_delay_memory: vec![[0.0; OVERLAP_SIZE]; num_delay_buffers],
         }
     }
 }
@@ -154,6 +225,12 @@ impl ChannelState {
 ///
 /// Processes 10ms frames (160 samples at 16kHz) using overlap-add
 /// with a 256-point FFT. Call [`analyze`] before [`process`] for each frame.
+///
+/// When operating in multi-band mode (`num_bands > 1`), upper bands must be
+/// processed separately via [`process_upper_bands`](NoiseSuppressor::process_upper_bands)
+/// after calling [`process`](NoiseSuppressor::process) on band 0. The upper
+/// band gain is computed during `process` and can be retrieved via
+/// [`upper_band_gain`](NoiseSuppressor::upper_band_gain).
 ///
 /// # Example
 ///
@@ -170,18 +247,44 @@ impl ChannelState {
 #[derive(Debug)]
 pub struct NoiseSuppressor {
     num_analyzed_frames: i32,
+    num_bands: usize,
+    suppression_params: &'static SuppressionParams,
     fft: NsFft,
     channel: ChannelState,
+    /// Upper band gain computed during the most recent `process()` call.
+    /// Only meaningful when `num_bands > 1`.
+    cached_upper_band_gain: f32,
 }
 
 impl NoiseSuppressor {
-    /// Create a new noise suppressor with the given configuration.
+    /// Create a new single-band noise suppressor with the given configuration.
     pub fn new(config: NsConfig) -> Self {
         let suppression_params = SuppressionParams::for_level(config.target_level);
         Self {
             num_analyzed_frames: -1,
+            num_bands: 1,
+            suppression_params,
             fft: NsFft::default(),
-            channel: ChannelState::new(suppression_params),
+            channel: ChannelState::new(suppression_params, 1),
+            cached_upper_band_gain: 1.0,
+        }
+    }
+
+    /// Create a noise suppressor for multi-band processing.
+    ///
+    /// `num_bands` is the number of frequency bands (1 for ≤16 kHz, 2 for
+    /// 32 kHz, 3 for 48 kHz). When `num_bands > 1`, upper band delay
+    /// buffers are allocated and [`upper_band_gain`] becomes meaningful
+    /// after each [`process`] call.
+    pub fn new_with_bands(config: NsConfig, num_bands: usize) -> Self {
+        let suppression_params = SuppressionParams::for_level(config.target_level);
+        Self {
+            num_analyzed_frames: -1,
+            num_bands,
+            suppression_params,
+            fft: NsFft::default(),
+            channel: ChannelState::new(suppression_params, num_bands),
+            cached_upper_band_gain: 1.0,
         }
     }
 
@@ -287,10 +390,15 @@ impl NoiseSuppressor {
         ch.prev_analysis_signal_spectrum = signal_spectrum;
     }
 
-    /// Apply noise suppression to the frame.
+    /// Apply noise suppression to the band-0 frame.
     ///
     /// `frame` must have exactly [`NS_FRAME_SIZE`] (160) samples.
     /// The frame is modified in-place with the suppressed output.
+    ///
+    /// When operating in multi-band mode, this also computes the upper band
+    /// gain internally. After calling this, use [`upper_band_gain`] to
+    /// retrieve the gain, and [`process_upper_bands`] to apply delay and
+    /// gain to upper bands.
     pub fn process(&mut self, frame: &mut [f32; NS_FRAME_SIZE]) {
         let ch = &mut self.channel;
 
@@ -317,6 +425,18 @@ impl NoiseSuppressor {
             ch.noise_estimator.parametric_noise_spectrum(),
             &signal_spectrum,
         );
+
+        // Compute upper band gain before applying the filter (needs both
+        // prev_analysis_signal_spectrum and the current signal_spectrum).
+        if self.num_bands > 1 {
+            self.cached_upper_band_gain = compute_upper_band_gain(
+                self.suppression_params.minimum_attenuating_gain,
+                ch.wiener_filter.filter(),
+                ch.speech_probability_estimator.probability(),
+                &ch.prev_analysis_signal_spectrum,
+                &signal_spectrum,
+            );
+        }
 
         // Apply the filter to the frequency domain.
         let filter = ch.wiener_filter.filter();
@@ -350,6 +470,59 @@ impl NoiseSuppressor {
         overlap_and_add(&extended_frame, &mut ch.process_synthesis_memory, frame);
 
         // Clamp output to valid range.
+        for v in frame.iter_mut() {
+            *v = v.clamp(-32768.0, 32767.0);
+        }
+    }
+
+    /// Return the upper band gain computed during the most recent [`process`]
+    /// call.
+    ///
+    /// Only meaningful when `num_bands > 1`. Returns 1.0 for single-band
+    /// instances.
+    pub fn upper_band_gain(&self) -> f32 {
+        self.cached_upper_band_gain
+    }
+
+    /// Apply delay compensation and gain to a single upper band frame.
+    ///
+    /// `upper_band_index` is 0-based (band 1 → index 0, band 2 → index 1).
+    /// `gain` is the (potentially multi-channel aggregated) upper band gain.
+    ///
+    /// The band is delayed by [`OVERLAP_SIZE`] samples to match the latency
+    /// of the band-0 analysis/synthesis filter bank, then scaled by `gain`.
+    pub fn process_upper_band(
+        &mut self,
+        frame: &mut [f32; NS_FRAME_SIZE],
+        upper_band_index: usize,
+        gain: f32,
+    ) {
+        debug_assert!(
+            upper_band_index < self.channel.process_delay_memory.len(),
+            "upper_band_index {} out of range (max {})",
+            upper_band_index,
+            self.channel.process_delay_memory.len()
+        );
+
+        let mut delayed_frame = [0.0f32; NS_FRAME_SIZE];
+        delay_signal(
+            frame,
+            &mut self.channel.process_delay_memory[upper_band_index],
+            &mut delayed_frame,
+        );
+
+        // Apply gain and write back.
+        for j in 0..NS_FRAME_SIZE {
+            frame[j] = gain * delayed_frame[j];
+        }
+    }
+
+    /// Clamp all bands (including band 0) to `[-32768, 32767]`.
+    ///
+    /// Band 0 is already clamped by [`process`], so this is only needed for
+    /// upper bands. Provided for completeness to match C++ which clamps all
+    /// bands after upper band processing.
+    pub fn clamp_frame(frame: &mut [f32; NS_FRAME_SIZE]) {
         for v in frame.iter_mut() {
             *v = v.clamp(-32768.0, 32767.0);
         }

@@ -76,6 +76,78 @@ pub(crate) unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> 
     (sum1, sum2)
 }
 
+/// AVX2+FMA sinc resampler convolution: dual dot product with vector interpolation.
+///
+/// Matches C++ `Convolve_AVX2`: after accumulation, extracts 256→128, then
+/// interpolates on __m128 vectors *before* horizontal reduction.
+///
+/// # Safety
+/// Caller must ensure AVX2 and FMA are available.
+#[target_feature(enable = "avx2,fma")]
+pub(crate) unsafe fn convolve_sinc(
+    input: &[f32],
+    k1: &[f32],
+    k2: &[f32],
+    kernel_interpolation_factor: f64,
+) -> f32 {
+    let len = input.len();
+    let chunks = len / 8;
+
+    let mut acc1 = _mm256_setzero_ps();
+    let mut acc2 = _mm256_setzero_ps();
+
+    let input_ptr = input.as_ptr();
+    let k1_ptr = k1.as_ptr();
+    let k2_ptr = k2.as_ptr();
+
+    for i in 0..chunks {
+        let offset = i * 8;
+        let vi = _mm256_loadu_ps(input_ptr.add(offset));
+        let vk1 = _mm256_loadu_ps(k1_ptr.add(offset));
+        let vk2 = _mm256_loadu_ps(k2_ptr.add(offset));
+        acc1 = _mm256_fmadd_ps(vi, vk1, acc1);
+        acc2 = _mm256_fmadd_ps(vi, vk2, acc2);
+    }
+
+    // Extract 256→128 (matching C++ Convolve_AVX2 exactly).
+    let mut m128_sums1 = _mm_add_ps(
+        _mm256_extractf128_ps(acc1, 0),
+        _mm256_extractf128_ps(acc1, 1),
+    );
+    let mut m128_sums2 = _mm_add_ps(
+        _mm256_extractf128_ps(acc2, 0),
+        _mm256_extractf128_ps(acc2, 1),
+    );
+
+    // Linearly interpolate on 128-bit vectors before horizontal reduction.
+    m128_sums1 = _mm_mul_ps(
+        m128_sums1,
+        _mm_set1_ps((1.0 - kernel_interpolation_factor) as f32),
+    );
+    m128_sums2 = _mm_mul_ps(m128_sums2, _mm_set1_ps(kernel_interpolation_factor as f32));
+    m128_sums1 = _mm_add_ps(m128_sums1, m128_sums2);
+
+    // Horizontal sum (uses SSE intrinsics on the 128-bit result).
+    let m128_sums2_tmp = _mm_add_ps(_mm_movehl_ps(m128_sums1, m128_sums1), m128_sums1);
+    let mut result = _mm_cvtss_f32(_mm_add_ss(
+        m128_sums2_tmp,
+        _mm_shuffle_ps(m128_sums2_tmp, m128_sums2_tmp, 1),
+    ));
+
+    // Scalar tail (KERNEL_SIZE=32 is divisible by 8, so never reached).
+    let tail_start = chunks * 8;
+    let remainder = len % 8;
+    if remainder > 0 {
+        let factor = kernel_interpolation_factor as f32;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            result += (1.0 - factor) * input[idx] * k1[idx] + factor * input[idx] * k2[idx];
+        }
+    }
+
+    result
+}
+
 /// AVX2+FMA multiply-accumulate: acc[i] += a[i] * b[i]
 ///
 /// # Safety

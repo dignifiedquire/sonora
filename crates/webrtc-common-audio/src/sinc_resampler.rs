@@ -276,17 +276,26 @@ impl SincResampler {
         let scale = sinc_scale_factor(self.io_sample_rate_ratio);
 
         for offset_idx in 0..=KERNEL_OFFSET_COUNT {
-            let subsample_offset = offset_idx as f64 / KERNEL_OFFSET_COUNT as f64;
+            // C++ computes subsample_offset as float:
+            //   const float subsample_offset =
+            //       static_cast<float>(offset_idx) / kKernelOffsetCount;
+            let subsample_offset = offset_idx as f32 / KERNEL_OFFSET_COUNT as f32;
 
             for i in 0..KERNEL_SIZE {
                 let idx = i + offset_idx * KERNEL_SIZE;
 
-                let pre_sinc = PI * (i as f64 - HALF_KERNEL as f64 - subsample_offset);
+                // C++: pi * (int(i) - int(kKernelSize/2) - subsample_offset)
+                // subsample_offset is float, subtraction in float, then
+                // promoted to double for the pi multiply.
+                let pre_sinc = PI * (i as f32 - HALF_KERNEL as f32 - subsample_offset) as f64;
                 self.kernel_pre_sinc_storage[idx] = pre_sinc as f32;
 
-                // Blackman window
-                let x = (i as f64 - subsample_offset) / KERNEL_SIZE as f64;
-                let window = k_a0 - k_a1 * (2.0 * PI * x).cos() + k_a2 * (4.0 * PI * x).cos();
+                // C++: (i - subsample_offset) / kKernelSize — all float
+                let x = (i as f32 - subsample_offset) / KERNEL_SIZE as f32;
+
+                // C++ window uses double constants, trig in double, cast to float
+                let window =
+                    k_a0 - k_a1 * (2.0 * PI * x as f64).cos() + k_a2 * (4.0 * PI * x as f64).cos();
                 self.kernel_window_storage[idx] = window as f32;
 
                 // Windowed sinc
@@ -301,6 +310,10 @@ impl SincResampler {
     }
 
     /// Inner convolution: dot-product of input with two interpolated kernels.
+    ///
+    /// Uses `convolve_sinc` which performs interpolation on SIMD vectors
+    /// *before* horizontal reduction, matching C++ `SincResampler::Convolve_*`
+    /// rounding behavior exactly.
     #[inline]
     fn convolve(
         &self,
@@ -313,11 +326,8 @@ impl SincResampler {
         let k1 = &self.kernel_storage[k1_offset..k1_offset + KERNEL_SIZE];
         let k2 = &self.kernel_storage[k2_offset..k2_offset + KERNEL_SIZE];
 
-        let (sum1, sum2) = self.simd.dual_dot_product(input, k1, k2);
-
-        // Linearly interpolate the two convolutions.
-        let factor = kernel_interpolation_factor as f32;
-        (1.0 - factor) * sum1 + factor * sum2
+        self.simd
+            .convolve_sinc(input, k1, k2, kernel_interpolation_factor)
     }
 }
 

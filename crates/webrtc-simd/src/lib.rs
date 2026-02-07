@@ -93,6 +93,44 @@ impl SimdBackend {
         }
     }
 
+    /// Sinc resampler convolution: dual dot product with interpolation.
+    ///
+    /// Computes `(1-f)*dot(input,k1) + f*dot(input,k2)` where `f` is the
+    /// `kernel_interpolation_factor`. Unlike [`dual_dot_product`] followed by
+    /// scalar interpolation, this performs interpolation on SIMD vectors
+    /// *before* horizontal reduction, matching C++ `SincResampler::Convolve_*`
+    /// rounding behavior exactly.
+    ///
+    /// The scalar fallback interpolates in `f64` matching C++ `Convolve_C`.
+    pub fn convolve_sinc(
+        self,
+        input: &[f32],
+        k1: &[f32],
+        k2: &[f32],
+        kernel_interpolation_factor: f64,
+    ) -> f32 {
+        debug_assert_eq!(input.len(), k1.len());
+        debug_assert_eq!(input.len(), k2.len());
+        match self {
+            Self::Scalar => fallback::convolve_sinc(input, k1, k2, kernel_interpolation_factor),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Sse2 after confirming sse2 support.
+            Self::Sse2 => unsafe {
+                sse2::convolve_sinc(input, k1, k2, kernel_interpolation_factor)
+            },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: detect_backend() only returns Avx2 after confirming avx2+fma support.
+            Self::Avx2 => unsafe {
+                avx2::convolve_sinc(input, k1, k2, kernel_interpolation_factor)
+            },
+            #[cfg(target_arch = "aarch64")]
+            // SAFETY: NEON is always available on aarch64.
+            Self::Neon => unsafe {
+                neon::convolve_sinc(input, k1, k2, kernel_interpolation_factor)
+            },
+        }
+    }
+
     /// Element-wise multiply-accumulate: acc[i] += a[i] * b[i]
     ///
     /// `acc`, `a`, and `b` must have the same length.

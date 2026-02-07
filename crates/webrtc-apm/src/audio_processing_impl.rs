@@ -582,11 +582,47 @@ impl AudioProcessingImpl {
         }
 
         // Phase 7c: Noise suppression processing.
+        // Process band 0 for each channel (updates Wiener filter + computes upper band gain).
         for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
             let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
             let band0 = capture_buffer.split_band_mut(ch, 0);
             if let Ok(frame) = <&mut [f32; 160]>::try_from(band0) {
                 ns.process(frame);
+            }
+        }
+
+        // Process upper bands if multi-band (delay compensation + gain + clamp).
+        if !self.submodules.noise_suppressors.is_empty() {
+            let num_bands = self.capture.capture_audio.as_ref().unwrap().num_bands();
+            if num_bands > 1 {
+                // Aggregate upper band gain across channels (take minimum).
+                let upper_band_gain = self
+                    .submodules
+                    .noise_suppressors
+                    .iter()
+                    .map(|ns| ns.upper_band_gain())
+                    .fold(f32::MAX, f32::min);
+
+                for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
+                    // Delay and apply gain to each upper band.
+                    for b in 1..num_bands {
+                        let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+                        let band_data = capture_buffer.split_band_mut(ch, b);
+                        if let Ok(frame) = <&mut [f32; 160]>::try_from(band_data) {
+                            ns.process_upper_band(frame, b - 1, upper_band_gain);
+                        }
+                    }
+
+                    // Clamp all bands (band 0 already clamped by process(),
+                    // but C++ clamps all bands after upper band processing).
+                    for b in 0..num_bands {
+                        let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+                        let band_data = capture_buffer.split_band_mut(ch, b);
+                        if let Ok(frame) = <&mut [f32; 160]>::try_from(band_data) {
+                            NoiseSuppressor::clamp_frame(frame);
+                        }
+                    }
+                }
             }
         }
 
@@ -1191,6 +1227,7 @@ impl AudioProcessingImpl {
 
         let level = map_ns_level(self.config.noise_suppression.level);
         let num_channels = self.num_proc_channels();
+        let num_bands = self.proc_sample_rate_hz() / 16000;
         let ns_config = NsConfig {
             target_level: level,
         };
@@ -1198,7 +1235,7 @@ impl AudioProcessingImpl {
         for _ in 0..num_channels {
             self.submodules
                 .noise_suppressors
-                .push(NoiseSuppressor::new(ns_config));
+                .push(NoiseSuppressor::new_with_bands(ns_config, num_bands));
         }
     }
 

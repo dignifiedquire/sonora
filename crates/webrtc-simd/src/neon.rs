@@ -77,6 +77,70 @@ pub(crate) unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> 
     (sum1, sum2)
 }
 
+/// NEON sinc resampler convolution: dual dot product with vector interpolation.
+///
+/// Matches C++ `Convolve_NEON`: interpolation happens on float32x4_t vectors
+/// using `vmlaq_f32` *before* horizontal reduction.
+///
+/// # Safety
+/// Caller must ensure NEON is available.
+#[inline]
+pub(crate) unsafe fn convolve_sinc(
+    input: &[f32],
+    k1: &[f32],
+    k2: &[f32],
+    kernel_interpolation_factor: f64,
+) -> f32 {
+    let len = input.len();
+    let chunks = len / 4;
+
+    let input_ptr = input.as_ptr();
+    let k1_ptr = k1.as_ptr();
+    let k2_ptr = k2.as_ptr();
+
+    let mut acc1 = unsafe { vdupq_n_f32(0.0) };
+    let mut acc2 = unsafe { vdupq_n_f32(0.0) };
+
+    for i in 0..chunks {
+        let offset = i * 4;
+        unsafe {
+            let vi = vld1q_f32(input_ptr.add(offset));
+            let vk1 = vld1q_f32(k1_ptr.add(offset));
+            let vk2 = vld1q_f32(k2_ptr.add(offset));
+            acc1 = vmlaq_f32(acc1, vi, vk1);
+            acc2 = vmlaq_f32(acc2, vi, vk2);
+        }
+    }
+
+    // Linearly interpolate on vectors before horizontal reduction.
+    // Matches C++ Convolve_NEON:
+    //   m_sums1 = vmlaq_f32(
+    //       vmulq_f32(m_sums1, vmovq_n_f32(1.0 - kernel_interpolation_factor)),
+    //       m_sums2, vmovq_n_f32(kernel_interpolation_factor));
+    let factor = kernel_interpolation_factor as f32;
+    unsafe {
+        acc1 = vmlaq_f32(
+            vmulq_f32(acc1, vdupq_n_f32(1.0 - factor)),
+            acc2,
+            vdupq_n_f32(factor),
+        );
+    }
+
+    let mut result = unsafe { horizontal_sum(acc1) };
+
+    // Scalar tail (KERNEL_SIZE=32 is divisible by 4, so never reached).
+    let tail_start = chunks * 4;
+    let remainder = len % 4;
+    if remainder > 0 {
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            result += (1.0 - factor) * input[idx] * k1[idx] + factor * input[idx] * k2[idx];
+        }
+    }
+
+    result
+}
+
 /// NEON multiply-accumulate: acc[i] += a[i] * b[i]
 ///
 /// # Safety
