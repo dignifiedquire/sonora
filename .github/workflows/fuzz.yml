@@ -1,0 +1,26 @@
+name: Fuzzing
+
+on:
+  schedule:
+    - cron: "0 6 * * 3" # Weekly on Wednesday
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [process_stream, config_changes, c_api]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run fuzzer
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=300

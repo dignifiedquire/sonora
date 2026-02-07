@@ -1,0 +1,42 @@
+name: C++ Validation
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: C++ Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libabsl-dev pkg-config
+
+      - name: Build Rust library
+        run: cargo build --release -p sonora
+
+      - name: Build C++ with Rust backend
+        working-directory: cpp
+        run: |
+          meson setup builddir \
+            -Dtests=enabled \
+            -Drust-backend=true \
+            -Dprefix=${{ github.workspace }}/install
+          ninja -C builddir
+
+      - name: Run C++ tests
+        working-directory: cpp
+        run: meson test -C builddir -v --print-errorlogs
