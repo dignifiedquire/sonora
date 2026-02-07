@@ -367,6 +367,69 @@ impl AudioProcessingImpl {
         }
     }
 
+    /// Processes a capture audio frame (int16, interleaved).
+    pub(crate) fn process_stream_i16(
+        &mut self,
+        src: &[i16],
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+        dest: &mut [i16],
+    ) {
+        self.maybe_initialize_capture(input_config, output_config);
+
+        let capture_audio = self.capture.capture_audio.as_mut().unwrap();
+        capture_audio.copy_from_interleaved_i16(src, input_config);
+        if let Some(fullband) = &mut self.capture.capture_fullband_audio {
+            fullband.copy_from_interleaved_i16(src, input_config);
+        }
+
+        self.process_capture_stream_locked();
+
+        if self.capture.capture_fullband_audio.is_some() {
+            self.capture
+                .capture_fullband_audio
+                .as_mut()
+                .unwrap()
+                .copy_to_interleaved_i16(output_config, dest);
+        } else {
+            self.capture
+                .capture_audio
+                .as_mut()
+                .unwrap()
+                .copy_to_interleaved_i16(output_config, dest);
+        }
+    }
+
+    /// Processes a reverse (render / far-end) audio frame (int16, interleaved).
+    pub(crate) fn process_reverse_stream_i16(
+        &mut self,
+        src: &[i16],
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+        dest: &mut [i16],
+    ) {
+        self.maybe_initialize_render(input_config, output_config);
+
+        let render_audio = self.render.render_audio.as_mut().unwrap();
+        render_audio.copy_from_interleaved_i16(src, input_config);
+        self.process_render_stream_locked();
+
+        if self.submodule_states.render_multi_band_sub_modules_active() {
+            let render_audio = self.render.render_audio.as_mut().unwrap();
+            render_audio
+                .copy_to_interleaved_i16(&self.formats.api_format.reverse_output_stream, dest);
+        } else {
+            // Copy src to dest directly (no processing needed).
+            let len = dest.len().min(src.len());
+            dest[..len].copy_from_slice(&src[..len]);
+        }
+    }
+
+    /// Returns a reference to the current configuration.
+    pub(crate) fn config(&self) -> &Config {
+        &self.config
+    }
+
     /// The main capture processing pipeline.
     fn process_capture_stream_locked(&mut self) {
         self.empty_queued_render_audio();
