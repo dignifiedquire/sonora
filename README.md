@@ -61,7 +61,7 @@ The audio processing code in this project has a long lineage:
 
 1. **Google's libwebrtc** — The original AudioProcessing module was developed as part of the [WebRTC Native Code](https://webrtc.googlesource.com/src/) project at Google, providing production-grade echo cancellation, noise suppression, and gain control for real-time communication.
 
-2. **PulseAudio's webrtc-audio-processing** — [Arun Raghavan](https://github.com/arunraghavan) and contributors at [Collabora](https://www.collabora.com/) extracted the AudioProcessing module into a [standalone library](https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing/) with a Meson build system, making it usable outside of the full WebRTC stack. This packaging is used by PulseAudio, PipeWire, and other Linux audio projects.
+2. **PulseAudio's webrtc-audio-processing** — [Arun Raghavan](https://github.com/arunraghavan) and contributors extracted the AudioProcessing module into a [standalone library](https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing/) with a Meson build system, making it usable outside of the full WebRTC stack. This packaging is used by PulseAudio, PipeWire, and other Linux audio projects.
 
 3. **M145 upgrade and test expansion** — With AI assistance (Claude, Anthropic), dignifiedquire updated the C++ codebase to WebRTC M145 (branch-heads/7632), ported the full upstream test suite (2400+ tests), and upgraded to C++20 with modern abseil-cpp.
 
