@@ -6,16 +6,16 @@
 //! C++ source: `webrtc/modules/audio_processing/ns/`
 
 pub mod config;
-pub mod fast_math;
-pub mod histograms;
-pub mod noise_estimator;
+pub(crate) mod fast_math;
+pub(crate) mod histograms;
+pub(crate) mod noise_estimator;
 pub mod noise_suppressor;
-pub mod ns_fft;
-pub mod prior_signal_model;
-pub mod prior_signal_model_estimator;
-pub mod quantile_noise_estimator;
-pub mod signal_model;
-pub mod signal_model_estimator;
-pub mod speech_probability_estimator;
-pub mod suppression_params;
-pub mod wiener_filter;
+pub(crate) mod ns_fft;
+pub(crate) mod prior_signal_model;
+pub(crate) mod prior_signal_model_estimator;
+pub(crate) mod quantile_noise_estimator;
+pub(crate) mod signal_model;
+pub(crate) mod signal_model_estimator;
+pub(crate) mod speech_probability_estimator;
+pub(crate) mod suppression_params;
+pub(crate) mod wiener_filter;

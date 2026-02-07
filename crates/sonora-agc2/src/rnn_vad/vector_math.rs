@@ -8,18 +8,18 @@ use sonora_simd::SimdBackend;
 
 /// Provides optimized mathematical operations on vectors.
 #[derive(Debug, Clone, Copy)]
-pub struct VectorMath {
+pub(crate) struct VectorMath {
     backend: SimdBackend,
 }
 
 impl VectorMath {
     /// Creates a new `VectorMath` using the given SIMD backend.
-    pub fn new(backend: SimdBackend) -> Self {
+    pub(crate) fn new(backend: SimdBackend) -> Self {
         Self { backend }
     }
 
     /// Computes the dot product between two equally sized slices.
-    pub fn dot_product(&self, x: &[f32], y: &[f32]) -> f32 {
+    pub(crate) fn dot_product(&self, x: &[f32], y: &[f32]) -> f32 {
         self.backend.dot_product(x, y)
     }
 }

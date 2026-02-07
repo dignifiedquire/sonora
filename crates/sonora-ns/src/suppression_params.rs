@@ -6,7 +6,7 @@ use crate::config::SuppressionLevel;
 
 /// Parameters that control the noise suppression behavior at a given level.
 #[derive(Debug, Clone, Copy)]
-pub struct SuppressionParams {
+pub(crate) struct SuppressionParams {
     /// Over-subtraction factor for noise estimate (higher = more aggressive).
     pub over_subtraction_factor: f32,
     /// Minimum gain applied to attenuated bins (sets the floor).
@@ -45,7 +45,7 @@ const K21DB: SuppressionParams = SuppressionParams {
 
 impl SuppressionParams {
     /// Get the suppression parameters for the given level.
-    pub const fn for_level(level: SuppressionLevel) -> &'static Self {
+    pub(crate) const fn for_level(level: SuppressionLevel) -> &'static Self {
         match level {
             SuppressionLevel::K6dB => &K6DB,
             SuppressionLevel::K12dB => &K12DB,

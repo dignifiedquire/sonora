@@ -12,7 +12,7 @@ use crate::signal_model_estimator::SignalModelEstimator;
 
 /// Per-bin speech probability estimator.
 #[derive(Debug)]
-pub struct SpeechProbabilityEstimator {
+pub(crate) struct SpeechProbabilityEstimator {
     signal_model_estimator: SignalModelEstimator,
     prior_speech_prob: f32,
     speech_probability: [f32; FFT_SIZE_BY_2_PLUS_1],
@@ -31,7 +31,7 @@ impl Default for SpeechProbabilityEstimator {
 impl SpeechProbabilityEstimator {
     /// Compute speech probability for the current frame.
     #[allow(clippy::too_many_arguments, reason = "matches C++ API signature")]
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         num_analyzed_frames: i32,
         prior_snr: &[f32; FFT_SIZE_BY_2_PLUS_1],
@@ -120,12 +120,12 @@ impl SpeechProbabilityEstimator {
     }
 
     /// Returns the prior speech probability.
-    pub fn prior_probability(&self) -> f32 {
+    pub(crate) fn prior_probability(&self) -> f32 {
         self.prior_speech_prob
     }
 
     /// Returns the per-bin speech probability.
-    pub fn probability(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
+    pub(crate) fn probability(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
         &self.speech_probability
     }
 }

@@ -4,7 +4,7 @@
 
 /// Ring buffer for `N` arrays each with size `S`.
 #[derive(Debug)]
-pub struct RingBuffer<const S: usize, const N: usize> {
+pub(crate) struct RingBuffer<const S: usize, const N: usize> {
     tail: usize,
     buffer: Vec<f32>,
 }
@@ -20,12 +20,13 @@ impl<const S: usize, const N: usize> Default for RingBuffer<S, N> {
 
 impl<const S: usize, const N: usize> RingBuffer<S, N> {
     /// Set all buffer values to zero.
-    pub fn reset(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn reset(&mut self) {
         self.buffer.fill(0.0);
     }
 
     /// Replace the least recently pushed array with `new_values`.
-    pub fn push(&mut self, new_values: &[f32; S]) {
+    pub(crate) fn push(&mut self, new_values: &[f32; S]) {
         let start = S * self.tail;
         self.buffer[start..start + S].copy_from_slice(new_values);
         self.tail += 1;
@@ -38,7 +39,7 @@ impl<const S: usize, const N: usize> RingBuffer<S, N> {
     ///
     /// Delay 0 returns the most recently pushed array.
     /// Delay N-1 returns the least recently pushed array.
-    pub fn get_array_view(&self, delay: usize) -> &[f32; S] {
+    pub(crate) fn get_array_view(&self, delay: usize) -> &[f32; S] {
         debug_assert!(delay < N);
         let mut offset = self.tail as isize - 1 - delay as isize;
         if offset < 0 {

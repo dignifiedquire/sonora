@@ -7,7 +7,7 @@
 
 /// Prior signal model with weighted feature combination.
 #[derive(Debug, Clone, Copy)]
-pub struct PriorSignalModel {
+pub(crate) struct PriorSignalModel {
     /// Log-likelihood ratio threshold.
     pub lrt: f32,
     /// Spectral flatness threshold.
@@ -24,7 +24,7 @@ pub struct PriorSignalModel {
 
 impl PriorSignalModel {
     /// Create with the given initial LRT value.
-    pub fn new(lrt_initial_value: f32) -> Self {
+    pub(crate) fn new(lrt_initial_value: f32) -> Self {
         Self {
             lrt: lrt_initial_value,
             flatness_threshold: 0.5,

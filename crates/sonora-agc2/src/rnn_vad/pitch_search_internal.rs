@@ -10,7 +10,7 @@ use super::common::{
 use sonora_simd::SimdBackend;
 
 /// Performs 2x decimation without any anti-aliasing filter.
-pub fn decimate_2x(src: &[f32], dst: &mut [f32]) {
+pub(crate) fn decimate_2x(src: &[f32], dst: &mut [f32]) {
     debug_assert_eq!(src.len(), BUF_SIZE_24K_HZ);
     debug_assert_eq!(dst.len(), BUF_SIZE_24K_HZ / 2);
     for (i, d) in dst.iter_mut().enumerate() {
@@ -20,14 +20,14 @@ pub fn decimate_2x(src: &[f32], dst: &mut [f32]) {
 
 /// Top-2 pitch period candidates (inverted lags).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CandidatePitchPeriods {
+pub(crate) struct CandidatePitchPeriods {
     pub best: i32,
     pub second_best: i32,
 }
 
 /// Pitch period and strength.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PitchInfo {
+pub(crate) struct PitchInfo {
     pub period: i32,
     pub strength: f32,
 }
@@ -230,7 +230,7 @@ fn is_alternative_pitch_stronger_than_initial(
 
 /// Computes the sum of squared samples for every sliding frame `y` in the
 /// pitch buffer.
-pub fn compute_sliding_frame_square_energies_24k_hz(
+pub(crate) fn compute_sliding_frame_square_energies_24k_hz(
     pitch_buffer: &[f32],
     y_energy: &mut [f32],
     backend: SimdBackend,
@@ -251,7 +251,7 @@ pub fn compute_sliding_frame_square_energies_24k_hz(
 }
 
 /// Computes the candidate pitch periods at 12 kHz.
-pub fn compute_pitch_period_12k_hz(
+pub(crate) fn compute_pitch_period_12k_hz(
     pitch_buffer: &[f32],
     auto_correlation: &[f32],
     backend: SimdBackend,
@@ -319,7 +319,7 @@ pub fn compute_pitch_period_12k_hz(
 
 /// Computes the pitch period at 48 kHz given the 24 kHz pitch buffer,
 /// sliding frame energies and pitch period candidates at 24 kHz.
-pub fn compute_pitch_period_48k_hz(
+pub(crate) fn compute_pitch_period_48k_hz(
     pitch_buffer: &[f32],
     y_energy: &[f32],
     pitch_candidates: CandidatePitchPeriods,
@@ -387,7 +387,7 @@ pub fn compute_pitch_period_48k_hz(
 }
 
 /// Computes the pitch period at 48 kHz searching in an extended pitch range.
-pub fn compute_extended_pitch_period_48k_hz(
+pub(crate) fn compute_extended_pitch_period_48k_hz(
     pitch_buffer: &[f32],
     y_energy: &[f32],
     initial_pitch_period_48k_hz: i32,

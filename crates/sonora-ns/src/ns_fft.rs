@@ -13,7 +13,7 @@ use crate::config::{FFT_SIZE, FFT_SIZE_BY_2_PLUS_1};
 ///
 /// Maintains pre-initialized twiddle tables for the Ooura fft4g algorithm.
 #[derive(Debug)]
-pub struct NsFft {
+pub(crate) struct NsFft {
     fft: Fft4g,
 }
 
@@ -31,7 +31,7 @@ impl NsFft {
     /// `time_data` is transformed in-place (used as scratch), then the
     /// packed output is split into separate `real` and `imag` arrays
     /// of length `FFT_SIZE_BY_2_PLUS_1` (129).
-    pub fn fft(
+    pub(crate) fn fft(
         &mut self,
         time_data: &mut [f32; FFT_SIZE],
         real: &mut [f32; FFT_SIZE],
@@ -57,7 +57,7 @@ impl NsFft {
     ///
     /// Re-packs `real` and `imag` into the Ooura format, performs the
     /// inverse FFT, and scales the output by `2/N`.
-    pub fn ifft(&mut self, real: &[f32], imag: &[f32], time_data: &mut [f32; FFT_SIZE]) {
+    pub(crate) fn ifft(&mut self, real: &[f32], imag: &[f32], time_data: &mut [f32; FFT_SIZE]) {
         // Pack into Ooura format.
         time_data[0] = real[0];
         time_data[1] = real[FFT_SIZE_BY_2_PLUS_1 - 1];

@@ -3,13 +3,13 @@
 //! Ported from `webrtc/third_party/rnnoise/src/rnn_vad_weights.cc`.
 
 /// Weights scaling factor.
-pub const WEIGHTS_SCALE: f32 = 1.0 / 256.0;
+pub(crate) const WEIGHTS_SCALE: f32 = 1.0 / 256.0;
 
 // Input layer (dense).
-pub const INPUT_LAYER_INPUT_SIZE: usize = 42;
-pub const INPUT_LAYER_OUTPUT_SIZE: usize = 24;
+pub(crate) const INPUT_LAYER_INPUT_SIZE: usize = 42;
+pub(crate) const INPUT_LAYER_OUTPUT_SIZE: usize = 24;
 
-pub const INPUT_DENSE_WEIGHTS: [i8; INPUT_LAYER_INPUT_SIZE * INPUT_LAYER_OUTPUT_SIZE] = [
+pub(crate) const INPUT_DENSE_WEIGHTS: [i8; INPUT_LAYER_INPUT_SIZE * INPUT_LAYER_OUTPUT_SIZE] = [
     -10, 0, -3, 1, -8, -6, 3, -13, 1, 0, -3, -7, -5, -3, 6, -1, -6, 0, -6, -4, -1, -2, 1, 1, -7, 2,
     21, 10, -5, -20, 24, 23, 37, 8, -2, 33, -6, 22, 13, -2, 50, 8, 13, 1, -15, 30, -10, 30, 0, 3,
     5, 27, 1, 4, -3, 41, 56, 35, -2, 49, -13, 11, 13, -2, -47, 5, -16, -60, -15, 77, -17, 26, -3,
@@ -61,22 +61,22 @@ pub const INPUT_DENSE_WEIGHTS: [i8; INPUT_LAYER_INPUT_SIZE * INPUT_LAYER_OUTPUT_
     26, 17, 14, 6, 9, 26, 25, -25, -25, -18,
 ];
 
-pub const INPUT_DENSE_BIAS: [i8; INPUT_LAYER_OUTPUT_SIZE] = [
+pub(crate) const INPUT_DENSE_BIAS: [i8; INPUT_LAYER_OUTPUT_SIZE] = [
     38, -6, 127, 127, 127, -43, -127, 78, 127, 5, 127, 123, 127, 127, -128, -76, -126, 28, 127,
     125, -30, 127, -89, -20,
 ];
 
 // Hidden layer (GRU).
-pub const HIDDEN_LAYER_OUTPUT_SIZE: usize = 24;
+pub(crate) const HIDDEN_LAYER_OUTPUT_SIZE: usize = 24;
 
-pub const HIDDEN_GRU_WEIGHTS: [i8; 3 * INPUT_LAYER_OUTPUT_SIZE * HIDDEN_LAYER_OUTPUT_SIZE] =
+pub(crate) const HIDDEN_GRU_WEIGHTS: [i8; 3 * INPUT_LAYER_OUTPUT_SIZE * HIDDEN_LAYER_OUTPUT_SIZE] =
     include!("weights_hidden_gru.inc");
 
-pub const HIDDEN_GRU_RECURRENT_WEIGHTS: [i8; 3
+pub(crate) const HIDDEN_GRU_RECURRENT_WEIGHTS: [i8; 3
     * INPUT_LAYER_OUTPUT_SIZE
     * HIDDEN_LAYER_OUTPUT_SIZE] = include!("weights_hidden_gru_recurrent.inc");
 
-pub const HIDDEN_GRU_BIAS: [i8; 3 * HIDDEN_LAYER_OUTPUT_SIZE] = [
+pub(crate) const HIDDEN_GRU_BIAS: [i8; 3 * HIDDEN_LAYER_OUTPUT_SIZE] = [
     124, 125, -57, -126, 53, 123, 127, -75, 68, 102, -2, 116, 124, 127, 124, 125, 126, 123, -16,
     48, 125, 126, 78, 85, 11, 126, -30, -30, -64, -3, -105, -29, -17, 69, 63, 2, -32, -10, -62,
     113, -52, 112, -109, 112, 7, -40, 73, 53, 62, 6, -2, 0, 0, 100, -16, 26, -24, 56, 26, -10, -33,
@@ -84,11 +84,11 @@ pub const HIDDEN_GRU_BIAS: [i8; 3 * HIDDEN_LAYER_OUTPUT_SIZE] = [
 ];
 
 // Output layer (dense).
-pub const OUTPUT_LAYER_OUTPUT_SIZE: usize = 1;
+pub(crate) const OUTPUT_LAYER_OUTPUT_SIZE: usize = 1;
 
-pub const OUTPUT_DENSE_WEIGHTS: [i8; HIDDEN_LAYER_OUTPUT_SIZE * OUTPUT_LAYER_OUTPUT_SIZE] = [
+pub(crate) const OUTPUT_DENSE_WEIGHTS: [i8; HIDDEN_LAYER_OUTPUT_SIZE * OUTPUT_LAYER_OUTPUT_SIZE] = [
     127, 127, 127, 127, 127, 20, 127, -126, -126, -54, 14, 125, -126, -126, 127, -125, -126, 127,
     -127, -127, -57, -30, 127, 80,
 ];
 
-pub const OUTPUT_DENSE_BIAS: [i8; OUTPUT_LAYER_OUTPUT_SIZE] = [-50];
+pub(crate) const OUTPUT_DENSE_BIAS: [i8; OUTPUT_LAYER_OUTPUT_SIZE] = [-50];

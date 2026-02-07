@@ -12,7 +12,7 @@ use sonora_simd::SimdBackend;
 
 /// Pitch estimator.
 #[derive(Debug)]
-pub struct PitchEstimator {
+pub(crate) struct PitchEstimator {
     backend: SimdBackend,
     last_pitch_48k_hz: PitchInfo,
     auto_corr_calculator: AutoCorrelationCalculator,
@@ -23,7 +23,7 @@ pub struct PitchEstimator {
 
 impl PitchEstimator {
     /// Creates a new pitch estimator.
-    pub fn new(backend: SimdBackend) -> Self {
+    pub(crate) fn new(backend: SimdBackend) -> Self {
         Self {
             backend,
             last_pitch_48k_hz: PitchInfo::default(),
@@ -35,7 +35,7 @@ impl PitchEstimator {
     }
 
     /// Returns the estimated pitch period at 48 kHz.
-    pub fn estimate(&mut self, pitch_buffer: &[f32]) -> i32 {
+    pub(crate) fn estimate(&mut self, pitch_buffer: &[f32]) -> i32 {
         debug_assert_eq!(pitch_buffer.len(), BUF_SIZE_24K_HZ);
 
         // Perform the initial pitch search at 12 kHz.
@@ -77,7 +77,8 @@ impl PitchEstimator {
     }
 
     /// Returns the last pitch strength (for testing).
-    pub fn last_pitch_strength(&self) -> f32 {
+    #[cfg(test)]
+    pub(crate) fn last_pitch_strength(&self) -> f32 {
         self.last_pitch_48k_hz.strength
     }
 }

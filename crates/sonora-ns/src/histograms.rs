@@ -10,11 +10,11 @@ use crate::config::{BIN_SIZE_LRT, BIN_SIZE_SPEC_DIFF, BIN_SIZE_SPEC_FLAT};
 use crate::signal_model::SignalModel;
 
 /// Number of bins in each histogram.
-pub const HISTOGRAM_SIZE: usize = 1000;
+pub(crate) const HISTOGRAM_SIZE: usize = 1000;
 
 /// Histograms for three signal features.
 #[derive(Debug, Clone)]
-pub struct Histograms {
+pub(crate) struct Histograms {
     lrt: [i32; HISTOGRAM_SIZE],
     spectral_flatness: [i32; HISTOGRAM_SIZE],
     spectral_diff: [i32; HISTOGRAM_SIZE],
@@ -32,14 +32,14 @@ impl Default for Histograms {
 
 impl Histograms {
     /// Clear all histograms to zero.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.lrt.fill(0);
         self.spectral_flatness.fill(0);
         self.spectral_diff.fill(0);
     }
 
     /// Update histograms from the current signal features.
-    pub fn update(&mut self, features: &SignalModel) {
+    pub(crate) fn update(&mut self, features: &SignalModel) {
         // Update LRT histogram.
         const ONE_BY_BIN_SIZE_LRT: f32 = 1.0 / BIN_SIZE_LRT;
         if features.lrt < HISTOGRAM_SIZE as f32 * BIN_SIZE_LRT && features.lrt >= 0.0 {
@@ -65,17 +65,17 @@ impl Histograms {
     }
 
     /// Access the LRT histogram.
-    pub fn lrt(&self) -> &[i32; HISTOGRAM_SIZE] {
+    pub(crate) fn lrt(&self) -> &[i32; HISTOGRAM_SIZE] {
         &self.lrt
     }
 
     /// Access the spectral flatness histogram.
-    pub fn spectral_flatness(&self) -> &[i32; HISTOGRAM_SIZE] {
+    pub(crate) fn spectral_flatness(&self) -> &[i32; HISTOGRAM_SIZE] {
         &self.spectral_flatness
     }
 
     /// Access the spectral difference histogram.
-    pub fn spectral_diff(&self) -> &[i32; HISTOGRAM_SIZE] {
+    pub(crate) fn spectral_diff(&self) -> &[i32; HISTOGRAM_SIZE] {
         &self.spectral_diff
     }
 }

@@ -101,19 +101,19 @@ fn update_lrt(lrt_histogram: &[i32; HISTOGRAM_SIZE]) -> (f32, bool) {
 
 /// Estimator that derives prior signal model parameters from feature histograms.
 #[derive(Debug)]
-pub struct PriorSignalModelEstimator {
+pub(crate) struct PriorSignalModelEstimator {
     prior_model: PriorSignalModel,
 }
 
 impl PriorSignalModelEstimator {
-    pub fn new(lrt_initial_value: f32) -> Self {
+    pub(crate) fn new(lrt_initial_value: f32) -> Self {
         Self {
             prior_model: PriorSignalModel::new(lrt_initial_value),
         }
     }
 
     /// Update the prior model from the accumulated histograms.
-    pub fn update(&mut self, histograms: &Histograms) {
+    pub(crate) fn update(&mut self, histograms: &Histograms) {
         let (lrt, low_lrt_fluctuations) = update_lrt(histograms.lrt());
 
         self.prior_model.lrt = lrt;
@@ -160,7 +160,7 @@ impl PriorSignalModelEstimator {
     }
 
     /// Returns the estimated prior model.
-    pub fn prior_model(&self) -> &PriorSignalModel {
+    pub(crate) fn prior_model(&self) -> &PriorSignalModel {
         &self.prior_model
     }
 }

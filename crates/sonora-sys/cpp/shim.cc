@@ -4,16 +4,10 @@
 
 #include "sonora-sys/cpp/shim.h"
 
-#include "webrtc/api/audio/audio_processing.h"
 #include "webrtc/api/audio/builtin_audio_processing_builder.h"
 #include "webrtc/api/environment/environment_factory.h"
-#include "webrtc/api/scoped_refptr.h"
 
 namespace webrtc_shim {
-
-struct ApmHandle {
-    webrtc::scoped_refptr<webrtc::AudioProcessing> apm;
-};
 
 std::unique_ptr<ApmHandle> create_apm() {
     webrtc::AudioProcessing::Config config;

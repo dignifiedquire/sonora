@@ -34,7 +34,7 @@ const TANSIG_TABLE: [f32; 201] = [
 /// Must match the C++ `rnnoise::TansigApproximated` exactly for bit-exact
 /// neural network inference.
 #[inline]
-pub fn tansig_approximated(x: f32) -> f32 {
+pub(crate) fn tansig_approximated(x: f32) -> f32 {
     // Tests are reversed to catch NaNs — must match C++ exactly.
     #[allow(
         clippy::neg_cmp_op_on_partial_ord,
@@ -66,13 +66,14 @@ pub fn tansig_approximated(x: f32) -> f32 {
 
 /// Approximated sigmoid: `0.5 + 0.5 * tansig(0.5 * x)`.
 #[inline]
-pub fn sigmoid_approximated(x: f32) -> f32 {
+pub(crate) fn sigmoid_approximated(x: f32) -> f32 {
     0.5 + 0.5 * tansig_approximated(0.5 * x)
 }
 
+#[cfg(test)]
 /// Rectified linear unit: `max(0, x)`.
 #[inline]
-pub fn rectified_linear_unit(x: f32) -> f32 {
+pub(crate) fn rectified_linear_unit(x: f32) -> f32 {
     if x < 0.0 { 0.0 } else { x }
 }
 

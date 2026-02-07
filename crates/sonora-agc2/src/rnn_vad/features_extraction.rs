@@ -18,7 +18,7 @@ use sonora_simd::SimdBackend;
 ///
 /// Processes 10 ms frames at 24 kHz and produces a 42-element feature vector.
 #[derive(Debug)]
-pub struct FeaturesExtractor {
+pub(crate) struct FeaturesExtractor {
     pitch_buf_24k_hz: SequenceBuffer<BUF_SIZE_24K_HZ, FRAME_SIZE_10MS_24K_HZ>,
     lp_residual: Vec<f32>,
     pitch_estimator: PitchEstimator,
@@ -28,7 +28,7 @@ pub struct FeaturesExtractor {
 
 impl FeaturesExtractor {
     /// Creates a new feature extractor.
-    pub fn new(backend: SimdBackend) -> Self {
+    pub(crate) fn new(backend: SimdBackend) -> Self {
         Self {
             pitch_buf_24k_hz: SequenceBuffer::default(),
             lp_residual: vec![0.0; BUF_SIZE_24K_HZ],
@@ -39,7 +39,8 @@ impl FeaturesExtractor {
     }
 
     /// Resets internal state.
-    pub fn reset(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn reset(&mut self) {
         self.pitch_buf_24k_hz.reset();
         self.spectral_features_extractor.reset();
     }
@@ -49,7 +50,7 @@ impl FeaturesExtractor {
     ///
     /// When silence is detected, `feature_vector` is partially written and
     /// must not be used to feed the VAD RNN.
-    pub fn check_silence_compute_features(
+    pub(crate) fn check_silence_compute_features(
         &mut self,
         samples: &[f32],
         feature_vector: &mut FeatureVector,

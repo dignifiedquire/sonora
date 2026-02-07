@@ -9,7 +9,7 @@ use crate::config::{FFT_SIZE_BY_2_PLUS_1, LTR_FEATURE_THR};
 
 /// Signal model containing extracted features.
 #[derive(Debug, Clone)]
-pub struct SignalModel {
+pub(crate) struct SignalModel {
     /// Log-likelihood ratio test statistic.
     pub lrt: f32,
     /// Spectral difference measure.

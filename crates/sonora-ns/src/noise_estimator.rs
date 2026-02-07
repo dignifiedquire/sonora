@@ -39,7 +39,7 @@ const LOG_TABLE: [f32; 129] = [
 /// modeling during the startup phase. After startup, uses speech probability
 /// to separate noise from speech in the spectrum update.
 #[derive(Debug)]
-pub struct NoiseEstimator {
+pub(crate) struct NoiseEstimator {
     suppression_params: &'static SuppressionParams,
     white_noise_level: f32,
     pink_noise_numerator: f32,
@@ -52,7 +52,7 @@ pub struct NoiseEstimator {
 }
 
 impl NoiseEstimator {
-    pub fn new(suppression_params: &'static SuppressionParams) -> Self {
+    pub(crate) fn new(suppression_params: &'static SuppressionParams) -> Self {
         Self {
             suppression_params,
             white_noise_level: 0.0,
@@ -69,7 +69,7 @@ impl NoiseEstimator {
     /// Prepare the estimator for a new frame analysis.
     ///
     /// Copies the current noise spectrum to `prev_noise_spectrum`.
-    pub fn prepare_analysis(&mut self) {
+    pub(crate) fn prepare_analysis(&mut self) {
         self.prev_noise_spectrum = self.noise_spectrum;
     }
 
@@ -77,7 +77,7 @@ impl NoiseEstimator {
     ///
     /// Runs the quantile noise estimator and, during startup, blends the
     /// result with a parametric (white + pink) noise model.
-    pub fn pre_update(
+    pub(crate) fn pre_update(
         &mut self,
         num_analyzed_frames: i32,
         signal_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
@@ -176,7 +176,7 @@ impl NoiseEstimator {
     /// Refines the noise spectrum using speech probability — bins with high
     /// speech probability are updated conservatively, while noise-dominated
     /// bins are tracked more aggressively.
-    pub fn post_update(
+    pub(crate) fn post_update(
         &mut self,
         speech_probability: &[f32],
         signal_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
@@ -229,22 +229,22 @@ impl NoiseEstimator {
     }
 
     /// Returns the current noise spectral estimate.
-    pub fn noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
+    pub(crate) fn noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
         &self.noise_spectrum
     }
 
     /// Returns the noise spectrum from the previous frame.
-    pub fn prev_noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
+    pub(crate) fn prev_noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
         &self.prev_noise_spectrum
     }
 
     /// Returns a noise spectral estimate based on white and pink noise parameters.
-    pub fn parametric_noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
+    pub(crate) fn parametric_noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
         &self.parametric_noise_spectrum
     }
 
     /// Returns the conservative noise spectral estimate.
-    pub fn conservative_noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
+    pub(crate) fn conservative_noise_spectrum(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
         &self.conservative_noise_spectrum
     }
 }

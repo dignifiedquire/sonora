@@ -9,11 +9,11 @@ use std::ptr;
 /// Number of Opus bands at 24 kHz (last 3 Opus bands are beyond Nyquist,
 /// but band #19 gets contributions from band #18 due to the symmetric
 /// triangular filter with peak response at 12 kHz).
-pub const OPUS_BANDS_24K_HZ: usize = 20;
+pub(crate) const OPUS_BANDS_24K_HZ: usize = 20;
 
 /// Number of FFT frequency bins covered by each band in the Opus scale at
 /// 24 kHz for 20 ms frames.
-pub const OPUS_SCALE_NUM_BINS_24K_HZ_20MS: [usize; OPUS_BANDS_24K_HZ - 1] = [
+pub(crate) const OPUS_SCALE_NUM_BINS_24K_HZ_20MS: [usize; OPUS_BANDS_24K_HZ - 1] = [
     4, 4, 4, 4, 4, 4, 4, 4, 8, 8, 8, 8, 16, 16, 16, 24, 24, 32, 48,
 ];
 
@@ -58,7 +58,7 @@ const OPUS_BAND_WEIGHTS_24K_HZ_20MS: [f32; FRAME_SIZE_20MS_24K_HZ / 2] = [
 /// Computes band-wise spectral correlations using triangular filters in the
 /// Opus scale.
 #[derive(Debug)]
-pub struct SpectralCorrelator {
+pub(crate) struct SpectralCorrelator {
     weights: Vec<f32>,
 }
 
@@ -72,7 +72,7 @@ impl Default for SpectralCorrelator {
 
 impl SpectralCorrelator {
     /// Computes band-wise spectral auto-correlation.
-    pub fn compute_auto_correlation(&self, x: &[f32], auto_corr: &mut [f32; OPUS_BANDS_24K_HZ]) {
+    pub(crate) fn compute_auto_correlation(&self, x: &[f32], auto_corr: &mut [f32; OPUS_BANDS_24K_HZ]) {
         self.compute_cross_correlation(x, x, auto_corr);
     }
 
@@ -80,7 +80,7 @@ impl SpectralCorrelator {
     ///
     /// `x` and `y` must have size `FRAME_SIZE_20MS_24K_HZ` and be encoded as
     /// interleaved real-complex FFT coefficients where `x[1] = y[1] = 0`.
-    pub fn compute_cross_correlation(
+    pub(crate) fn compute_cross_correlation(
         &self,
         x: &[f32],
         y: &[f32],
@@ -109,7 +109,7 @@ impl SpectralCorrelator {
 }
 
 /// Computes the smoothed log magnitude spectrum from band energies.
-pub fn compute_smoothed_log_magnitude_spectrum(
+pub(crate) fn compute_smoothed_log_magnitude_spectrum(
     bands_energy: &[f32],
     log_bands_energy: &mut [f32; NUM_BANDS],
 ) {
@@ -142,7 +142,7 @@ pub fn compute_smoothed_log_magnitude_spectrum(
 }
 
 /// Creates a DCT table for arrays having size equal to `NUM_BANDS`.
-pub fn compute_dct_table() -> [f32; NUM_BANDS * NUM_BANDS] {
+pub(crate) fn compute_dct_table() -> [f32; NUM_BANDS * NUM_BANDS] {
     let mut dct_table = [0.0_f32; NUM_BANDS * NUM_BANDS];
     let k = (0.5_f64).sqrt();
     for i in 0..NUM_BANDS {
@@ -159,7 +159,7 @@ pub fn compute_dct_table() -> [f32; NUM_BANDS * NUM_BANDS] {
 ///
 /// In-place computation is not allowed. `output` can be smaller than `input`
 /// to compute only the first DCT coefficients.
-pub fn compute_dct(input: &[f32], dct_table: &[f32; NUM_BANDS * NUM_BANDS], output: &mut [f32]) {
+pub(crate) fn compute_dct(input: &[f32], dct_table: &[f32; NUM_BANDS * NUM_BANDS], output: &mut [f32]) {
     // DCT scaling factor: sqrt(2 / NUM_BANDS).
     #[allow(clippy::excessive_precision, reason = "value from C++ source")]
     const DCT_SCALING_FACTOR: f32 = 0.301511345;

@@ -10,7 +10,7 @@
 //!
 //! # Thread safety
 //!
-//! **NOT thread-safe.** All calls on the same [`WapAudioProcessing`] handle
+//! **NOT thread-safe.** All calls on the same `WapAudioProcessing` handle
 //! must be serialized by the caller, matching the C++ API contract.
 
 pub mod types;

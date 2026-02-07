@@ -17,7 +17,7 @@
 /// encoded as a `(S-1) x (S-1)` square array, allowing `Push` to shift data
 /// with a single `copy_within`.
 #[derive(Debug)]
-pub struct SymmetricMatrixBuffer<const S: usize> {
+pub(crate) struct SymmetricMatrixBuffer<const S: usize> {
     buf: Vec<f32>,
 }
 
@@ -32,7 +32,8 @@ impl<const S: usize> Default for SymmetricMatrixBuffer<S> {
 
 impl<const S: usize> SymmetricMatrixBuffer<S> {
     /// Sets all buffer values to zero.
-    pub fn reset(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn reset(&mut self) {
         self.buf.fill(0.0);
     }
 
@@ -43,7 +44,7 @@ impl<const S: usize> SymmetricMatrixBuffer<S> {
     /// `values[0]` is the comparison between the most recent item and the
     /// second most recent one; `values[S-2]` is the comparison with the
     /// oldest one.
-    pub fn push(&mut self, values: &[f32]) {
+    pub(crate) fn push(&mut self, values: &[f32]) {
         debug_assert_eq!(values.len(), S - 1);
         // Move the lower-right sub-matrix of size (S-2)x(S-2) one row up
         // and one column left.
@@ -60,7 +61,7 @@ impl<const S: usize> SymmetricMatrixBuffer<S> {
     /// ring buffer having delay `delay1` and `delay2`.
     ///
     /// The two arguments must not be equal and both must be in `0..S`.
-    pub fn get_value(&self, delay1: usize, delay2: usize) -> f32 {
+    pub(crate) fn get_value(&self, delay1: usize, delay2: usize) -> f32 {
         use std::mem;
         debug_assert_ne!(delay1, delay2, "The diagonal cannot be accessed.");
         let mut row = S - 1 - delay1;

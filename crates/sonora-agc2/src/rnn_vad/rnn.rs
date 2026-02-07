@@ -17,7 +17,7 @@ use sonora_simd::SimdBackend;
 ///
 /// Architecture: FC(42→24, tanh) → GRU(24→24) → FC(24→1, sigmoid)
 #[derive(Debug)]
-pub struct RnnVad {
+pub(crate) struct RnnVad {
     input: FullyConnectedLayer,
     hidden: GatedRecurrentLayer,
     output: FullyConnectedLayer,
@@ -25,7 +25,7 @@ pub struct RnnVad {
 
 impl RnnVad {
     /// Creates a new RNN VAD model.
-    pub fn new(backend: SimdBackend) -> Self {
+    pub(crate) fn new(backend: SimdBackend) -> Self {
         let vector_math = VectorMath::new(backend);
         let input = FullyConnectedLayer::new(
             INPUT_LAYER_INPUT_SIZE,
@@ -63,13 +63,13 @@ impl RnnVad {
     }
 
     /// Resets the hidden state.
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.hidden.reset();
     }
 
     /// Observes `feature_vector` and `is_silence`, updates the RNN and returns
     /// the current voice probability.
-    pub fn compute_vad_probability(
+    pub(crate) fn compute_vad_probability(
         &mut self,
         feature_vector: &FeatureVector,
         is_silence: bool,

@@ -10,11 +10,16 @@
 #include <memory>
 
 #include "rust/cxx.h"
+#include "webrtc/api/audio/audio_processing.h"
+#include "webrtc/api/scoped_refptr.h"
 
 namespace webrtc_shim {
 
-// Opaque handle wrapping a scoped_refptr<AudioProcessing>
-struct ApmHandle;
+// Handle wrapping a scoped_refptr<AudioProcessing>.
+// Defined here so cxx-generated code can see the complete type.
+struct ApmHandle {
+    webrtc::scoped_refptr<webrtc::AudioProcessing> apm;
+};
 
 // Creation
 std::unique_ptr<ApmHandle> create_apm();

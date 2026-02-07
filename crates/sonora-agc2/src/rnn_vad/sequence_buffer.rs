@@ -10,7 +10,7 @@
 /// `N` positions. For instance, when `S = 2*N` the first half is replaced
 /// with the second half, and new values are written at the end.
 #[derive(Debug)]
-pub struct SequenceBuffer<const S: usize, const N: usize> {
+pub(crate) struct SequenceBuffer<const S: usize, const N: usize> {
     buffer: Vec<f32>,
 }
 
@@ -25,33 +25,36 @@ impl<const S: usize, const N: usize> Default for SequenceBuffer<S, N> {
 
 impl<const S: usize, const N: usize> SequenceBuffer<S, N> {
     /// Returns the buffer size.
-    pub fn size(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn size(&self) -> usize {
         S
     }
 
     /// Returns the chunk size.
-    pub fn chunks_size(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn chunks_size(&self) -> usize {
         N
     }
 
     /// Sets all buffer values to zero.
-    pub fn reset(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn reset(&mut self) {
         self.buffer.fill(0.0);
     }
 
     /// Returns a view on the whole buffer.
-    pub fn get_buffer_view(&self) -> &[f32] {
+    pub(crate) fn get_buffer_view(&self) -> &[f32] {
         &self.buffer
     }
 
     /// Returns a view on the `M` most recent values of the buffer.
-    pub fn get_most_recent_values_view<const M: usize>(&self) -> &[f32; M] {
+    pub(crate) fn get_most_recent_values_view<const M: usize>(&self) -> &[f32; M] {
         const { assert!(M <= S, "Most recent values cannot exceed buffer size") };
         self.buffer[S - M..].try_into().unwrap()
     }
 
     /// Shifts the buffer left by `N` items and adds new `N` items at the end.
-    pub fn push(&mut self, new_values: &[f32; N]) {
+    pub(crate) fn push(&mut self, new_values: &[f32; N]) {
         if S > N {
             self.buffer.copy_within(N.., 0);
         }

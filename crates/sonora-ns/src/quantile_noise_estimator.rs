@@ -14,12 +14,12 @@ const SIMULT: usize = 3;
 
 /// Quantile-based noise spectrum estimator.
 ///
-/// Maintains [`SIMULT`] simultaneous quantile trackers at staggered update
+/// Maintains `SIMULT` simultaneous quantile trackers at staggered update
 /// intervals. Each tracker estimates the 25th percentile of the log-spectrum
 /// distribution. When a tracker's counter expires, its estimate is promoted
 /// to the output noise spectrum.
 #[derive(Debug)]
-pub struct QuantileNoiseEstimator {
+pub(crate) struct QuantileNoiseEstimator {
     /// Density estimates, shape `[SIMULT][FFT_SIZE_BY_2_PLUS_1]` flattened.
     density: [f32; SIMULT * FFT_SIZE_BY_2_PLUS_1],
     /// Log-domain quantile estimates, shape `[SIMULT][FFT_SIZE_BY_2_PLUS_1]` flattened.
@@ -56,7 +56,7 @@ impl QuantileNoiseEstimator {
     ///
     /// Updates the internal quantile trackers and writes the noise estimate
     /// into `noise_spectrum`.
-    pub fn estimate(
+    pub(crate) fn estimate(
         &mut self,
         signal_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
         noise_spectrum: &mut [f32; FFT_SIZE_BY_2_PLUS_1],

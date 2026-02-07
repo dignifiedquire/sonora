@@ -29,6 +29,9 @@ fn main() {
         let cpp_root = std::env::var("WEBRTC_CPP_ROOT")
             .unwrap_or_else(|_| format!("{}/../../cpp", env!("CARGO_MANIFEST_DIR")));
         build.include(&cpp_root);
+        // Headers in the installed include dir use bare `api/...` paths,
+        // which resolve under the `webrtc/` subdirectory of the source tree.
+        build.include(format!("{cpp_root}/webrtc"));
 
         build.compile("sonora_shim");
 

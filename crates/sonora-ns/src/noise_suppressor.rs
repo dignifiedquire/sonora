@@ -224,10 +224,10 @@ impl ChannelState {
 /// Single-channel noise suppressor.
 ///
 /// Processes 10ms frames (160 samples at 16kHz) using overlap-add
-/// with a 256-point FFT. Call [`analyze`] before [`process`] for each frame.
+/// with a 256-point FFT. Call [`analyze()`](Self::analyze) before [`process()`](Self::process) for each frame.
 ///
 /// When operating in multi-band mode (`num_bands > 1`), upper bands must be
-/// processed separately via [`process_upper_bands`](NoiseSuppressor::process_upper_bands)
+/// processed separately via [`process_upper_band()`](NoiseSuppressor::process_upper_band)
 /// after calling [`process`](NoiseSuppressor::process) on band 0. The upper
 /// band gain is computed during `process` and can be retrieved via
 /// [`upper_band_gain`](NoiseSuppressor::upper_band_gain).
@@ -274,8 +274,8 @@ impl NoiseSuppressor {
     ///
     /// `num_bands` is the number of frequency bands (1 for ≤16 kHz, 2 for
     /// 32 kHz, 3 for 48 kHz). When `num_bands > 1`, upper band delay
-    /// buffers are allocated and [`upper_band_gain`] becomes meaningful
-    /// after each [`process`] call.
+    /// buffers are allocated and [`upper_band_gain()`](Self::upper_band_gain) becomes meaningful
+    /// after each [`process()`](Self::process) call.
     pub fn new_with_bands(config: NsConfig, num_bands: usize) -> Self {
         let suppression_params = SuppressionParams::for_level(config.target_level);
         Self {
@@ -396,8 +396,8 @@ impl NoiseSuppressor {
     /// The frame is modified in-place with the suppressed output.
     ///
     /// When operating in multi-band mode, this also computes the upper band
-    /// gain internally. After calling this, use [`upper_band_gain`] to
-    /// retrieve the gain, and [`process_upper_bands`] to apply delay and
+    /// gain internally. After calling this, use [`upper_band_gain()`](Self::upper_band_gain) to
+    /// retrieve the gain, and [`process_upper_band()`](Self::process_upper_band) to apply delay and
     /// gain to upper bands.
     pub fn process(&mut self, frame: &mut [f32; NS_FRAME_SIZE]) {
         let ch = &mut self.channel;
@@ -475,7 +475,7 @@ impl NoiseSuppressor {
         }
     }
 
-    /// Return the upper band gain computed during the most recent [`process`]
+    /// Return the upper band gain computed during the most recent [`process()`](Self::process)
     /// call.
     ///
     /// Only meaningful when `num_bands > 1`. Returns 1.0 for single-band
@@ -519,7 +519,7 @@ impl NoiseSuppressor {
 
     /// Clamp all bands (including band 0) to `[-32768, 32767]`.
     ///
-    /// Band 0 is already clamped by [`process`], so this is only needed for
+    /// Band 0 is already clamped by [`process()`](Self::process), so this is only needed for
     /// upper bands. Provided for completeness to match C++ which clamps all
     /// bands after upper band processing.
     pub fn clamp_frame(frame: &mut [f32; NS_FRAME_SIZE]) {

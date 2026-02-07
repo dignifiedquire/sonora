@@ -12,7 +12,7 @@ const AUTO_CORRELATION_FFT_ORDER: u32 = 9;
 
 /// Class to compute the auto-correlation on the pitch buffer for a target
 /// pitch interval.
-pub struct AutoCorrelationCalculator {
+pub(crate) struct AutoCorrelationCalculator {
     fft: Pffft,
     tmp: PffftBuffer,
     tmp2: PffftBuffer,
@@ -49,7 +49,7 @@ impl AutoCorrelationCalculator {
     ///
     /// `pitch_buf` must have size `BUF_SIZE_12K_HZ`.
     /// `auto_corr` must have size `NUM_LAGS_12K_HZ`. Indexes are inverted lags.
-    pub fn compute_on_pitch_buffer(&mut self, pitch_buf: &[f32], auto_corr: &mut [f32]) {
+    pub(crate) fn compute_on_pitch_buffer(&mut self, pitch_buf: &[f32], auto_corr: &mut [f32]) {
         debug_assert_eq!(pitch_buf.len(), BUF_SIZE_12K_HZ);
         debug_assert_eq!(auto_corr.len(), NUM_LAGS_12K_HZ);
 

@@ -108,7 +108,7 @@ fn update_spectral_lrt(
 
 /// Extracts signal features and periodically updates the prior model.
 #[derive(Debug)]
-pub struct SignalModelEstimator {
+pub(crate) struct SignalModelEstimator {
     diff_normalization: f32,
     signal_energy_sum: f32,
     histograms: Histograms,
@@ -132,14 +132,14 @@ impl Default for SignalModelEstimator {
 
 impl SignalModelEstimator {
     /// Compute signal normalization during the initial startup phase.
-    pub fn adjust_normalization(&mut self, num_analyzed_frames: i32, signal_energy: f32) {
+    pub(crate) fn adjust_normalization(&mut self, num_analyzed_frames: i32, signal_energy: f32) {
         self.diff_normalization *= num_analyzed_frames as f32;
         self.diff_normalization += signal_energy;
         self.diff_normalization /= num_analyzed_frames as f32 + 1.0;
     }
 
     /// Update the signal model features.
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         prior_snr: &[f32; FFT_SIZE_BY_2_PLUS_1],
         post_snr: &[f32; FFT_SIZE_BY_2_PLUS_1],
@@ -198,12 +198,12 @@ impl SignalModelEstimator {
     }
 
     /// Returns the current prior signal model.
-    pub fn prior_model(&self) -> &PriorSignalModel {
+    pub(crate) fn prior_model(&self) -> &PriorSignalModel {
         self.prior_model_estimator.prior_model()
     }
 
     /// Returns the current signal model features.
-    pub fn model(&self) -> &SignalModel {
+    pub(crate) fn model(&self) -> &SignalModel {
         &self.features
     }
 }

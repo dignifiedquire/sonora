@@ -27,18 +27,18 @@ fn fast_log2f(x: f32) -> f32 {
 ///
 /// Currently delegates to `f32::sqrt()` (the C++ code has a TODO for
 /// a fast implementation too).
-pub fn sqrt_fast_approximation(f: f32) -> f32 {
+pub(crate) fn sqrt_fast_approximation(f: f32) -> f32 {
     f.sqrt()
 }
 
 /// Fast natural log approximation: `ln(x) ≈ log2(x) * ln(2)`.
-pub fn log_approximation(x: f32) -> f32 {
+pub(crate) fn log_approximation(x: f32) -> f32 {
     use core::f32::consts::LN_2;
     fast_log2f(x) * LN_2
 }
 
 /// Batch natural log approximation.
-pub fn log_approximation_batch(x: &[f32], y: &mut [f32]) {
+pub(crate) fn log_approximation_batch(x: &[f32], y: &mut [f32]) {
     for (xi, yi) in x.iter().zip(y.iter_mut()) {
         *yi = log_approximation(*xi);
     }
@@ -48,30 +48,30 @@ pub fn log_approximation_batch(x: &[f32], y: &mut [f32]) {
 ///
 /// Currently delegates to `f32::exp2()` (the C++ code has a TODO for
 /// a fast implementation too).
-pub fn pow2_approximation(p: f32) -> f32 {
+pub(crate) fn pow2_approximation(p: f32) -> f32 {
     p.exp2()
 }
 
 /// Fast x^p approximation: `x^p = 2^(p * log2(x))`.
-pub fn pow_approximation(x: f32, p: f32) -> f32 {
+pub(crate) fn pow_approximation(x: f32, p: f32) -> f32 {
     pow2_approximation(p * fast_log2f(x))
 }
 
 /// Fast e^x approximation: `e^x = 10^(x * log10(e))`.
-pub fn exp_approximation(x: f32) -> f32 {
+pub(crate) fn exp_approximation(x: f32) -> f32 {
     use core::f32::consts::LOG10_E;
     pow_approximation(10.0, x * LOG10_E)
 }
 
 /// Batch e^x approximation.
-pub fn exp_approximation_batch(x: &[f32], y: &mut [f32]) {
+pub(crate) fn exp_approximation_batch(x: &[f32], y: &mut [f32]) {
     for (xi, yi) in x.iter().zip(y.iter_mut()) {
         *yi = exp_approximation(*xi);
     }
 }
 
 /// Batch e^(-x) approximation (sign-flipped exponent).
-pub fn exp_approximation_sign_flip(x: &[f32], y: &mut [f32]) {
+pub(crate) fn exp_approximation_sign_flip(x: &[f32], y: &mut [f32]) {
     for (xi, yi) in x.iter().zip(y.iter_mut()) {
         *yi = exp_approximation(-*xi);
     }

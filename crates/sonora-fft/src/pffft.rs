@@ -90,7 +90,7 @@ impl Pffft {
     ///
     /// # Panics
     ///
-    /// Panics if `fft_size` is not valid (see [`is_valid_fft_size`]).
+    /// Panics if `fft_size` is not valid (see [`is_valid_fft_size()`](Self::is_valid_fft_size)).
     pub fn new(fft_size: usize, fft_type: FftType) -> Self {
         assert!(
             Self::is_valid_fft_size(fft_size, fft_type),

@@ -8,17 +8,17 @@ use super::weights::WEIGHTS_SCALE;
 
 /// Activation function for a neural network cell.
 #[derive(Debug, Clone, Copy)]
-pub enum ActivationFunction {
+pub(crate) enum ActivationFunction {
     TansigApproximated,
     SigmoidApproximated,
 }
 
 /// Maximum number of units for an FC layer.
-pub const FC_LAYER_MAX_UNITS: usize = 24;
+pub(crate) const FC_LAYER_MAX_UNITS: usize = 24;
 
 /// Fully-connected layer with a custom activation function.
 #[derive(Debug)]
-pub struct FullyConnectedLayer {
+pub(crate) struct FullyConnectedLayer {
     input_size: usize,
     output_size: usize,
     bias: Vec<f32>,
@@ -33,7 +33,7 @@ impl FullyConnectedLayer {
     ///
     /// `bias` and `weights` are i8 quantized values that get scaled by
     /// `WEIGHTS_SCALE` and transposed during construction.
-    pub fn new(
+    pub(crate) fn new(
         input_size: usize,
         output_size: usize,
         bias: &[i8],
@@ -60,22 +60,22 @@ impl FullyConnectedLayer {
     }
 
     /// Returns the input size.
-    pub fn input_size(&self) -> usize {
+    pub(crate) fn input_size(&self) -> usize {
         self.input_size
     }
 
     /// Returns the output as a slice.
-    pub fn output(&self) -> &[f32] {
+    pub(crate) fn output(&self) -> &[f32] {
         &self.output[..self.output_size]
     }
 
     /// Returns the output size.
-    pub fn size(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         self.output_size
     }
 
     /// Computes the fully-connected layer output.
-    pub fn compute_output(&mut self, input: &[f32]) {
+    pub(crate) fn compute_output(&mut self, input: &[f32]) {
         debug_assert_eq!(input.len(), self.input_size);
 
         let activation_fn: fn(f32) -> f32 = match self.activation {

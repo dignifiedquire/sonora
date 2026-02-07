@@ -7,7 +7,7 @@ use super::vector_math::VectorMath;
 use super::weights::WEIGHTS_SCALE;
 
 /// Maximum number of units for a GRU layer.
-pub const GRU_LAYER_MAX_UNITS: usize = 24;
+pub(crate) const GRU_LAYER_MAX_UNITS: usize = 24;
 
 /// Number of gates in a GRU (update, reset, output).
 const NUM_GRU_GATES: usize = 3;
@@ -16,7 +16,7 @@ const NUM_GRU_GATES: usize = 3;
 ///
 /// Uses sigmoid for update/reset gates and ReLU for the output gate.
 #[derive(Debug)]
-pub struct GatedRecurrentLayer {
+pub(crate) struct GatedRecurrentLayer {
     input_size: usize,
     output_size: usize,
     bias: Vec<f32>,
@@ -31,7 +31,7 @@ impl GatedRecurrentLayer {
     ///
     /// `bias`, `weights`, and `recurrent_weights` are i8 quantized values
     /// that get scaled, transposed, and rearranged during construction.
-    pub fn new(
+    pub(crate) fn new(
         input_size: usize,
         output_size: usize,
         bias: &[i8],
@@ -65,27 +65,27 @@ impl GatedRecurrentLayer {
     }
 
     /// Returns the input size.
-    pub fn input_size(&self) -> usize {
+    pub(crate) fn input_size(&self) -> usize {
         self.input_size
     }
 
     /// Returns the output (state) as a slice.
-    pub fn output(&self) -> &[f32] {
+    pub(crate) fn output(&self) -> &[f32] {
         &self.state[..self.output_size]
     }
 
     /// Returns the output size.
-    pub fn size(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         self.output_size
     }
 
     /// Resets the GRU state to zero.
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.state.fill(0.0);
     }
 
     /// Computes the recurrent layer output and updates the state.
-    pub fn compute_output(&mut self, input: &[f32]) {
+    pub(crate) fn compute_output(&mut self, input: &[f32]) {
         debug_assert_eq!(input.len(), self.input_size);
 
         let stride_weights = self.input_size * self.output_size;

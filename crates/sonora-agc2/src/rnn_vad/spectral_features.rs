@@ -18,7 +18,7 @@ use std::fmt;
 const SILENCE_THRESHOLD: f32 = 0.04;
 
 /// Spectral feature extractor for 20 ms frames at 24 kHz.
-pub struct SpectralFeaturesExtractor {
+pub(crate) struct SpectralFeaturesExtractor {
     half_window: Vec<f32>,
     fft: Pffft,
     fft_buffer: PffftBuffer,
@@ -67,7 +67,8 @@ impl Default for SpectralFeaturesExtractor {
 
 impl SpectralFeaturesExtractor {
     /// Resets internal state.
-    pub fn reset(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn reset(&mut self) {
         self.cepstral_coeffs_ring_buf.reset();
         self.cepstral_diffs_buf.reset();
     }
@@ -77,7 +78,7 @@ impl SpectralFeaturesExtractor {
     ///
     /// Returns `true` if silence is detected (output is not written).
     #[allow(clippy::too_many_arguments, reason = "matches C++ API signature")]
-    pub fn check_silence_compute_features(
+    pub(crate) fn check_silence_compute_features(
         &mut self,
         reference_frame: &[f32],
         lagged_frame: &[f32],

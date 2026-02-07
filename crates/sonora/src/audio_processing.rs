@@ -362,7 +362,7 @@ impl AudioProcessing {
     /// a full reinitialisation of internal buffers and submodules.
     ///
     /// Typically called once during setup; afterwards, stream configs are
-    /// inferred lazily from calls to [`process_stream_f32()`] etc.
+    /// inferred lazily from calls to [`process_stream_f32()`](Self::process_stream_f32) etc.
     pub fn initialize(
         &mut self,
         input_config: &StreamConfig,
@@ -388,8 +388,8 @@ impl AudioProcessing {
 
     /// Enqueues a runtime setting for the capture path.
     ///
-    /// Runtime settings are applied at the next [`process_stream_f32()`]
-    /// or [`process_stream_i16()`] call.
+    /// Runtime settings are applied at the next [`process_stream_f32()`](Self::process_stream_f32)
+    /// or [`process_stream_i16()`](Self::process_stream_i16) call.
     pub fn set_runtime_setting(&mut self, setting: RuntimeSetting) {
         self.inner.set_runtime_setting(setting);
     }
@@ -408,7 +408,7 @@ impl AudioProcessing {
 
     /// Sets the applied input volume (e.g. from the OS mixer).
     ///
-    /// Must be called before [`process_stream_f32()`] if the input volume
+    /// Must be called before [`process_stream_f32()`](Self::process_stream_f32) if the input volume
     /// controller is enabled. Value must be in range `[0, 255]`.
     pub fn set_stream_analog_level(&mut self, level: i32) {
         self.inner.set_applied_input_volume(level);
@@ -416,7 +416,7 @@ impl AudioProcessing {
 
     /// Returns the recommended analog level from AGC.
     ///
-    /// Should be called after [`process_stream_f32()`] to obtain the
+    /// Should be called after [`process_stream_f32()`](Self::process_stream_f32) to obtain the
     /// recommended new analog level for the audio HAL.
     pub fn recommended_stream_analog_level(&self) -> i32 {
         /// Default volume when neither recommended nor applied is available.

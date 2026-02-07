@@ -12,7 +12,7 @@ use crate::suppression_params::SuppressionParams;
 
 /// Wiener filter for noise suppression.
 #[derive(Debug)]
-pub struct WienerFilter {
+pub(crate) struct WienerFilter {
     suppression_params: &'static SuppressionParams,
     spectrum_prev_process: [f32; FFT_SIZE_BY_2_PLUS_1],
     initial_spectral_estimate: [f32; FFT_SIZE_BY_2_PLUS_1],
@@ -20,7 +20,7 @@ pub struct WienerFilter {
 }
 
 impl WienerFilter {
-    pub fn new(suppression_params: &'static SuppressionParams) -> Self {
+    pub(crate) fn new(suppression_params: &'static SuppressionParams) -> Self {
         Self {
             suppression_params,
             spectrum_prev_process: [0.0; FFT_SIZE_BY_2_PLUS_1],
@@ -30,7 +30,7 @@ impl WienerFilter {
     }
 
     /// Update the filter estimate from current signal and noise spectra.
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         num_analyzed_frames: i32,
         noise_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
@@ -85,7 +85,7 @@ impl WienerFilter {
     /// Adjusts the overall gain based on the energy ratio before/after
     /// filtering and the prior speech probability. Returns 1.0 during
     /// startup or when attenuation adjustment is disabled.
-    pub fn compute_overall_scaling_factor(
+    pub(crate) fn compute_overall_scaling_factor(
         &self,
         num_analyzed_frames: i32,
         prior_speech_probability: f32,
@@ -125,7 +125,7 @@ impl WienerFilter {
     }
 
     /// Returns the per-bin filter gains.
-    pub fn filter(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
+    pub(crate) fn filter(&self) -> &[f32; FFT_SIZE_BY_2_PLUS_1] {
         &self.filter
     }
 }

@@ -55,7 +55,7 @@ impl SimdBackend {
 
     /// Compute the dot product of two float slices.
     ///
-    /// `a` and `b` must have the same length. Returns sum of a[i]*b[i].
+    /// `a` and `b` must have the same length. Returns `sum of a[i]*b[i]`.
     pub fn dot_product(self, a: &[f32], b: &[f32]) -> f32 {
         debug_assert_eq!(a.len(), b.len());
         match self {
@@ -96,7 +96,7 @@ impl SimdBackend {
     /// Sinc resampler convolution: dual dot product with interpolation.
     ///
     /// Computes `(1-f)*dot(input,k1) + f*dot(input,k2)` where `f` is the
-    /// `kernel_interpolation_factor`. Unlike [`dual_dot_product`] followed by
+    /// `kernel_interpolation_factor`. Unlike [`dual_dot_product()`](Self::dual_dot_product) followed by
     /// scalar interpolation, this performs interpolation on SIMD vectors
     /// *before* horizontal reduction, matching C++ `SincResampler::Convolve_*`
     /// rounding behavior exactly.
@@ -131,7 +131,7 @@ impl SimdBackend {
         }
     }
 
-    /// Element-wise multiply-accumulate: acc[i] += a[i] * b[i]
+    /// Element-wise multiply-accumulate: `acc[i] += a[i] * b[i]`
     ///
     /// `acc`, `a`, and `b` must have the same length.
     pub fn multiply_accumulate(self, acc: &mut [f32], a: &[f32], b: &[f32]) {
@@ -167,7 +167,7 @@ impl SimdBackend {
         }
     }
 
-    /// Elementwise square root: x[i] = sqrt(x[i])
+    /// Elementwise square root: `x[i] = sqrt(x[i])`
     pub fn elementwise_sqrt(self, x: &mut [f32]) {
         match self {
             Self::Scalar => fallback::elementwise_sqrt(x),
@@ -180,7 +180,7 @@ impl SimdBackend {
         }
     }
 
-    /// Elementwise vector multiplication: z[i] = x[i] * y[i]
+    /// Elementwise vector multiplication: `z[i] = x[i] * y[i]`
     ///
     /// `x`, `y`, and `z` must have the same length.
     pub fn elementwise_multiply(self, x: &[f32], y: &[f32], z: &mut [f32]) {
@@ -197,7 +197,7 @@ impl SimdBackend {
         }
     }
 
-    /// Elementwise accumulate: z[i] += x[i]
+    /// Elementwise accumulate: `z[i] += x[i]`
     ///
     /// `x` and `z` must have the same length.
     pub fn elementwise_accumulate(self, x: &[f32], z: &mut [f32]) {
@@ -213,7 +213,7 @@ impl SimdBackend {
         }
     }
 
-    /// Compute the power spectrum: out[i] = re[i]^2 + im[i]^2
+    /// Compute the power spectrum: `out[i] = re[i]^2 + im[i]^2`
     ///
     /// `re`, `im`, and `out` must have the same length.
     pub fn power_spectrum(self, re: &[f32], im: &[f32], out: &mut [f32]) {
@@ -230,7 +230,7 @@ impl SimdBackend {
         }
     }
 
-    /// Elementwise minimum: out[i] = min(a[i], b[i])
+    /// Elementwise minimum: `out[i] = min(a[i], b[i])`
     ///
     /// `a`, `b`, and `out` must have the same length.
     pub fn elementwise_min(self, a: &[f32], b: &[f32], out: &mut [f32]) {
@@ -247,7 +247,7 @@ impl SimdBackend {
         }
     }
 
-    /// Elementwise maximum: out[i] = max(a[i], b[i])
+    /// Elementwise maximum: `out[i] = max(a[i], b[i])`
     ///
     /// `a`, `b`, and `out` must have the same length.
     pub fn elementwise_max(self, a: &[f32], b: &[f32], out: &mut [f32]) {
@@ -265,8 +265,8 @@ impl SimdBackend {
     }
 
     /// Complex multiply-accumulate (AEC3 conjugate convention):
-    ///   acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]
-    ///   acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]
+    ///   `acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]`
+    ///   `acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]`
     ///
     /// All slices must have the same length.
     pub fn complex_multiply_accumulate(
@@ -302,8 +302,8 @@ impl SimdBackend {
         }
     }
     /// Standard complex multiply-accumulate:
-    ///   acc_re[i] += x_re[i]*h_re[i] - x_im[i]*h_im[i]
-    ///   acc_im[i] += x_re[i]*h_im[i] + x_im[i]*h_re[i]
+    ///   `acc_re[i] += x_re[i]*h_re[i] - x_im[i]*h_im[i]`
+    ///   `acc_im[i] += x_re[i]*h_im[i] + x_im[i]*h_re[i]`
     ///
     /// All slices must have the same length.
     pub fn complex_multiply_accumulate_standard(
