@@ -341,6 +341,32 @@ impl AudioProcessing {
         AudioProcessingBuilder::new()
     }
 
+    /// Initializes the processing pipeline with explicit stream configurations
+    /// for all four audio paths.
+    ///
+    /// This sets the expected sample rates and channel counts for capture
+    /// input/output and reverse input/output streams atomically, triggering
+    /// a full reinitialisation of internal buffers and submodules.
+    ///
+    /// Typically called once during setup; afterwards, stream configs are
+    /// inferred lazily from calls to [`process_stream_f32()`] etc.
+    pub fn initialize(
+        &mut self,
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+        reverse_input_config: &StreamConfig,
+        reverse_output_config: &StreamConfig,
+    ) {
+        use crate::audio_processing_impl::ProcessingConfig;
+        let processing_config = ProcessingConfig {
+            input_stream: *input_config,
+            output_stream: *output_config,
+            reverse_input_stream: *reverse_input_config,
+            reverse_output_stream: *reverse_output_config,
+        };
+        self.inner.initialize_with_config(processing_config);
+    }
+
     /// Applies a new configuration, selectively reinitializing submodules
     /// as needed.
     pub fn apply_config(&mut self, config: Config) {

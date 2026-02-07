@@ -216,6 +216,22 @@ extern "C" {
  WapError wap_get_config(const struct WapAudioProcessing *apm, struct WapConfig *config_out);
 
 /**
+ * Initializes the processing pipeline with explicit stream configurations.
+ *
+ * Sets sample rates and channel counts for all four audio paths (capture
+ * input, capture output, reverse input, reverse output) atomically,
+ * triggering a full reinitialisation of internal buffers and submodules.
+ *
+ * Returns `WapError::NullPointer` if `apm` is null.
+ */
+
+WapError wap_initialize(struct WapAudioProcessing *apm,
+                        struct WapStreamConfig input_config,
+                        struct WapStreamConfig output_config,
+                        struct WapStreamConfig reverse_input_config,
+                        struct WapStreamConfig reverse_output_config);
+
+/**
  * Processes a capture audio frame (float, deinterleaved).
  *
  * - `src`: array of `input_config.num_channels` pointers, each pointing

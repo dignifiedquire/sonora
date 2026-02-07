@@ -354,7 +354,12 @@ impl AudioProcessingImpl {
         self.maybe_initialize_render(input_config, output_config);
         self.analyze_reverse_stream_locked(src, input_config);
 
-        if self.submodule_states.render_multi_band_sub_modules_active() {
+        // Only read from the AudioBuffer if render processing actually modified
+        // the data (multi-band or full-band processing). The echo controller
+        // reads from the AudioBuffer for analysis but doesn't modify the render
+        // output — so we must NOT use render_multi_band_sub_modules_active()
+        // here (which includes echo_controller_enabled).
+        if self.submodule_states.render_output_modified() {
             let render_audio = self.render.render_audio.as_mut().unwrap();
             render_audio.copy_to_float(&self.formats.api_format.reverse_output_stream, dest);
         } else if self.formats.api_format.reverse_input_stream
@@ -432,7 +437,7 @@ impl AudioProcessingImpl {
         render_audio.copy_from_interleaved_i16(src, input_config);
         self.process_render_stream_locked();
 
-        if self.submodule_states.render_multi_band_sub_modules_active() {
+        if self.submodule_states.render_output_modified() {
             let render_audio = self.render.render_audio.as_mut().unwrap();
             render_audio
                 .copy_to_interleaved_i16(&self.formats.api_format.reverse_output_stream, dest);

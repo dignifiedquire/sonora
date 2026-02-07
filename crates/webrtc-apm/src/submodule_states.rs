@@ -89,6 +89,21 @@ impl SubmoduleStates {
         false
     }
 
+    /// Returns whether render full-band processing is active.
+    pub(crate) fn render_full_band_processing_active(&self) -> bool {
+        // In C++: render_pre_processor_enabled_. We don't have render
+        // pre-processors, so this is always false.
+        false
+    }
+
+    /// Returns whether render output was modified by processing (multi-band or full-band).
+    /// This determines whether to read from the AudioBuffer for reverse output.
+    /// Different from `render_multi_band_sub_modules_active()` which controls
+    /// whether to run the processing pipeline (split/merge bands, echo analysis).
+    pub(crate) fn render_output_modified(&self) -> bool {
+        self.render_multi_band_processing_active() || self.render_full_band_processing_active()
+    }
+
     /// Returns whether high-pass filtering is required.
     pub(crate) fn high_pass_filtering_required(&self) -> bool {
         self.high_pass_filter_enabled || self.noise_suppressor_enabled

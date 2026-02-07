@@ -114,6 +114,37 @@ pub extern "C" fn wap_get_config(
     }
 }
 
+// ─── Initialization ──────────────────────────────────────────────────
+
+/// Initializes the processing pipeline with explicit stream configurations.
+///
+/// Sets sample rates and channel counts for all four audio paths (capture
+/// input, capture output, reverse input, reverse output) atomically,
+/// triggering a full reinitialisation of internal buffers and submodules.
+///
+/// Returns `WapError::NullPointer` if `apm` is null.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_initialize(
+    apm: *mut WapAudioProcessing,
+    input_config: WapStreamConfig,
+    output_config: WapStreamConfig,
+    reverse_input_config: WapStreamConfig,
+    reverse_output_config: WapStreamConfig,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        let in_cfg = input_config.to_rust();
+        let out_cfg = output_config.to_rust();
+        let rev_in_cfg = reverse_input_config.to_rust();
+        let rev_out_cfg = reverse_output_config.to_rust();
+        apm.inner.initialize(&in_cfg, &out_cfg, &rev_in_cfg, &rev_out_cfg);
+        WapError::None
+    }
+}
+
 // ─── Processing (float, deinterleaved) ──────────────────────────────
 
 /// Maximum number of channels accepted to prevent unreasonable allocations.
@@ -133,7 +164,13 @@ unsafe fn rebuild_channel_slices<'a>(
     num_channels: usize,
     num_frames: usize,
 ) -> Option<Vec<&'a [f32]>> {
-    if data.is_null() || num_channels == 0 || num_channels > MAX_CHANNELS {
+    // 0 channels is a format validation error, not a null-pointer error.
+    // Return an empty vec so the caller can forward to handle_unsupported_formats
+    // which will return the correct error code (BadNumberChannels).
+    if num_channels == 0 {
+        return Some(Vec::new());
+    }
+    if data.is_null() || num_channels > MAX_CHANNELS {
         return None;
     }
     // Safety: caller guarantees `data` points to `num_channels` pointers.
@@ -160,7 +197,11 @@ unsafe fn rebuild_channel_slices_mut<'a>(
     num_channels: usize,
     num_frames: usize,
 ) -> Option<Vec<&'a mut [f32]>> {
-    if data.is_null() || num_channels == 0 || num_channels > MAX_CHANNELS {
+    // 0 channels is a format validation error, not a null-pointer error.
+    if num_channels == 0 {
+        return Some(Vec::new());
+    }
+    if data.is_null() || num_channels > MAX_CHANNELS {
         return None;
     }
     // Safety: caller guarantees `data` points to `num_channels` pointers.
