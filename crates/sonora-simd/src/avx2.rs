@@ -514,15 +514,13 @@ pub(crate) unsafe fn complex_multiply_accumulate_standard(
 #[inline]
 #[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum(v: __m256) -> f32 {
-    unsafe {
-        let hi = _mm256_extractf128_ps(v, 1);
-        let lo = _mm256_castps256_ps128(v);
-        let sum128 = _mm_add_ps(lo, hi);
+    let hi = _mm256_extractf128_ps(v, 1);
+    let lo = _mm256_castps256_ps128(v);
+    let sum128 = _mm_add_ps(lo, hi);
 
-        let hi64 = _mm_movehl_ps(sum128, sum128);
-        let sum64 = _mm_add_ps(sum128, hi64);
-        let shuf = _mm_shuffle_ps(sum64, sum64, 1);
-        let result = _mm_add_ss(sum64, shuf);
-        _mm_cvtss_f32(result)
-    }
+    let hi64 = _mm_movehl_ps(sum128, sum128);
+    let sum64 = _mm_add_ps(sum128, hi64);
+    let shuf = _mm_shuffle_ps(sum64, sum64, 1);
+    let result = _mm_add_ss(sum64, shuf);
+    _mm_cvtss_f32(result)
 }

@@ -61,21 +61,35 @@ Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C opt-level=3`:
 
 | Benchmark | Time |
 |-----------|------|
-| `process_stream` 16 kHz mono | 4.8 us |
-| `process_stream` 48 kHz mono | 15.6 us |
-| `process_stream` 48 kHz stereo | 21.4 us |
+| `process_stream` 16 kHz mono | 4.5 us |
+| `process_stream` 48 kHz mono | 14.4 us |
+| `process_stream` 48 kHz stereo | 20.6 us |
 | Noise suppressor (analyze + process) | 1.4 us |
 | PFFFT forward 128-point | 263 ns |
-| PFFFT forward 256-point | 534 ns |
-| PFFFT forward 512-point | 1.26 us |
-| Sinc resampler 48 kHz to 16 kHz (10 ms) | 745 ns |
+| PFFFT forward 256-point | 532 ns |
+| PFFFT forward 512-point | 1.2 us |
+| Sinc resampler 48 kHz to 16 kHz (10 ms) | 740 ns |
 
 All times are per 10 ms frame. Reproduce with:
 
 ```bash
-cargo bench -p sonora --bench pipeline
-# Rust vs C++ (requires C++ library built in cpp/):
-PKG_CONFIG_PATH=cpp/install/lib/pkgconfig cargo bench -p sonora --features cpp-comparison --bench cpp_comparison
+RUSTFLAGS="-C target-cpu=native" cargo bench -p sonora --bench pipeline
+```
+
+### Rust vs C++ comparison
+
+Requires building the C++ reference library first (needs meson, ninja, and abseil):
+
+```bash
+# Build and install the C++ library (release mode for fair comparison)
+cd cpp
+meson setup builddir --buildtype=release -Dtests=disabled -Dprefix=$(pwd)/install
+ninja -C builddir install
+cd ..
+
+# Run the comparison benchmark
+RUSTFLAGS="-C target-cpu=native" PKG_CONFIG_PATH=$(pwd)/cpp/install/lib/pkgconfig \
+  cargo bench -p sonora --features cpp-comparison --bench cpp_comparison
 ```
 
 ## Supported Platforms

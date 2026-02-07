@@ -256,16 +256,18 @@ fn inverse_neon(a: &mut [f32; FFT_SIZE]) {
 /// SSE2-accelerated forward FFT implementation.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn forward_sse2(a: &mut [f32; FFT_SIZE]) {
+    use crate::ooura_fft_sse2::{cft1st_128_sse2, cftmdl_128_sse2, rftfsub_128_sse2};
+
     bitrv2_128(a);
     // SAFETY: caller guarantees SSE2 is available (checked in `forward`).
     unsafe {
-        crate::ooura_fft_sse2::cft1st_128_sse2(a);
-        crate::ooura_fft_sse2::cftmdl_128_sse2(a);
+        cft1st_128_sse2(a);
+        cftmdl_128_sse2(a);
     }
     cftfsub_128_final(a);
     // SAFETY: SSE2 available.
     unsafe {
-        crate::ooura_fft_sse2::rftfsub_128_sse2(a);
+        rftfsub_128_sse2(a);
     }
     let xi = a[0] - a[1];
     a[0] += a[1];
@@ -275,17 +277,19 @@ fn forward_sse2(a: &mut [f32; FFT_SIZE]) {
 /// SSE2-accelerated inverse FFT implementation.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn inverse_sse2(a: &mut [f32; FFT_SIZE]) {
+    use crate::ooura_fft_sse2::{cft1st_128_sse2, cftmdl_128_sse2, rftbsub_128_sse2};
+
     a[1] = 0.5 * (a[0] - a[1]);
     a[0] -= a[1];
     // SAFETY: caller guarantees SSE2 is available (checked in `inverse`).
     unsafe {
-        crate::ooura_fft_sse2::rftbsub_128_sse2(a);
+        rftbsub_128_sse2(a);
     }
     bitrv2_128(a);
     // SAFETY: SSE2 available.
     unsafe {
-        crate::ooura_fft_sse2::cft1st_128_sse2(a);
-        crate::ooura_fft_sse2::cftmdl_128_sse2(a);
+        cft1st_128_sse2(a);
+        cftmdl_128_sse2(a);
     }
     cftbsub_128_final(a);
 }

@@ -3,6 +3,9 @@
 //! C source: `webrtc/common_audio/third_party/ooura/fft_size_128/ooura_fft_sse2.cc`
 //! Tables from `ooura_fft_tables_neon_sse2.h`.
 
+// Twiddle constants are the exact f32 bit patterns from the C++ source.
+#![allow(clippy::excessive_precision)]
+
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -14,7 +17,7 @@ use crate::ooura_fft::{FFT_SIZE, RDFT_W};
 // These are duplicated/rearranged versions of the scalar tables, laid out for
 // 4-wide SIMD loads. Each pair of values is repeated so a single `_mm_load_ps`
 // gives [v0, v0, v1, v1].
-
+//
 #[repr(align(16))]
 struct Aligned16([f32; 4]);
 

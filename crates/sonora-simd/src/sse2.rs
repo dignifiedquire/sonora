@@ -500,11 +500,9 @@ pub(crate) unsafe fn complex_multiply_accumulate_standard(
 #[inline]
 #[target_feature(enable = "sse2")]
 unsafe fn horizontal_sum(v: __m128) -> f32 {
-    unsafe {
-        let hi = _mm_movehl_ps(v, v);
-        let sum = _mm_add_ps(v, hi);
-        let shuf = _mm_shuffle_ps(sum, sum, 1);
-        let result = _mm_add_ss(sum, shuf);
-        _mm_cvtss_f32(result)
-    }
+    let hi = _mm_movehl_ps(v, v);
+    let sum = _mm_add_ps(v, hi);
+    let shuf = _mm_shuffle_ps(sum, sum, 1);
+    let result = _mm_add_ss(sum, shuf);
+    _mm_cvtss_f32(result)
 }
