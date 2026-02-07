@@ -380,7 +380,14 @@ impl AudioProcessing {
     /// Should be called after [`process_stream_f32()`] to obtain the
     /// recommended new analog level for the audio HAL.
     pub fn recommended_stream_analog_level(&self) -> i32 {
-        self.inner.recommended_input_volume().unwrap_or(0)
+        /// Default volume when neither recommended nor applied is available.
+        /// Matches C++ `kFallBackInputVolume` in `audio_processing_impl.cc`.
+        const FALLBACK_INPUT_VOLUME: i32 = 255;
+
+        self.inner
+            .recommended_input_volume()
+            .or(self.inner.applied_input_volume())
+            .unwrap_or(FALLBACK_INPUT_VOLUME)
     }
 
     // ─── Stream delay ────────────────────────────────────────────
@@ -510,7 +517,8 @@ mod tests {
     fn builder_creates_default_instance() {
         let apm = AudioProcessing::builder().build();
         assert_eq!(apm.stream_delay_ms(), 0);
-        assert_eq!(apm.recommended_stream_analog_level(), 0);
+        // Fallback: no recommended, no applied → 255 (C++ kFallBackInputVolume).
+        assert_eq!(apm.recommended_stream_analog_level(), 255);
     }
 
     #[test]

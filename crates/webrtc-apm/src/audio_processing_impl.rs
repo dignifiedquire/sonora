@@ -299,6 +299,11 @@ impl AudioProcessingImpl {
         self.capture.recommended_input_volume
     }
 
+    /// Returns the applied input volume (as set by the caller).
+    pub(crate) fn applied_input_volume(&self) -> Option<i32> {
+        self.capture.applied_input_volume
+    }
+
     // ─── Processing ──────────────────────────────────────────────
 
     /// Processes a capture audio frame.
