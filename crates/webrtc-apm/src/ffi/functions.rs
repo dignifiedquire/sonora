@@ -5,12 +5,14 @@
 //! All public symbols use the `wap_` prefix.
 
 use std::ptr;
+use std::slice;
 
 use crate::AudioProcessing;
 use crate::config::Config;
+use crate::stream_config::StreamConfig;
 
 use super::panic_guard::{ffi_guard, ffi_guard_ptr};
-use super::types::{WapAudioProcessing, WapConfig, WapError};
+use super::types::{WapAudioProcessing, WapConfig, WapError, WapStreamConfig};
 
 // ─── Version ─────────────────────────────────────────────────────────
 
@@ -109,6 +111,242 @@ pub extern "C" fn wap_get_config(
         let c_config = WapConfig::from_rust(rust_config);
         unsafe { ptr::write(config_out, c_config) };
         WapError::None
+    }
+}
+
+// ─── Processing (float, deinterleaved) ──────────────────────────────
+
+/// Maximum number of channels accepted to prevent unreasonable allocations.
+const MAX_CHANNELS: usize = 8;
+
+/// Reconstructs `&[&[f32]]` from C-style `*const *const f32`.
+///
+/// Returns `None` if any pointer is null or `num_channels` is out of range.
+///
+/// # Safety
+///
+/// Each channel pointer must point to at least `num_frames` valid `f32`
+/// values. The caller must guarantee the pointers remain valid for the
+/// duration of the call.
+unsafe fn rebuild_channel_slices<'a>(
+    data: *const *const f32,
+    num_channels: usize,
+    num_frames: usize,
+) -> Option<Vec<&'a [f32]>> {
+    if data.is_null() || num_channels == 0 || num_channels > MAX_CHANNELS {
+        return None;
+    }
+    // Safety: caller guarantees `data` points to `num_channels` pointers.
+    let ptrs = unsafe { slice::from_raw_parts(data, num_channels) };
+    let mut slices = Vec::with_capacity(num_channels);
+    for &p in ptrs {
+        if p.is_null() {
+            return None;
+        }
+        // Safety: caller guarantees each pointer has `num_frames` valid f32s.
+        slices.push(unsafe { slice::from_raw_parts(p, num_frames) });
+    }
+    Some(slices)
+}
+
+/// Reconstructs `&mut [&mut [f32]]` from C-style `*const *mut f32`.
+///
+/// # Safety
+///
+/// Same as [`rebuild_channel_slices`], plus the output buffers must not
+/// alias the input buffers or each other.
+unsafe fn rebuild_channel_slices_mut<'a>(
+    data: *const *mut f32,
+    num_channels: usize,
+    num_frames: usize,
+) -> Option<Vec<&'a mut [f32]>> {
+    if data.is_null() || num_channels == 0 || num_channels > MAX_CHANNELS {
+        return None;
+    }
+    // Safety: caller guarantees `data` points to `num_channels` pointers.
+    let ptrs = unsafe { slice::from_raw_parts(data, num_channels) };
+    let mut slices = Vec::with_capacity(num_channels);
+    for &p in ptrs {
+        if p.is_null() {
+            return None;
+        }
+        // Safety: caller guarantees each pointer has `num_frames` valid f32s
+        // and that output buffers do not alias.
+        slices.push(unsafe { slice::from_raw_parts_mut(p, num_frames) });
+    }
+    Some(slices)
+}
+
+/// Converts a [`crate::Error`] to a [`WapError`].
+fn rust_error_to_wap(err: crate::Error) -> WapError {
+    match err {
+        crate::Error::BadSampleRate => WapError::BadSampleRate,
+        crate::Error::BadNumberChannels => WapError::BadNumberChannels,
+        crate::Error::BadStreamParameter => WapError::BadStreamParameter,
+    }
+}
+
+/// Processes a capture audio frame (float, deinterleaved).
+///
+/// - `src`: array of `input_config.num_channels` pointers, each pointing
+///   to `input_config.sample_rate_hz / 100` samples.
+/// - `dest`: array of `output_config.num_channels` pointers (output buffers).
+///
+/// Returns `WapError::None` on success.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_process_stream_f32(
+    apm: *mut WapAudioProcessing,
+    src: *const *const f32,
+    input_config: WapStreamConfig,
+    output_config: WapStreamConfig,
+    dest: *const *mut f32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let in_cfg = input_config.to_rust();
+        let out_cfg = output_config.to_rust();
+        let in_frames = in_cfg.num_frames();
+        let out_frames = out_cfg.num_frames();
+
+        // Safety: caller guarantees valid pointers with correct dimensions.
+        let Some(src_slices) = (unsafe {
+            rebuild_channel_slices(src, in_cfg.num_channels(), in_frames)
+        }) else {
+            return WapError::NullPointer;
+        };
+        let Some(mut dest_slices) = (unsafe {
+            rebuild_channel_slices_mut(dest, out_cfg.num_channels(), out_frames)
+        }) else {
+            return WapError::NullPointer;
+        };
+
+        let apm = unsafe { &mut *apm };
+        let dest_refs: &mut [&mut [f32]] = &mut dest_slices;
+        match apm.inner.process_stream_f32(&src_slices, &in_cfg, &out_cfg, dest_refs) {
+            Ok(()) => WapError::None,
+            Err(e) => rust_error_to_wap(e),
+        }
+    }
+}
+
+/// Processes a reverse (render / far-end) audio frame (float, deinterleaved).
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_process_reverse_stream_f32(
+    apm: *mut WapAudioProcessing,
+    src: *const *const f32,
+    input_config: WapStreamConfig,
+    output_config: WapStreamConfig,
+    dest: *const *mut f32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let in_cfg = input_config.to_rust();
+        let out_cfg = output_config.to_rust();
+        let in_frames = in_cfg.num_frames();
+        let out_frames = out_cfg.num_frames();
+
+        // Safety: caller guarantees valid pointers with correct dimensions.
+        let Some(src_slices) = (unsafe {
+            rebuild_channel_slices(src, in_cfg.num_channels(), in_frames)
+        }) else {
+            return WapError::NullPointer;
+        };
+        let Some(mut dest_slices) = (unsafe {
+            rebuild_channel_slices_mut(dest, out_cfg.num_channels(), out_frames)
+        }) else {
+            return WapError::NullPointer;
+        };
+
+        let apm = unsafe { &mut *apm };
+        let dest_refs: &mut [&mut [f32]] = &mut dest_slices;
+        match apm.inner.process_reverse_stream_f32(&src_slices, &in_cfg, &out_cfg, dest_refs) {
+            Ok(()) => WapError::None,
+            Err(e) => rust_error_to_wap(e),
+        }
+    }
+}
+
+// ─── Processing (int16, interleaved) ─────────────────────────────────
+
+/// Processes a capture audio frame (int16, interleaved).
+///
+/// - `src`: pointer to `num_frames * num_channels` interleaved i16 samples.
+/// - `dest`: pointer to output buffer of same size.
+/// - Input and output configs must have native rates (8k/16k/32k/48k) and
+///   matching rates and channel counts.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_process_stream_i16(
+    apm: *mut WapAudioProcessing,
+    src: *const i16,
+    src_len: i32,
+    input_config: WapStreamConfig,
+    output_config: WapStreamConfig,
+    dest: *mut i16,
+    dest_len: i32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() || src.is_null() || dest.is_null() {
+            return WapError::NullPointer;
+        }
+        let in_cfg = input_config.to_rust();
+        let out_cfg = output_config.to_rust();
+        let expected_src_len = in_cfg.num_frames() * in_cfg.num_channels();
+        let expected_dest_len = out_cfg.num_frames() * out_cfg.num_channels();
+
+        if (src_len as usize) < expected_src_len || (dest_len as usize) < expected_dest_len {
+            return WapError::BadDataLength;
+        }
+
+        // Safety: caller guarantees valid pointers with at least the
+        // required number of samples.
+        let src_slice = unsafe { slice::from_raw_parts(src, expected_src_len) };
+        let dest_slice = unsafe { slice::from_raw_parts_mut(dest, expected_dest_len) };
+
+        let apm = unsafe { &mut *apm };
+        match apm.inner.process_stream_i16(src_slice, &in_cfg, &out_cfg, dest_slice) {
+            Ok(()) => WapError::None,
+            Err(e) => rust_error_to_wap(e),
+        }
+    }
+}
+
+/// Processes a reverse (render / far-end) audio frame (int16, interleaved).
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_process_reverse_stream_i16(
+    apm: *mut WapAudioProcessing,
+    src: *const i16,
+    src_len: i32,
+    input_config: WapStreamConfig,
+    output_config: WapStreamConfig,
+    dest: *mut i16,
+    dest_len: i32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() || src.is_null() || dest.is_null() {
+            return WapError::NullPointer;
+        }
+        let in_cfg = input_config.to_rust();
+        let out_cfg = output_config.to_rust();
+        let expected_src_len = in_cfg.num_frames() * in_cfg.num_channels();
+        let expected_dest_len = out_cfg.num_frames() * out_cfg.num_channels();
+
+        if (src_len as usize) < expected_src_len || (dest_len as usize) < expected_dest_len {
+            return WapError::BadDataLength;
+        }
+
+        // Safety: caller guarantees valid pointers.
+        let src_slice = unsafe { slice::from_raw_parts(src, expected_src_len) };
+        let dest_slice = unsafe { slice::from_raw_parts_mut(dest, expected_dest_len) };
+
+        let apm = unsafe { &mut *apm };
+        match apm.inner.process_reverse_stream_i16(src_slice, &in_cfg, &out_cfg, dest_slice) {
+            Ok(()) => WapError::None,
+            Err(e) => rust_error_to_wap(e),
+        }
     }
 }
 
@@ -239,6 +477,232 @@ mod tests {
         assert!(!apm.is_null());
         let err = wap_get_config(apm, ptr::null_mut());
         assert_eq!(err, WapError::NullPointer);
+        wap_destroy(apm);
+    }
+
+    // ─── Processing tests ────────────────────────────────────────
+
+    #[test]
+    fn process_stream_f32_null_apm() {
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let err = wap_process_stream_f32(ptr::null_mut(), ptr::null(), config, config, ptr::null());
+        assert_eq!(err, WapError::NullPointer);
+    }
+
+    #[test]
+    fn process_stream_f32_silence_passthrough() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let src_data = [0.0f32; 160];
+        let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
+        let mut dest_data = [1.0f32; 160];
+        let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
+
+        let err =
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        assert_eq!(err, WapError::None);
+
+        for &s in &dest_data {
+            assert!(s.abs() < 1e-6, "expected silence, got {s}");
+        }
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_stream_f32_no_processing_passthrough() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let src_data: Vec<f32> = (0..160).map(|i| (i as f32 / 160.0) * 2.0 - 1.0).collect();
+        let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
+        let mut dest_data = vec![0.0f32; 160];
+        let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
+
+        let err =
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        assert_eq!(err, WapError::None);
+
+        for i in 0..160 {
+            assert_eq!(src_data[i], dest_data[i], "sample {i} mismatch");
+        }
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_reverse_stream_f32_works() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let src_data = [0.5f32; 160];
+        let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
+        let mut dest_data = [0.0f32; 160];
+        let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
+
+        let err = wap_process_reverse_stream_f32(
+            apm,
+            src_ptrs.as_ptr(),
+            config,
+            config,
+            dest_ptrs.as_ptr(),
+        );
+        assert_eq!(err, WapError::None);
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_stream_f32_stereo() {
+        let mut c = wap_config_default();
+        c.pipeline_multi_channel_capture = true;
+        let apm = wap_create_with_config(c);
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 2,
+        };
+        let src_l = [0.1f32; 160];
+        let src_r = [0.2f32; 160];
+        let src_ptrs: [*const f32; 2] = [src_l.as_ptr(), src_r.as_ptr()];
+        let mut dest_l = [0.0f32; 160];
+        let mut dest_r = [0.0f32; 160];
+        let dest_ptrs: [*mut f32; 2] = [dest_l.as_mut_ptr(), dest_r.as_mut_ptr()];
+
+        let err =
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        assert_eq!(err, WapError::None);
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_stream_i16_silence_passthrough() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let src = [0i16; 160];
+        let mut dest = [100i16; 160];
+
+        let err = wap_process_stream_i16(
+            apm,
+            src.as_ptr(),
+            160,
+            config,
+            config,
+            dest.as_mut_ptr(),
+            160,
+        );
+        assert_eq!(err, WapError::None);
+
+        for &s in &dest {
+            assert_eq!(s, 0, "expected silence");
+        }
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_stream_i16_null_returns_error() {
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let err = wap_process_stream_i16(
+            ptr::null_mut(),
+            ptr::null(),
+            0,
+            config,
+            config,
+            ptr::null_mut(),
+            0,
+        );
+        assert_eq!(err, WapError::NullPointer);
+    }
+
+    #[test]
+    fn process_stream_i16_bad_length() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let src = [0i16; 10]; // Too short for 160 frames.
+        let mut dest = [0i16; 160];
+
+        let err = wap_process_stream_i16(
+            apm,
+            src.as_ptr(),
+            10,
+            config,
+            config,
+            dest.as_mut_ptr(),
+            160,
+        );
+        assert_eq!(err, WapError::BadDataLength);
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_reverse_stream_i16_works() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 16000,
+            num_channels: 1,
+        };
+        let src = [100i16; 160];
+        let mut dest = [0i16; 160];
+
+        let err = wap_process_reverse_stream_i16(
+            apm,
+            src.as_ptr(),
+            160,
+            config,
+            config,
+            dest.as_mut_ptr(),
+            160,
+        );
+        assert_eq!(err, WapError::None);
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn process_stream_f32_bad_rate() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let config = WapStreamConfig {
+            sample_rate_hz: 100, // Bad rate.
+            num_channels: 1,
+        };
+        let src_data = [0.0f32; 1];
+        let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
+        let mut dest_data = [0.0f32; 1];
+        let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
+
+        let err =
+            wap_process_stream_f32(apm, src_ptrs.as_ptr(), config, config, dest_ptrs.as_ptr());
+        assert_eq!(err, WapError::BadSampleRate);
         wap_destroy(apm);
     }
 }
