@@ -44,56 +44,224 @@ const MAX_SAMPLE_RATE: usize = 384_000;
 /// Minimum supported sample rate.
 const MIN_SAMPLE_RATE: usize = 8_000;
 
-/// Supported native sample rates for int16 processing.
-const NATIVE_SAMPLE_RATES: [usize; 4] = [8000, 16000, 32000, 48000];
+/// Result of validating a single audio format.
+///
+/// Mirrors C++ `AudioFormatValidity` in `audio_processing_impl.cc`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormatValidity {
+    /// Rate and channels are within supported bounds.
+    ValidAndSupported,
+    /// Rate is in [0, 7999] or above 384000 (interpretable but unsupported).
+    ValidButUnsupportedRate,
+    /// Rate is negative (uninterpretable).
+    InvalidRate,
+    /// Zero channels (uninterpretable).
+    InvalidChannels,
+}
 
-fn validate_stream_config(config: &StreamConfig) -> Result<(), Error> {
+impl FormatValidity {
+    /// Whether the format is interpretable (we can read/write its buffers).
+    fn is_interpretable(self) -> bool {
+        !matches!(self, Self::InvalidRate | Self::InvalidChannels)
+    }
+
+    /// Convert to the corresponding error code, or `None` for valid formats.
+    fn to_error(self) -> Option<Error> {
+        match self {
+            Self::ValidAndSupported => None,
+            Self::ValidButUnsupportedRate | Self::InvalidRate => Some(Error::BadSampleRate),
+            Self::InvalidChannels => Some(Error::BadNumberChannels),
+        }
+    }
+}
+
+/// Validates a single stream config.
+///
+/// Mirrors C++ `ValidateAudioFormat`.
+fn validate_audio_format(config: &StreamConfig) -> FormatValidity {
+    let rate = config.sample_rate_hz_signed();
+    if rate < 0 {
+        return FormatValidity::InvalidRate;
+    }
     if config.num_channels() == 0 {
-        return Err(Error::BadNumberChannels);
+        return FormatValidity::InvalidChannels;
     }
-    let rate = config.sample_rate_hz();
-    if rate < MIN_SAMPLE_RATE || rate > MAX_SAMPLE_RATE {
-        return Err(Error::BadSampleRate);
+    if (rate as usize) < MIN_SAMPLE_RATE || (rate as usize) > MAX_SAMPLE_RATE {
+        return FormatValidity::ValidButUnsupportedRate;
     }
-    Ok(())
+    FormatValidity::ValidAndSupported
 }
 
-fn validate_float_configs(
-    input_config: &StreamConfig,
-    output_config: &StreamConfig,
-) -> Result<(), Error> {
-    validate_stream_config(input_config)?;
-    validate_stream_config(output_config)?;
-    // Output must have 1 channel or the same number as input.
-    let out_ch = output_config.num_channels();
-    let in_ch = input_config.num_channels();
-    if out_ch != 1 && out_ch != in_ch {
-        return Err(Error::BadNumberChannels);
-    }
-    Ok(())
+/// What to do with the output buffer when an error is detected.
+///
+/// Mirrors C++ `ErrorOutputOption` in `audio_processing_impl.cc`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErrorOutputOption {
+    /// Don't touch the output buffer (output format is uninterpretable).
+    DoNothing,
+    /// Zero-fill the output buffer.
+    Silence,
+    /// Broadcast the first input channel to all output channels.
+    CopyOfFirstChannel,
+    /// Copy input to output exactly.
+    ExactCopy,
 }
 
-fn validate_i16_configs(
+/// Determines the error code and output filling strategy for a pair of
+/// stream configs.
+///
+/// Returns `Ok(())` when both formats are valid and channels are compatible
+/// (processing should proceed). Returns `Err((error, option))` when an
+/// error is detected.
+///
+/// Mirrors C++ `ChooseErrorOutputOption`.
+fn choose_error_output_option(
     input_config: &StreamConfig,
     output_config: &StreamConfig,
+) -> Result<(), (Error, ErrorOutputOption)> {
+    let input_validity = validate_audio_format(input_config);
+    let output_validity = validate_audio_format(output_config);
+
+    // Both valid and channels compatible → success.
+    if input_validity == FormatValidity::ValidAndSupported
+        && output_validity == FormatValidity::ValidAndSupported
+    {
+        let out_ch = output_config.num_channels();
+        let in_ch = input_config.num_channels();
+        if out_ch == 1 || out_ch == in_ch {
+            return Ok(());
+        }
+    }
+
+    // Determine error code: input error takes priority.
+    let error = if let Some(e) = input_validity.to_error() {
+        e
+    } else if let Some(e) = output_validity.to_error() {
+        e
+    } else {
+        // Both individually valid but channel mismatch.
+        Error::BadNumberChannels
+    };
+
+    // Determine output option.
+    let option = if !output_validity.is_interpretable() {
+        // Can't write to uninterpretable output.
+        ErrorOutputOption::DoNothing
+    } else if !input_validity.is_interpretable() {
+        // Can't read from uninterpretable input → silence.
+        ErrorOutputOption::Silence
+    } else if input_config.sample_rate_hz() != output_config.sample_rate_hz() {
+        // Different rates → can't copy, write silence.
+        ErrorOutputOption::Silence
+    } else if input_config.num_channels() != output_config.num_channels() {
+        // Same rate, different channels → broadcast first channel.
+        ErrorOutputOption::CopyOfFirstChannel
+    } else {
+        // Same rate, same channels → exact copy.
+        ErrorOutputOption::ExactCopy
+    };
+
+    Err((error, option))
+}
+
+/// Handles unsupported audio formats for float (deinterleaved) processing.
+///
+/// On error, fills the output buffer according to C++ semantics, then
+/// returns the error. On success, returns `Ok(())` and processing should
+/// proceed.
+///
+/// Mirrors C++ `HandleUnsupportedAudioFormats` (float variant).
+fn handle_unsupported_formats_f32(
+    src: &[&[f32]],
+    input_config: &StreamConfig,
+    output_config: &StreamConfig,
+    dest: &mut [&mut [f32]],
 ) -> Result<(), Error> {
-    validate_stream_config(input_config)?;
-    validate_stream_config(output_config)?;
-    // int16 requires native rates.
-    if !NATIVE_SAMPLE_RATES.contains(&input_config.sample_rate_hz()) {
-        return Err(Error::BadSampleRate);
+    let (error, option) = match choose_error_output_option(input_config, output_config) {
+        Ok(()) => return Ok(()),
+        Err(pair) => pair,
+    };
+
+    let out_frames = output_config.num_frames();
+    let out_ch = dest.len();
+
+    match option {
+        ErrorOutputOption::DoNothing => {}
+        ErrorOutputOption::Silence => {
+            for ch_buf in dest.iter_mut().take(out_ch) {
+                let len = ch_buf.len().min(out_frames);
+                ch_buf[..len].fill(0.0);
+            }
+        }
+        ErrorOutputOption::CopyOfFirstChannel => {
+            if let Some(first_in) = src.first() {
+                for ch_buf in dest.iter_mut().take(out_ch) {
+                    let len = ch_buf.len().min(out_frames).min(first_in.len());
+                    ch_buf[..len].copy_from_slice(&first_in[..len]);
+                }
+            }
+        }
+        ErrorOutputOption::ExactCopy => {
+            for (out_ch_buf, in_ch_buf) in dest.iter_mut().zip(src.iter()) {
+                let len = out_ch_buf.len().min(out_frames).min(in_ch_buf.len());
+                out_ch_buf[..len].copy_from_slice(&in_ch_buf[..len]);
+            }
+        }
     }
-    if !NATIVE_SAMPLE_RATES.contains(&output_config.sample_rate_hz()) {
-        return Err(Error::BadSampleRate);
+
+    Err(error)
+}
+
+/// Handles unsupported audio formats for int16 (interleaved) processing.
+///
+/// On error, fills the output buffer according to C++ semantics, then
+/// returns the error. On success, returns `Ok(())` and processing should
+/// proceed.
+///
+/// Mirrors C++ `HandleUnsupportedAudioFormats` (int16 variant).
+fn handle_unsupported_formats_i16(
+    src: &[i16],
+    input_config: &StreamConfig,
+    output_config: &StreamConfig,
+    dest: &mut [i16],
+) -> Result<(), Error> {
+    let (error, option) = match choose_error_output_option(input_config, output_config) {
+        Ok(()) => return Ok(()),
+        Err(pair) => pair,
+    };
+
+    let out_frames = output_config.num_frames();
+    let out_channels = output_config.num_channels();
+    let in_channels = input_config.num_channels();
+    let out_samples = out_frames * out_channels;
+
+    match option {
+        ErrorOutputOption::DoNothing => {}
+        ErrorOutputOption::Silence => {
+            let len = dest.len().min(out_samples);
+            dest[..len].fill(0);
+        }
+        ErrorOutputOption::CopyOfFirstChannel => {
+            // Interleaved: extract first channel sample, broadcast to all
+            // output channels.
+            for i in 0..out_frames {
+                let src_idx = i * in_channels;
+                let sample = if src_idx < src.len() { src[src_idx] } else { 0 };
+                for ch in 0..out_channels {
+                    let dest_idx = i * out_channels + ch;
+                    if dest_idx < dest.len() {
+                        dest[dest_idx] = sample;
+                    }
+                }
+            }
+        }
+        ErrorOutputOption::ExactCopy => {
+            let len = dest.len().min(out_samples).min(src.len());
+            dest[..len].copy_from_slice(&src[..len]);
+        }
     }
-    // int16 requires matching input/output rates and channels.
-    if input_config.sample_rate_hz() != output_config.sample_rate_hz() {
-        return Err(Error::BadSampleRate);
-    }
-    if input_config.num_channels() != output_config.num_channels() {
-        return Err(Error::BadNumberChannels);
-    }
-    Ok(())
+
+    Err(error)
 }
 
 // ─── AudioProcessingBuilder ─────────────────────────────────────────
@@ -269,7 +437,7 @@ impl AudioProcessing {
         output_config: &StreamConfig,
         dest: &mut [&mut [f32]],
     ) -> Result<(), Error> {
-        validate_float_configs(input_config, output_config)?;
+        handle_unsupported_formats_f32(src, input_config, output_config, dest)?;
         self.inner
             .process_stream(src, input_config, output_config, dest);
         Ok(())
@@ -285,7 +453,7 @@ impl AudioProcessing {
         output_config: &StreamConfig,
         dest: &mut [&mut [f32]],
     ) -> Result<(), Error> {
-        validate_float_configs(input_config, output_config)?;
+        handle_unsupported_formats_f32(src, input_config, output_config, dest)?;
         self.inner
             .process_reverse_stream(src, input_config, output_config, dest);
         Ok(())
@@ -304,7 +472,7 @@ impl AudioProcessing {
         output_config: &StreamConfig,
         dest: &mut [i16],
     ) -> Result<(), Error> {
-        validate_i16_configs(input_config, output_config)?;
+        handle_unsupported_formats_i16(src, input_config, output_config, dest)?;
         self.inner
             .process_stream_i16(src, input_config, output_config, dest);
         Ok(())
@@ -321,7 +489,7 @@ impl AudioProcessing {
         output_config: &StreamConfig,
         dest: &mut [i16],
     ) -> Result<(), Error> {
-        validate_i16_configs(input_config, output_config)?;
+        handle_unsupported_formats_i16(src, input_config, output_config, dest)?;
         self.inner
             .process_reverse_stream_i16(src, input_config, output_config, dest);
         Ok(())
@@ -417,14 +585,16 @@ mod tests {
     }
 
     #[test]
-    fn process_stream_i16_validates_non_native_rate() {
+    fn process_stream_i16_accepts_non_native_rate() {
+        // Non-native rates like 44100 Hz are accepted (matching C++ behavior).
+        // The AudioBuffer handles internal resampling.
         let mut apm = AudioProcessing::new();
-        let input_config = StreamConfig::new(44100, 1); // Not a native rate
+        let input_config = StreamConfig::new(44100, 1);
         let output_config = StreamConfig::new(44100, 1);
         let src = [0i16; 441];
         let mut dest = [0i16; 441];
         let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
-        assert_eq!(result, Err(Error::BadSampleRate));
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -478,6 +648,181 @@ mod tests {
         assert_eq!(
             format!("{}", Error::BadStreamParameter),
             "bad stream parameter (clamped)"
+        );
+    }
+
+    // ─── Format handling tests ─────────────────────────────────────
+
+    #[test]
+    fn format_handling_f32_error_and_silence_rate_mismatch() {
+        // When input rate is unsupported (< 8000), output gets silence.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(7900, 1);
+        let output_config = StreamConfig::new(16000, 1);
+        let src_data = [1.0f32; 79]; // 7900 / 100
+        let src: &[&[f32]] = &[&src_data];
+        let mut dest_data = [42.0f32; 160];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        assert_eq!(result, Err(Error::BadSampleRate));
+        // Output should be filled with silence.
+        for &sample in dest[0].iter() {
+            assert_eq!(sample, 0.0, "expected silence");
+        }
+    }
+
+    #[test]
+    fn format_handling_f32_error_and_copy_of_first_channel() {
+        // When channel counts differ but rates match, output gets
+        // broadcast of first input channel.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(16000, 3);
+        let output_config = StreamConfig::new(16000, 2);
+        let ch0 = [0.5f32; 160];
+        let ch1 = [0.3f32; 160];
+        let ch2 = [0.1f32; 160];
+        let src: &[&[f32]] = &[&ch0, &ch1, &ch2];
+        let mut dest0 = [42.0f32; 160];
+        let mut dest1 = [42.0f32; 160];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest0, &mut dest1];
+        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        assert_eq!(result, Err(Error::BadNumberChannels));
+        // Both output channels should be a copy of input channel 0.
+        for i in 0..160 {
+            assert_eq!(dest[0][i], 0.5, "dest[0][{i}] should be ch0 value");
+            assert_eq!(dest[1][i], 0.5, "dest[1][{i}] should be ch0 value");
+        }
+    }
+
+    #[test]
+    fn format_handling_f32_error_and_exact_copy() {
+        // When both formats are unsupported but match exactly, output
+        // gets an exact copy of input.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(7900, 1);
+        let output_config = StreamConfig::new(7900, 1);
+        let src_data: Vec<f32> = (0..79).map(|i| i as f32 * 0.01).collect();
+        let src: &[&[f32]] = &[&src_data];
+        let mut dest_data = [42.0f32; 79];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        assert_eq!(result, Err(Error::BadSampleRate));
+        for i in 0..79 {
+            assert_eq!(dest[0][i], src_data[i], "sample {i} should be exact copy");
+        }
+    }
+
+    #[test]
+    fn format_handling_f32_error_and_unmodified() {
+        // When output format is uninterpretable (negative rate),
+        // output buffer should not be touched.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(16000, 1);
+        let output_config = StreamConfig::from_signed(-16000, 1);
+        let src_data = [0.5f32; 160];
+        let src: &[&[f32]] = &[&src_data];
+        // Output has 0 frames (rate is negative → 0), so nothing to check.
+        // But the key is that we get an error.
+        let dest: &mut [&mut [f32]] = &mut [];
+        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn format_handling_i16_error_and_silence() {
+        // When input rate is unsupported and rates differ, output gets silence.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(7900, 1);
+        let output_config = StreamConfig::new(16000, 1);
+        let src = [100i16; 79];
+        let mut dest = [42i16; 160];
+        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        assert_eq!(result, Err(Error::BadSampleRate));
+        for &sample in dest.iter() {
+            assert_eq!(sample, 0, "expected silence");
+        }
+    }
+
+    #[test]
+    fn format_handling_i16_error_and_broadcast_first_channel() {
+        // When channel counts differ but rates match (interleaved),
+        // output gets broadcast of first input channel.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(16000, 3);
+        let output_config = StreamConfig::new(16000, 2);
+        // Interleaved: [ch0_f0, ch1_f0, ch2_f0, ch0_f1, ch1_f1, ch2_f1, ...]
+        let mut src = vec![0i16; 160 * 3];
+        for i in 0..160 {
+            src[i * 3] = (i * 3) as i16; // ch0
+            src[i * 3 + 1] = 1000; // ch1
+            src[i * 3 + 2] = 2000; // ch2
+        }
+        let mut dest = vec![42i16; 160 * 2];
+        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        assert_eq!(result, Err(Error::BadNumberChannels));
+        // Each output frame should have ch0 value broadcast to both channels.
+        for i in 0..160 {
+            let expected = (i * 3) as i16;
+            assert_eq!(
+                dest[i * 2],
+                expected,
+                "dest[{}] should be ch0 frame {i}",
+                i * 2
+            );
+            assert_eq!(
+                dest[i * 2 + 1],
+                expected,
+                "dest[{}] should be ch0 frame {i}",
+                i * 2 + 1
+            );
+        }
+    }
+
+    #[test]
+    fn format_handling_i16_error_and_exact_copy() {
+        // When both formats are unsupported but match exactly.
+        let mut apm = AudioProcessing::new();
+        let input_config = StreamConfig::new(7900, 1);
+        let output_config = StreamConfig::new(7900, 1);
+        let src: Vec<i16> = (0..79).map(|i| i as i16).collect();
+        let mut dest = vec![42i16; 79];
+        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        assert_eq!(result, Err(Error::BadSampleRate));
+        for i in 0..79 {
+            assert_eq!(dest[i], src[i], "sample {i} should be exact copy");
+        }
+    }
+
+    #[test]
+    fn format_handling_valid_formats_proceed() {
+        // Valid formats should not trigger error handling.
+        let input_config = StreamConfig::new(16000, 2);
+        let output_config = StreamConfig::new(16000, 1);
+        let result = choose_error_output_option(&input_config, &output_config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn format_handling_negative_rate_is_invalid() {
+        let config = StreamConfig::from_signed(-16000, 1);
+        assert_eq!(validate_audio_format(&config), FormatValidity::InvalidRate);
+    }
+
+    #[test]
+    fn format_handling_zero_channels_is_invalid() {
+        let config = StreamConfig::new(16000, 0);
+        assert_eq!(
+            validate_audio_format(&config),
+            FormatValidity::InvalidChannels
+        );
+    }
+
+    #[test]
+    fn format_handling_unsupported_rate() {
+        let config = StreamConfig::new(7900, 1);
+        assert_eq!(
+            validate_audio_format(&config),
+            FormatValidity::ValidButUnsupportedRate
         );
     }
 
