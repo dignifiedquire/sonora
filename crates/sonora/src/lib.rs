@@ -32,6 +32,7 @@ pub mod config;
 pub(crate) mod config_selector;
 pub(crate) mod echo_canceller3;
 pub(crate) mod echo_detector;
+#[cfg(feature = "ffi")]
 pub mod ffi;
 pub(crate) mod gain_controller2;
 pub(crate) mod high_pass_filter;

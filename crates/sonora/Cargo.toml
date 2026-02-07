@@ -1,19 +1,24 @@
 [package]
 name = "sonora"
 version = "0.1.0"
-description = "WebRTC Audio Processing Module — Rust port"
+description = "WebRTC Audio Processing — pure Rust port with echo cancellation, noise suppression, and AGC"
 keywords = ["audio", "echo-cancellation", "noise-suppression", "agc"]
 categories = ["multimedia::audio"]
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["cdylib", "staticlib", "rlib"]
+crate-type = ["rlib"]
+
+[features]
+default = ["ffi"]
+ffi = ["dep:cbindgen"]
 
 [build-dependencies]
-cbindgen = "0.28"
+cbindgen = { version = "0.28", optional = true }
 
 [dependencies]
 sonora-common-audio = { workspace = true }
