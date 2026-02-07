@@ -413,42 +413,44 @@ pub(crate) unsafe fn complex_multiply_accumulate(
     acc_re: &mut [f32],
     acc_im: &mut [f32],
 ) {
-    let len = acc_re.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = acc_re.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let xr_ptr = x_re.as_ptr();
-    let xi_ptr = x_im.as_ptr();
-    let hr_ptr = h_re.as_ptr();
-    let hi_ptr = h_im.as_ptr();
-    let ar_ptr = acc_re.as_mut_ptr();
-    let ai_ptr = acc_im.as_mut_ptr();
+        let xr_ptr = x_re.as_ptr();
+        let xi_ptr = x_im.as_ptr();
+        let hr_ptr = h_re.as_ptr();
+        let hi_ptr = h_im.as_ptr();
+        let ar_ptr = acc_re.as_mut_ptr();
+        let ai_ptr = acc_im.as_mut_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vxr = _mm256_loadu_ps(xr_ptr.add(offset));
-        let vxi = _mm256_loadu_ps(xi_ptr.add(offset));
-        let vhr = _mm256_loadu_ps(hr_ptr.add(offset));
-        let vhi = _mm256_loadu_ps(hi_ptr.add(offset));
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vxr = _mm256_loadu_ps(xr_ptr.add(offset));
+            let vxi = _mm256_loadu_ps(xi_ptr.add(offset));
+            let vhr = _mm256_loadu_ps(hr_ptr.add(offset));
+            let vhi = _mm256_loadu_ps(hi_ptr.add(offset));
 
-        // acc_re += x_re*h_re + x_im*h_im (two FMAs)
-        let mut var = _mm256_loadu_ps(ar_ptr.add(offset));
-        var = _mm256_fmadd_ps(vxr, vhr, var);
-        var = _mm256_fmadd_ps(vxi, vhi, var);
-        _mm256_storeu_ps(ar_ptr.add(offset), var);
+            // acc_re += x_re*h_re + x_im*h_im (two FMAs)
+            let mut var = _mm256_loadu_ps(ar_ptr.add(offset));
+            var = _mm256_fmadd_ps(vxr, vhr, var);
+            var = _mm256_fmadd_ps(vxi, vhi, var);
+            _mm256_storeu_ps(ar_ptr.add(offset), var);
 
-        // acc_im += x_re*h_im - x_im*h_re (FMA + FNMA)
-        let mut vai = _mm256_loadu_ps(ai_ptr.add(offset));
-        vai = _mm256_fmadd_ps(vxr, vhi, vai);
-        vai = _mm256_fnmadd_ps(vxi, vhr, vai);
-        _mm256_storeu_ps(ai_ptr.add(offset), vai);
-    }
+            // acc_im += x_re*h_im - x_im*h_re (FMA + FNMA)
+            let mut vai = _mm256_loadu_ps(ai_ptr.add(offset));
+            vai = _mm256_fmadd_ps(vxr, vhi, vai);
+            vai = _mm256_fnmadd_ps(vxi, vhr, vai);
+            _mm256_storeu_ps(ai_ptr.add(offset), vai);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        acc_re[idx] += x_re[idx] * h_re[idx] + x_im[idx] * h_im[idx];
-        acc_im[idx] += x_re[idx] * h_im[idx] - x_im[idx] * h_re[idx];
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            acc_re[idx] += x_re[idx] * h_re[idx] + x_im[idx] * h_im[idx];
+            acc_im[idx] += x_re[idx] * h_im[idx] - x_im[idx] * h_re[idx];
+        }
     }
 }
 
@@ -512,13 +514,15 @@ pub(crate) unsafe fn complex_multiply_accumulate_standard(
 #[inline]
 #[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum(v: __m256) -> f32 {
-    let hi = _mm256_extractf128_ps(v, 1);
-    let lo = _mm256_castps256_ps128(v);
-    let sum128 = _mm_add_ps(lo, hi);
+    unsafe {
+        let hi = _mm256_extractf128_ps(v, 1);
+        let lo = _mm256_castps256_ps128(v);
+        let sum128 = _mm_add_ps(lo, hi);
 
-    let hi64 = _mm_movehl_ps(sum128, sum128);
-    let sum64 = _mm_add_ps(sum128, hi64);
-    let shuf = _mm_shuffle_ps(sum64, sum64, 1);
-    let result = _mm_add_ss(sum64, shuf);
-    _mm_cvtss_f32(result)
+        let hi64 = _mm_movehl_ps(sum128, sum128);
+        let sum64 = _mm_add_ps(sum128, hi64);
+        let shuf = _mm_shuffle_ps(sum64, sum64, 1);
+        let result = _mm_add_ss(sum64, shuf);
+        _mm_cvtss_f32(result)
+    }
 }
