@@ -11,30 +11,32 @@ use std::arch::x86_64::*;
 /// Caller must ensure AVX2 and FMA are available (via `is_x86_feature_detected!`).
 #[target_feature(enable = "avx2,fma")]
 pub(crate) unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
-    let len = a.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = a.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let mut acc = _mm256_setzero_ps();
+        let mut acc = _mm256_setzero_ps();
 
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let va = _mm256_loadu_ps(a_ptr.add(offset));
-        let vb = _mm256_loadu_ps(b_ptr.add(offset));
-        acc = _mm256_fmadd_ps(va, vb, acc);
+        for i in 0..chunks {
+            let offset = i * 8;
+            let va = _mm256_loadu_ps(a_ptr.add(offset));
+            let vb = _mm256_loadu_ps(b_ptr.add(offset));
+            acc = _mm256_fmadd_ps(va, vb, acc);
+        }
+
+        let mut result = horizontal_sum(acc);
+
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            result += a[tail_start + i] * b[tail_start + i];
+        }
+
+        result
     }
-
-    let mut result = horizontal_sum(acc);
-
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        result += a[tail_start + i] * b[tail_start + i];
-    }
-
-    result
 }
 
 /// AVX2+FMA dual dot product for sinc resampler convolution.
@@ -43,37 +45,39 @@ pub(crate) unsafe fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 /// Caller must ensure AVX2 and FMA are available.
 #[target_feature(enable = "avx2,fma")]
 pub(crate) unsafe fn dual_dot_product(input: &[f32], k1: &[f32], k2: &[f32]) -> (f32, f32) {
-    let len = input.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = input.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let mut acc1 = _mm256_setzero_ps();
-    let mut acc2 = _mm256_setzero_ps();
+        let mut acc1 = _mm256_setzero_ps();
+        let mut acc2 = _mm256_setzero_ps();
 
-    let input_ptr = input.as_ptr();
-    let k1_ptr = k1.as_ptr();
-    let k2_ptr = k2.as_ptr();
+        let input_ptr = input.as_ptr();
+        let k1_ptr = k1.as_ptr();
+        let k2_ptr = k2.as_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vi = _mm256_loadu_ps(input_ptr.add(offset));
-        let vk1 = _mm256_loadu_ps(k1_ptr.add(offset));
-        let vk2 = _mm256_loadu_ps(k2_ptr.add(offset));
-        acc1 = _mm256_fmadd_ps(vi, vk1, acc1);
-        acc2 = _mm256_fmadd_ps(vi, vk2, acc2);
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vi = _mm256_loadu_ps(input_ptr.add(offset));
+            let vk1 = _mm256_loadu_ps(k1_ptr.add(offset));
+            let vk2 = _mm256_loadu_ps(k2_ptr.add(offset));
+            acc1 = _mm256_fmadd_ps(vi, vk1, acc1);
+            acc2 = _mm256_fmadd_ps(vi, vk2, acc2);
+        }
+
+        let mut sum1 = horizontal_sum(acc1);
+        let mut sum2 = horizontal_sum(acc2);
+
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            sum1 += input[idx] * k1[idx];
+            sum2 += input[idx] * k2[idx];
+        }
+
+        (sum1, sum2)
     }
-
-    let mut sum1 = horizontal_sum(acc1);
-    let mut sum2 = horizontal_sum(acc2);
-
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        sum1 += input[idx] * k1[idx];
-        sum2 += input[idx] * k2[idx];
-    }
-
-    (sum1, sum2)
 }
 
 /// AVX2+FMA sinc resampler convolution: dual dot product with vector interpolation.
@@ -90,62 +94,64 @@ pub(crate) unsafe fn convolve_sinc(
     k2: &[f32],
     kernel_interpolation_factor: f64,
 ) -> f32 {
-    let len = input.len();
-    let chunks = len / 8;
+    unsafe {
+        let len = input.len();
+        let chunks = len / 8;
 
-    let mut acc1 = _mm256_setzero_ps();
-    let mut acc2 = _mm256_setzero_ps();
+        let mut acc1 = _mm256_setzero_ps();
+        let mut acc2 = _mm256_setzero_ps();
 
-    let input_ptr = input.as_ptr();
-    let k1_ptr = k1.as_ptr();
-    let k2_ptr = k2.as_ptr();
+        let input_ptr = input.as_ptr();
+        let k1_ptr = k1.as_ptr();
+        let k2_ptr = k2.as_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vi = _mm256_loadu_ps(input_ptr.add(offset));
-        let vk1 = _mm256_loadu_ps(k1_ptr.add(offset));
-        let vk2 = _mm256_loadu_ps(k2_ptr.add(offset));
-        acc1 = _mm256_fmadd_ps(vi, vk1, acc1);
-        acc2 = _mm256_fmadd_ps(vi, vk2, acc2);
-    }
-
-    // Extract 256→128 (matching C++ Convolve_AVX2 exactly).
-    let mut m128_sums1 = _mm_add_ps(
-        _mm256_extractf128_ps(acc1, 0),
-        _mm256_extractf128_ps(acc1, 1),
-    );
-    let mut m128_sums2 = _mm_add_ps(
-        _mm256_extractf128_ps(acc2, 0),
-        _mm256_extractf128_ps(acc2, 1),
-    );
-
-    // Linearly interpolate on 128-bit vectors before horizontal reduction.
-    m128_sums1 = _mm_mul_ps(
-        m128_sums1,
-        _mm_set1_ps((1.0 - kernel_interpolation_factor) as f32),
-    );
-    m128_sums2 = _mm_mul_ps(m128_sums2, _mm_set1_ps(kernel_interpolation_factor as f32));
-    m128_sums1 = _mm_add_ps(m128_sums1, m128_sums2);
-
-    // Horizontal sum (uses SSE intrinsics on the 128-bit result).
-    let m128_sums2_tmp = _mm_add_ps(_mm_movehl_ps(m128_sums1, m128_sums1), m128_sums1);
-    let mut result = _mm_cvtss_f32(_mm_add_ss(
-        m128_sums2_tmp,
-        _mm_shuffle_ps(m128_sums2_tmp, m128_sums2_tmp, 1),
-    ));
-
-    // Scalar tail (KERNEL_SIZE=32 is divisible by 8, so never reached).
-    let tail_start = chunks * 8;
-    let remainder = len % 8;
-    if remainder > 0 {
-        let factor = kernel_interpolation_factor as f32;
-        for i in 0..remainder {
-            let idx = tail_start + i;
-            result += (1.0 - factor) * input[idx] * k1[idx] + factor * input[idx] * k2[idx];
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vi = _mm256_loadu_ps(input_ptr.add(offset));
+            let vk1 = _mm256_loadu_ps(k1_ptr.add(offset));
+            let vk2 = _mm256_loadu_ps(k2_ptr.add(offset));
+            acc1 = _mm256_fmadd_ps(vi, vk1, acc1);
+            acc2 = _mm256_fmadd_ps(vi, vk2, acc2);
         }
-    }
 
-    result
+        // Extract 256→128 (matching C++ Convolve_AVX2 exactly).
+        let mut m128_sums1 = _mm_add_ps(
+            _mm256_extractf128_ps(acc1, 0),
+            _mm256_extractf128_ps(acc1, 1),
+        );
+        let mut m128_sums2 = _mm_add_ps(
+            _mm256_extractf128_ps(acc2, 0),
+            _mm256_extractf128_ps(acc2, 1),
+        );
+
+        // Linearly interpolate on 128-bit vectors before horizontal reduction.
+        m128_sums1 = _mm_mul_ps(
+            m128_sums1,
+            _mm_set1_ps((1.0 - kernel_interpolation_factor) as f32),
+        );
+        m128_sums2 = _mm_mul_ps(m128_sums2, _mm_set1_ps(kernel_interpolation_factor as f32));
+        m128_sums1 = _mm_add_ps(m128_sums1, m128_sums2);
+
+        // Horizontal sum (uses SSE intrinsics on the 128-bit result).
+        let m128_sums2_tmp = _mm_add_ps(_mm_movehl_ps(m128_sums1, m128_sums1), m128_sums1);
+        let mut result = _mm_cvtss_f32(_mm_add_ss(
+            m128_sums2_tmp,
+            _mm_shuffle_ps(m128_sums2_tmp, m128_sums2_tmp, 1),
+        ));
+
+        // Scalar tail (KERNEL_SIZE=32 is divisible by 8, so never reached).
+        let tail_start = chunks * 8;
+        let remainder = len % 8;
+        if remainder > 0 {
+            let factor = kernel_interpolation_factor as f32;
+            for i in 0..remainder {
+                let idx = tail_start + i;
+                result += (1.0 - factor) * input[idx] * k1[idx] + factor * input[idx] * k2[idx];
+            }
+        }
+
+        result
+    }
 }
 
 /// AVX2+FMA multiply-accumulate: acc[i] += a[i] * b[i]
@@ -154,27 +160,29 @@ pub(crate) unsafe fn convolve_sinc(
 /// Caller must ensure AVX2 and FMA are available.
 #[target_feature(enable = "avx2,fma")]
 pub(crate) unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) {
-    let len = acc.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = acc.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let acc_ptr = acc.as_mut_ptr();
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
+        let acc_ptr = acc.as_mut_ptr();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vacc = _mm256_loadu_ps(acc_ptr.add(offset));
-        let va = _mm256_loadu_ps(a_ptr.add(offset));
-        let vb = _mm256_loadu_ps(b_ptr.add(offset));
-        let result = _mm256_fmadd_ps(va, vb, vacc);
-        _mm256_storeu_ps(acc_ptr.add(offset), result);
-    }
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vacc = _mm256_loadu_ps(acc_ptr.add(offset));
+            let va = _mm256_loadu_ps(a_ptr.add(offset));
+            let vb = _mm256_loadu_ps(b_ptr.add(offset));
+            let result = _mm256_fmadd_ps(va, vb, vacc);
+            _mm256_storeu_ps(acc_ptr.add(offset), result);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        acc[idx] += a[idx] * b[idx];
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            acc[idx] += a[idx] * b[idx];
+        }
     }
 }
 
@@ -184,26 +192,28 @@ pub(crate) unsafe fn multiply_accumulate(acc: &mut [f32], a: &[f32], b: &[f32]) 
 /// Caller must ensure AVX2 is available.
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn sum(x: &[f32]) -> f32 {
-    let len = x.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = x.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let mut acc = _mm256_setzero_ps();
-    let ptr = x.as_ptr();
+        let mut acc = _mm256_setzero_ps();
+        let ptr = x.as_ptr();
 
-    for i in 0..chunks {
-        let v = _mm256_loadu_ps(ptr.add(i * 8));
-        acc = _mm256_add_ps(acc, v);
+        for i in 0..chunks {
+            let v = _mm256_loadu_ps(ptr.add(i * 8));
+            acc = _mm256_add_ps(acc, v);
+        }
+
+        let mut result = horizontal_sum(acc);
+
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            result += x[tail_start + i];
+        }
+
+        result
     }
-
-    let mut result = horizontal_sum(acc);
-
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        result += x[tail_start + i];
-    }
-
-    result
 }
 
 /// AVX2 elementwise square root: x[i] = sqrt(x[i])
@@ -212,21 +222,23 @@ pub(crate) unsafe fn sum(x: &[f32]) -> f32 {
 /// Caller must ensure AVX2 is available.
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn elementwise_sqrt(x: &mut [f32]) {
-    let len = x.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
-    let ptr = x.as_mut_ptr();
+    unsafe {
+        let len = x.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
+        let ptr = x.as_mut_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let v = _mm256_loadu_ps(ptr.add(offset));
-        let result = _mm256_sqrt_ps(v);
-        _mm256_storeu_ps(ptr.add(offset), result);
-    }
+        for i in 0..chunks {
+            let offset = i * 8;
+            let v = _mm256_loadu_ps(ptr.add(offset));
+            let result = _mm256_sqrt_ps(v);
+            _mm256_storeu_ps(ptr.add(offset), result);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        x[tail_start + i] = x[tail_start + i].sqrt();
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            x[tail_start + i] = x[tail_start + i].sqrt();
+        }
     }
 }
 
@@ -236,26 +248,28 @@ pub(crate) unsafe fn elementwise_sqrt(x: &mut [f32]) {
 /// Caller must ensure AVX2 is available.
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn elementwise_multiply(x: &[f32], y: &[f32], z: &mut [f32]) {
-    let len = z.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = z.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let x_ptr = x.as_ptr();
-    let y_ptr = y.as_ptr();
-    let z_ptr = z.as_mut_ptr();
+        let x_ptr = x.as_ptr();
+        let y_ptr = y.as_ptr();
+        let z_ptr = z.as_mut_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vx = _mm256_loadu_ps(x_ptr.add(offset));
-        let vy = _mm256_loadu_ps(y_ptr.add(offset));
-        let result = _mm256_mul_ps(vx, vy);
-        _mm256_storeu_ps(z_ptr.add(offset), result);
-    }
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vx = _mm256_loadu_ps(x_ptr.add(offset));
+            let vy = _mm256_loadu_ps(y_ptr.add(offset));
+            let result = _mm256_mul_ps(vx, vy);
+            _mm256_storeu_ps(z_ptr.add(offset), result);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        z[idx] = x[idx] * y[idx];
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            z[idx] = x[idx] * y[idx];
+        }
     }
 }
 
@@ -265,25 +279,27 @@ pub(crate) unsafe fn elementwise_multiply(x: &[f32], y: &[f32], z: &mut [f32]) {
 /// Caller must ensure AVX2 is available.
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn elementwise_accumulate(x: &[f32], z: &mut [f32]) {
-    let len = z.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = z.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let x_ptr = x.as_ptr();
-    let z_ptr = z.as_mut_ptr();
+        let x_ptr = x.as_ptr();
+        let z_ptr = z.as_mut_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vx = _mm256_loadu_ps(x_ptr.add(offset));
-        let vz = _mm256_loadu_ps(z_ptr.add(offset));
-        let result = _mm256_add_ps(vz, vx);
-        _mm256_storeu_ps(z_ptr.add(offset), result);
-    }
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vx = _mm256_loadu_ps(x_ptr.add(offset));
+            let vz = _mm256_loadu_ps(z_ptr.add(offset));
+            let result = _mm256_add_ps(vz, vx);
+            _mm256_storeu_ps(z_ptr.add(offset), result);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        z[idx] += x[idx];
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            z[idx] += x[idx];
+        }
     }
 }
 
@@ -293,28 +309,30 @@ pub(crate) unsafe fn elementwise_accumulate(x: &[f32], z: &mut [f32]) {
 /// Caller must ensure AVX2 is available.
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
-    let len = out.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = out.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let re_ptr = re.as_ptr();
-    let im_ptr = im.as_ptr();
-    let out_ptr = out.as_mut_ptr();
+        let re_ptr = re.as_ptr();
+        let im_ptr = im.as_ptr();
+        let out_ptr = out.as_mut_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let vr = _mm256_loadu_ps(re_ptr.add(offset));
-        let vi = _mm256_loadu_ps(im_ptr.add(offset));
-        let rr = _mm256_mul_ps(vr, vr);
-        let ii = _mm256_mul_ps(vi, vi);
-        let result = _mm256_add_ps(rr, ii);
-        _mm256_storeu_ps(out_ptr.add(offset), result);
-    }
+        for i in 0..chunks {
+            let offset = i * 8;
+            let vr = _mm256_loadu_ps(re_ptr.add(offset));
+            let vi = _mm256_loadu_ps(im_ptr.add(offset));
+            let rr = _mm256_mul_ps(vr, vr);
+            let ii = _mm256_mul_ps(vi, vi);
+            let result = _mm256_add_ps(rr, ii);
+            _mm256_storeu_ps(out_ptr.add(offset), result);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        out[idx] = re[idx] * re[idx] + im[idx] * im[idx];
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            out[idx] = re[idx] * re[idx] + im[idx] * im[idx];
+        }
     }
 }
 
@@ -324,26 +342,28 @@ pub(crate) unsafe fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
 /// Caller must ensure AVX2 is available.
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
-    let len = out.len();
-    let chunks = len / 8;
-    let remainder = len % 8;
+    unsafe {
+        let len = out.len();
+        let chunks = len / 8;
+        let remainder = len % 8;
 
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
-    let out_ptr = out.as_mut_ptr();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+        let out_ptr = out.as_mut_ptr();
 
-    for i in 0..chunks {
-        let offset = i * 8;
-        let va = _mm256_loadu_ps(a_ptr.add(offset));
-        let vb = _mm256_loadu_ps(b_ptr.add(offset));
-        let result = _mm256_min_ps(va, vb);
-        _mm256_storeu_ps(out_ptr.add(offset), result);
-    }
+        for i in 0..chunks {
+            let offset = i * 8;
+            let va = _mm256_loadu_ps(a_ptr.add(offset));
+            let vb = _mm256_loadu_ps(b_ptr.add(offset));
+            let result = _mm256_min_ps(va, vb);
+            _mm256_storeu_ps(out_ptr.add(offset), result);
+        }
 
-    let tail_start = chunks * 8;
-    for i in 0..remainder {
-        let idx = tail_start + i;
-        out[idx] = a[idx].min(b[idx]);
+        let tail_start = chunks * 8;
+        for i in 0..remainder {
+            let idx = tail_start + i;
+            out[idx] = a[idx].min(b[idx]);
+        }
     }
 }
 
@@ -489,7 +509,7 @@ pub(crate) unsafe fn complex_multiply_accumulate_standard(
 }
 
 /// Reduce an __m256 to a scalar sum.
-#[inline(always)]
+#[inline]
 #[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum(v: __m256) -> f32 {
     let hi = _mm256_extractf128_ps(v, 1);
