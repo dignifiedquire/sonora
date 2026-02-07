@@ -299,6 +299,530 @@ impl AudioProcessingImpl {
         self.capture.recommended_input_volume
     }
 
+    // ─── Processing ──────────────────────────────────────────────
+
+    /// Processes a capture audio frame.
+    ///
+    /// `src` and `dest` are deinterleaved float channel slices, one per channel.
+    pub(crate) fn process_stream(
+        &mut self,
+        src: &[&[f32]],
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+        dest: &mut [&mut [f32]],
+    ) {
+        self.maybe_initialize_capture(input_config, output_config);
+
+        let capture_audio = self.capture.capture_audio.as_mut().unwrap();
+        capture_audio.copy_from_float(src, input_config);
+        if let Some(fullband) = &mut self.capture.capture_fullband_audio {
+            fullband.copy_from_float(src, input_config);
+        }
+
+        self.process_capture_stream_locked();
+
+        if self.capture.capture_fullband_audio.is_some() {
+            self.capture
+                .capture_fullband_audio
+                .as_mut()
+                .unwrap()
+                .copy_to_float(output_config, dest);
+        } else {
+            self.capture
+                .capture_audio
+                .as_mut()
+                .unwrap()
+                .copy_to_float(output_config, dest);
+        }
+    }
+
+    /// Processes a reverse (render / far-end) audio frame.
+    ///
+    /// `src` and `dest` are deinterleaved float channel slices, one per channel.
+    pub(crate) fn process_reverse_stream(
+        &mut self,
+        src: &[&[f32]],
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+        dest: &mut [&mut [f32]],
+    ) {
+        self.maybe_initialize_render(input_config, output_config);
+        self.analyze_reverse_stream_locked(src, input_config);
+
+        if self.submodule_states.render_multi_band_sub_modules_active() {
+            let render_audio = self.render.render_audio.as_mut().unwrap();
+            render_audio.copy_to_float(&self.formats.api_format.reverse_output_stream, dest);
+        } else if self.formats.api_format.reverse_input_stream
+            != self.formats.api_format.reverse_output_stream
+        {
+            if let Some(converter) = &mut self.render.render_converter {
+                converter.convert(src, dest);
+            }
+        } else {
+            // Copy input to output directly when no processing is needed.
+            for (out_ch, in_ch) in dest.iter_mut().zip(src.iter()) {
+                let len = out_ch.len().min(in_ch.len());
+                out_ch[..len].copy_from_slice(&in_ch[..len]);
+            }
+        }
+    }
+
+    /// The main capture processing pipeline.
+    fn process_capture_stream_locked(&mut self) {
+        self.empty_queued_render_audio();
+        self.handle_capture_runtime_settings();
+
+        let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+
+        // Phase 1: Full-band high-pass filter (before splitting).
+        if self.config.high_pass_filter.apply_in_full_band {
+            if let Some(hpf) = &mut self.submodules.high_pass_filter {
+                hpf.process(capture_buffer, false);
+            }
+        }
+
+        // Phase 1b: Pre-level adjustment.
+        if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
+            if self
+                .config
+                .capture_level_adjustment
+                .analog_mic_gain_emulation
+                .enabled
+            {
+                // Feed the emulated analog gain level as the applied input
+                // volume.
+                let level = adjuster.get_analog_mic_gain_level();
+                self.capture.applied_input_volume = Some(level);
+            }
+            adjuster.apply_pre_level_adjustment(capture_buffer);
+        }
+
+        // Phase 2: Echo path gain change detection.
+        if self.submodules.echo_controller.is_some() {
+            self.capture.echo_path_gain_change = self.capture.applied_input_volume_changed;
+
+            if let Some(adjuster) = &self.submodules.capture_levels_adjuster {
+                let pre_adjustment_gain = adjuster.get_pre_adjustment_gain();
+                self.capture.echo_path_gain_change = self.capture.echo_path_gain_change
+                    || (self.capture.prev_pre_adjustment_gain != pre_adjustment_gain
+                        && self.capture.prev_pre_adjustment_gain >= 0.0);
+                self.capture.prev_pre_adjustment_gain = pre_adjustment_gain;
+            }
+
+            self.capture.echo_path_gain_change = self.capture.echo_path_gain_change
+                || (self.capture.prev_playout_volume != self.capture.playout_volume
+                    && self.capture.prev_playout_volume >= 0);
+            self.capture.prev_playout_volume = self.capture.playout_volume;
+        }
+
+        // Phase 2b: Echo controller capture analysis.
+        if let Some(ec) = &mut self.submodules.echo_controller {
+            ec.analyze_capture(capture_buffer);
+        }
+
+        // Phase 2c: AGC2 input volume analysis.
+        if let Some(gc2) = &mut self.submodules.gain_controller2 {
+            if self.config.gain_controller2.input_volume_controller.enabled {
+                if let Some(vol) = self.capture.applied_input_volume {
+                    gc2.analyze(vol, capture_buffer);
+                }
+            }
+        }
+
+        // Phase 3: Frequency band splitting.
+        let capture_rate = self
+            .capture_nonlocked
+            .capture_processing_format
+            .sample_rate_hz();
+        if self
+            .submodule_states
+            .capture_multi_band_sub_modules_active()
+            && sample_rate_supports_multi_band(capture_rate)
+        {
+            let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+            capture_buffer.split_into_frequency_bands();
+        }
+
+        // Phase 4: Down-mix to mono for echo controller.
+        let multi_channel_capture = self.config.pipeline.multi_channel_capture;
+        if self.submodules.echo_controller.is_some() && !multi_channel_capture {
+            let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+            capture_buffer.set_num_channels(1);
+        }
+
+        // Phase 5: Split-band high-pass filter.
+        if !self.config.high_pass_filter.apply_in_full_band {
+            if let Some(hpf) = &mut self.submodules.high_pass_filter {
+                let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+                hpf.process(capture_buffer, true);
+            }
+        }
+
+        // Phase 6: Noise suppression analysis (before echo cancellation).
+        if !self
+            .config
+            .noise_suppression
+            .analyze_linear_aec_output_when_available
+        {
+            for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
+                let capture_buffer = self.capture.capture_audio.as_ref().unwrap();
+                let band0 = capture_buffer.split_band(ch, 0);
+                if let Ok(frame) = <&[f32; 160]>::try_from(band0) {
+                    ns.analyze(frame);
+                }
+            }
+        }
+
+        // Phase 7: Echo control processing.
+        if let Some(ec) = &mut self.submodules.echo_controller {
+            let echo_path_gain_change = self.capture.echo_path_gain_change;
+            let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+            ec.process_capture(capture_buffer, None, echo_path_gain_change);
+        }
+
+        // Phase 7b: NS analysis on linear AEC output (if configured).
+        if self
+            .config
+            .noise_suppression
+            .analyze_linear_aec_output_when_available
+        {
+            for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
+                let capture_buffer = self.capture.capture_audio.as_ref().unwrap();
+                let band0 = capture_buffer.split_band(ch, 0);
+                if let Ok(frame) = <&[f32; 160]>::try_from(band0) {
+                    ns.analyze(frame);
+                }
+            }
+        }
+
+        // Phase 7c: Noise suppression processing.
+        for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
+            let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+            let band0 = capture_buffer.split_band_mut(ch, 0);
+            if let Ok(frame) = <&mut [f32; 160]>::try_from(band0) {
+                ns.process(frame);
+            }
+        }
+
+        // Phase 8: Frequency band merging.
+        if self
+            .submodule_states
+            .capture_multi_band_processing_present()
+            && sample_rate_supports_multi_band(capture_rate)
+        {
+            let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
+            capture_buffer.merge_frequency_bands();
+        }
+
+        // Phase 9: Full-band post-processing.
+        if self.capture.capture_output_used {
+            // Copy to fullband buffer if needed.
+            if self.capture.capture_fullband_audio.is_some() {
+                let ec_active = self
+                    .submodules
+                    .echo_controller
+                    .as_ref()
+                    .is_some_and(|ec| ec.active_processing());
+                if self
+                    .submodule_states
+                    .capture_multi_band_processing_active(ec_active)
+                {
+                    // Copy the multi-band processed audio to the fullband buffer.
+                    // Temporarily take capture_audio to avoid double &mut borrow.
+                    let mut capture = self.capture.capture_audio.take().unwrap();
+                    let fullband = self.capture.capture_fullband_audio.as_mut().unwrap();
+                    capture.copy_to_buffer(fullband);
+                    self.capture.capture_audio = Some(capture);
+                }
+            }
+
+            // Residual echo detector analysis.
+            let capture_buffer = self
+                .capture
+                .capture_fullband_audio
+                .as_ref()
+                .or(self.capture.capture_audio.as_ref())
+                .unwrap();
+            if let Some(red) = &mut self.submodules.echo_detector {
+                let ch0 = capture_buffer.channel(0);
+                red.analyze_capture_audio(ch0);
+            }
+
+            // GainController2 processing.
+            let input_volume_changed = self.capture.applied_input_volume_changed;
+            let capture_buffer = self
+                .capture
+                .capture_fullband_audio
+                .as_mut()
+                .or(self.capture.capture_audio.as_mut())
+                .unwrap();
+            if let Some(gc2) = &mut self.submodules.gain_controller2 {
+                gc2.process(input_volume_changed, capture_buffer);
+            }
+
+            // Echo detector stats.
+            if let Some(red) = &self.submodules.echo_detector {
+                let metrics = red.get_metrics();
+                self.capture.stats.residual_echo_likelihood =
+                    metrics.echo_likelihood.map(|v| f64::from(v));
+                self.capture.stats.residual_echo_likelihood_recent_max =
+                    metrics.echo_likelihood_recent_max.map(|v| f64::from(v));
+            }
+        }
+
+        // Phase 10: Echo controller statistics.
+        if let Some(ec) = &self.submodules.echo_controller {
+            let metrics = ec.get_metrics();
+            self.capture.stats.echo_return_loss = Some(metrics.echo_return_loss);
+            self.capture.stats.echo_return_loss_enhancement =
+                Some(metrics.echo_return_loss_enhancement);
+            self.capture.stats.delay_ms = Some(metrics.delay_ms);
+        }
+
+        // Phase 11: Update recommended input volume.
+        self.update_recommended_input_volume();
+
+        // Phase 12: Post-level adjustment.
+        let capture_buffer = self
+            .capture
+            .capture_fullband_audio
+            .as_mut()
+            .or(self.capture.capture_audio.as_mut())
+            .unwrap();
+        if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
+            adjuster.apply_post_level_adjustment(capture_buffer);
+
+            if self
+                .config
+                .capture_level_adjustment
+                .analog_mic_gain_emulation
+                .enabled
+            {
+                if let Some(vol) = self.capture.recommended_input_volume {
+                    adjuster.set_analog_mic_gain_level(vol);
+                }
+            }
+        }
+
+        // Phase 13: Mute click avoidance.
+        if !self.capture.capture_output_used_last_frame && self.capture.capture_output_used {
+            let capture_buffer = self
+                .capture
+                .capture_fullband_audio
+                .as_mut()
+                .or(self.capture.capture_audio.as_mut())
+                .unwrap();
+            for ch in 0..capture_buffer.num_channels() {
+                let channel = capture_buffer.channel_mut(ch);
+                channel.fill(0.0);
+            }
+        }
+        self.capture.capture_output_used_last_frame = self.capture.capture_output_used;
+    }
+
+    /// Analyzes a reverse (render) stream.
+    fn analyze_reverse_stream_locked(&mut self, src: &[&[f32]], input_config: &StreamConfig) {
+        let render_audio = self.render.render_audio.as_mut().unwrap();
+        render_audio.copy_from_float(src, input_config);
+        self.process_render_stream_locked();
+    }
+
+    /// The render processing pipeline.
+    fn process_render_stream_locked(&mut self) {
+        // Queue non-banded render audio for the echo detector (uses shared ref).
+        {
+            let render_buffer = self.render.render_audio.as_ref().unwrap();
+            if self.submodules.echo_detector.is_some() {
+                let ch0 = render_buffer.channel(0);
+                self.red_render_queue_buffer.clear();
+                self.red_render_queue_buffer.extend_from_slice(ch0);
+            }
+        }
+        self.queue_render_buffer_into_red();
+
+        // Frequency band splitting.
+        let render_rate = self.formats.render_processing_format.sample_rate_hz();
+        if self.submodule_states.render_multi_band_sub_modules_active()
+            && sample_rate_supports_multi_band(render_rate)
+        {
+            let render_buffer = self.render.render_audio.as_mut().unwrap();
+            render_buffer.split_into_frequency_bands();
+        }
+
+        // Echo controller render analysis.
+        if let Some(ec) = &mut self.submodules.echo_controller {
+            let render_buffer = self.render.render_audio.as_ref().unwrap();
+            ec.analyze_render(render_buffer);
+        }
+
+        // Frequency band merging.
+        if self.submodule_states.render_multi_band_sub_modules_active()
+            && sample_rate_supports_multi_band(render_rate)
+        {
+            let render_buffer = self.render.render_audio.as_mut().unwrap();
+            render_buffer.merge_frequency_bands();
+        }
+    }
+
+    /// Inserts the pre-filled `red_render_queue_buffer` into the render queue.
+    /// The buffer must already be filled with render channel 0 data.
+    fn queue_render_buffer_into_red(&mut self) {
+        if self.submodules.echo_detector.is_none() {
+            return;
+        }
+
+        let mut needs_flush = false;
+        if let Some(queue) = &mut self.red_render_queue {
+            if !queue.insert(&mut self.red_render_queue_buffer) {
+                needs_flush = true;
+            }
+        }
+
+        if needs_flush {
+            // Queue was full — flush then retry.
+            self.empty_queued_render_audio_inner();
+            if let Some(queue) = &mut self.red_render_queue {
+                let _ = queue.insert(&mut self.red_render_queue_buffer);
+            }
+        }
+    }
+
+    fn empty_queued_render_audio(&mut self) {
+        self.empty_queued_render_audio_inner();
+    }
+
+    fn empty_queued_render_audio_inner(&mut self) {
+        if let (Some(queue), Some(red)) = (
+            &mut self.red_render_queue,
+            &mut self.submodules.echo_detector,
+        ) {
+            while queue.remove(&mut self.red_capture_queue_buffer) {
+                red.analyze_render_audio(&self.red_capture_queue_buffer);
+            }
+        }
+    }
+
+    fn handle_capture_runtime_settings(&mut self) {
+        while let Some(setting) = self.capture_runtime_settings.pop_front() {
+            match setting {
+                RuntimeSetting::CapturePreGain(value) => {
+                    if self.config.pre_amplifier.enabled
+                        || self.config.capture_level_adjustment.enabled
+                    {
+                        if self.config.pre_amplifier.enabled {
+                            self.config.pre_amplifier.fixed_gain_factor = value;
+                        } else {
+                            self.config.capture_level_adjustment.pre_gain_factor = value;
+                        }
+
+                        let mut gain = 1.0_f32;
+                        if self.config.pre_amplifier.enabled {
+                            gain *= self.config.pre_amplifier.fixed_gain_factor;
+                        }
+                        if self.config.capture_level_adjustment.enabled {
+                            gain *= self.config.capture_level_adjustment.pre_gain_factor;
+                        }
+
+                        if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
+                            adjuster.set_pre_gain(gain);
+                        }
+                    }
+                }
+                RuntimeSetting::CapturePostGain(value) => {
+                    if self.config.capture_level_adjustment.enabled {
+                        self.config.capture_level_adjustment.post_gain_factor = value;
+                        if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
+                            adjuster.set_post_gain(
+                                self.config.capture_level_adjustment.post_gain_factor,
+                            );
+                        }
+                    }
+                }
+                RuntimeSetting::CaptureFixedPostGain(value) => {
+                    if let Some(gc2) = &mut self.submodules.gain_controller2 {
+                        self.config.gain_controller2.fixed_digital.gain_db = value;
+                        gc2.set_fixed_gain_db(value);
+                    }
+                }
+                RuntimeSetting::PlayoutVolumeChange(value) => {
+                    self.capture.playout_volume = value;
+                }
+                RuntimeSetting::CaptureOutputUsed(value) => {
+                    self.capture.capture_output_used = value;
+                    if let Some(ec) = &mut self.submodules.echo_controller {
+                        ec.set_capture_output_usage(value);
+                    }
+                    if let Some(gc2) = &mut self.submodules.gain_controller2 {
+                        gc2.set_capture_output_used(value);
+                    }
+                }
+                RuntimeSetting::PlayoutAudioDeviceChange(_) => {
+                    // No render pre-processor in Rust port.
+                }
+            }
+        }
+    }
+
+    fn maybe_initialize_capture(
+        &mut self,
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+    ) {
+        let mut reinitialization_required = self.update_active_submodule_states();
+
+        if self.formats.api_format.input_stream != *input_config {
+            reinitialization_required = true;
+        }
+        if self.formats.api_format.output_stream != *output_config {
+            reinitialization_required = true;
+        }
+
+        if reinitialization_required {
+            let mut processing_config = self.formats.api_format.clone();
+            processing_config.input_stream = *input_config;
+            processing_config.output_stream = *output_config;
+            self.initialize_locked_with_config(processing_config);
+        }
+    }
+
+    fn maybe_initialize_render(
+        &mut self,
+        input_config: &StreamConfig,
+        output_config: &StreamConfig,
+    ) {
+        let mut processing_config = self.formats.api_format.clone();
+        processing_config.reverse_input_stream = *input_config;
+        processing_config.reverse_output_stream = *output_config;
+
+        if processing_config.input_stream == self.formats.api_format.input_stream
+            && processing_config.output_stream == self.formats.api_format.output_stream
+            && processing_config.reverse_input_stream
+                == self.formats.api_format.reverse_input_stream
+            && processing_config.reverse_output_stream
+                == self.formats.api_format.reverse_output_stream
+        {
+            return;
+        }
+
+        self.initialize_locked_with_config(processing_config);
+    }
+
+    fn update_recommended_input_volume(&mut self) {
+        if self.capture.applied_input_volume.is_none() {
+            self.capture.recommended_input_volume = None;
+            return;
+        }
+
+        if let Some(gc2) = &self.submodules.gain_controller2 {
+            if self.config.gain_controller2.input_volume_controller.enabled {
+                self.capture.recommended_input_volume = gc2.recommended_input_volume();
+                return;
+            }
+        }
+
+        self.capture.recommended_input_volume = self.capture.applied_input_volume;
+    }
+
     // ─── Processing rate helpers ─────────────────────────────────
 
     /// The capture processing sample rate.
@@ -733,6 +1257,13 @@ fn map_ns_level(level: NoiseSuppressionLevel) -> SuppressionLevel {
         NoiseSuppressionLevel::High => SuppressionLevel::K18dB,
         NoiseSuppressionLevel::VeryHigh => SuppressionLevel::K21dB,
     }
+}
+
+/// Returns `true` if the sample rate supports multi-band (sub-band) processing.
+///
+/// Multi-band splitting is only meaningful above the band-split rate (16 kHz).
+fn sample_rate_supports_multi_band(sample_rate_hz: usize) -> bool {
+    sample_rate_hz > BAND_SPLIT_RATE
 }
 
 /// Helper trait to negate booleans of `is_empty()` result.
