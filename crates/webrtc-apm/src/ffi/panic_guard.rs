@@ -18,11 +18,11 @@
 /// }
 /// ```
 macro_rules! ffi_guard {
-    ($body:expr) => {{
+    ($($body:tt)*) => {{
         use std::panic;
         use std::panic::AssertUnwindSafe;
 
-        match panic::catch_unwind(AssertUnwindSafe(move || $body)) {
+        match panic::catch_unwind(AssertUnwindSafe(move || { $($body)* })) {
             Ok(result) => result,
             Err(_) => $crate::ffi::types::WapError::Internal,
         }
@@ -44,12 +44,12 @@ macro_rules! ffi_guard {
 /// }
 /// ```
 macro_rules! ffi_guard_ptr {
-    ($body:expr) => {{
+    ($($body:tt)*) => {{
         use std::panic;
         use std::panic::AssertUnwindSafe;
         use std::ptr;
 
-        match panic::catch_unwind(AssertUnwindSafe(move || $body)) {
+        match panic::catch_unwind(AssertUnwindSafe(move || { $($body)* })) {
             Ok(result) => result,
             Err(_) => ptr::null_mut(),
         }
@@ -71,9 +71,9 @@ mod tests {
 
     #[test]
     fn ffi_guard_returns_internal_on_panic() {
-        let result: WapError = ffi_guard! {{
+        let result: WapError = ffi_guard! {
             panic!("test panic");
-        }};
+        };
         assert_eq!(result, WapError::Internal);
     }
 
@@ -86,9 +86,9 @@ mod tests {
 
     #[test]
     fn ffi_guard_ptr_returns_null_on_panic() {
-        let ptr: *mut i32 = ffi_guard_ptr! {{
+        let ptr: *mut i32 = ffi_guard_ptr! {
             panic!("test panic");
-        }};
+        };
         assert!(ptr.is_null());
     }
 }
