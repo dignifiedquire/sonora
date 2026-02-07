@@ -6,20 +6,23 @@
 //! Ported from
 //! `modules/audio_processing/aec3/adaptive_fir_filter_erl.h/cc`.
 
-use crate::common::FFT_LENGTH_BY_2_PLUS_1;
+use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
+use webrtc_simd::SimdBackend;
 
 /// Computes the Echo Return Loss (ERL) from the partition frequency responses.
 ///
 /// The ERL is the element-wise sum across all partitions: erl[k] = sum_p H2[p][k].
 pub(crate) fn compute_erl(
+    backend: SimdBackend,
     h2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
     erl: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
 ) {
     erl.fill(0.0);
     for h2_j in h2 {
-        for (erl_k, &h2_jk) in erl.iter_mut().zip(h2_j.iter()) {
-            *erl_k += h2_jk;
-        }
+        // Vectorized: elementwise accumulate for bins [0..64]
+        backend.elementwise_accumulate(&h2_j[..FFT_LENGTH_BY_2], &mut erl[..FFT_LENGTH_BY_2]);
+        // Scalar tail: bin 64 (Nyquist)
+        erl[FFT_LENGTH_BY_2] += h2_j[FFT_LENGTH_BY_2];
     }
 }
 
@@ -38,7 +41,7 @@ mod tests {
         }
 
         let mut erl = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        compute_erl(&h2, &mut erl);
+        compute_erl(SimdBackend::Scalar, &h2, &mut erl);
 
         // Expected: 1 + 2 + 3 = 6 for each bin.
         for &v in &erl {
@@ -50,7 +53,7 @@ mod tests {
     fn erl_empty_partitions() {
         let h2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]> = Vec::new();
         let mut erl = [1.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        compute_erl(&h2, &mut erl);
+        compute_erl(SimdBackend::Scalar, &h2, &mut erl);
         for &v in &erl {
             assert!(v.abs() < 1e-10);
         }
@@ -63,7 +66,7 @@ mod tests {
             h2[0][k] = k as f32;
         }
         let mut erl = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        compute_erl(&h2, &mut erl);
+        compute_erl(SimdBackend::Scalar, &h2, &mut erl);
         for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
             assert!((erl[k] - k as f32).abs() < 1e-6);
         }

@@ -122,6 +122,7 @@ impl FilterMisadjustmentEstimator {
 /// Provides linear echo cancellation using dual adaptive filters.
 pub(crate) struct Subtractor {
     fft: Aec3Fft,
+    backend: webrtc_simd::SimdBackend,
     config: EchoCanceller3Config,
     num_capture_channels: usize,
     use_coarse_filter_reset_hangover: bool,
@@ -194,6 +195,7 @@ impl Subtractor {
 
         Self {
             fft: Aec3Fft::new(),
+            backend,
             config: config.clone(),
             num_capture_channels,
             use_coarse_filter_reset_hangover: true,
@@ -320,7 +322,11 @@ impl Subtractor {
                     && self.use_coarse_filter_reset_hangover;
 
                 let mut erl = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-                compute_erl(&self.refined_frequency_responses[ch], &mut erl);
+                compute_erl(
+                    self.backend,
+                    &self.refined_frequency_responses[ch],
+                    &mut erl,
+                );
                 self.refined_gains[ch].compute(
                     &x2_refined,
                     render_signal_analyzer,
