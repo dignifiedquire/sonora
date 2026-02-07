@@ -8,11 +8,11 @@ use std::ptr;
 use std::slice;
 
 use crate::AudioProcessing;
-use crate::config::Config;
+use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
 use crate::stream_config::StreamConfig;
 
 use super::panic_guard::{ffi_guard, ffi_guard_ptr};
-use super::types::{WapAudioProcessing, WapConfig, WapError, WapStreamConfig};
+use super::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamConfig};
 
 // ─── Version ─────────────────────────────────────────────────────────
 
@@ -347,6 +347,186 @@ pub extern "C" fn wap_process_reverse_stream_i16(
             Ok(()) => WapError::None,
             Err(e) => rust_error_to_wap(e),
         }
+    }
+}
+
+// ─── Analog level (for AGC) ──────────────────────────────────────────
+
+/// Sets the applied input volume (e.g. from the OS mixer).
+///
+/// Must be called before [`wap_process_stream_f32()`] if the input volume
+/// controller is enabled. Value should be in range `[0, 255]`.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_stream_analog_level(
+    apm: *mut WapAudioProcessing,
+    level: i32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        apm.inner.set_stream_analog_level(level);
+        WapError::None
+    }
+}
+
+/// Returns the recommended analog level from AGC.
+///
+/// Should be called after [`wap_process_stream_f32()`] to obtain the
+/// recommended new analog level. Returns 0 if `apm` is null.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_recommended_stream_analog_level(apm: *const WapAudioProcessing) -> i32 {
+    if apm.is_null() {
+        return 0;
+    }
+    let apm = unsafe { &*apm };
+    apm.inner.recommended_stream_analog_level()
+}
+
+// ─── Stream delay ────────────────────────────────────────────────────
+
+/// Sets the delay in ms between render and capture.
+///
+/// The delay is clamped to `[0, 500]`. Returns `WapError::BadStreamParameter`
+/// if clamping was necessary (processing still proceeds).
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_stream_delay_ms(apm: *mut WapAudioProcessing, delay: i32) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        match apm.inner.set_stream_delay_ms(delay) {
+            Ok(()) => WapError::None,
+            Err(e) => rust_error_to_wap(e),
+        }
+    }
+}
+
+/// Returns the current stream delay in ms. Returns 0 if `apm` is null.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_stream_delay_ms(apm: *const WapAudioProcessing) -> i32 {
+    if apm.is_null() {
+        return 0;
+    }
+    let apm = unsafe { &*apm };
+    apm.inner.stream_delay_ms()
+}
+
+// ─── Runtime settings ────────────────────────────────────────────────
+
+/// Sets the capture pre-gain factor via runtime setting.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_capture_pre_gain(apm: *mut WapAudioProcessing, gain: f32) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        apm.inner.set_runtime_setting(RuntimeSetting::CapturePreGain(gain));
+        WapError::None
+    }
+}
+
+/// Sets the capture post-gain factor via runtime setting.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_capture_post_gain(apm: *mut WapAudioProcessing, gain: f32) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        apm.inner.set_runtime_setting(RuntimeSetting::CapturePostGain(gain));
+        WapError::None
+    }
+}
+
+/// Sets the fixed post-gain in dB via runtime setting (range: 0..=90).
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_capture_fixed_post_gain(
+    apm: *mut WapAudioProcessing,
+    gain_db: f32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        apm.inner.set_runtime_setting(RuntimeSetting::CaptureFixedPostGain(gain_db));
+        WapError::None
+    }
+}
+
+/// Notifies of a playout volume change via runtime setting.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_playout_volume(apm: *mut WapAudioProcessing, volume: i32) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        apm.inner.set_runtime_setting(RuntimeSetting::PlayoutVolumeChange(volume));
+        WapError::None
+    }
+}
+
+/// Notifies of a playout audio device change via runtime setting.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_playout_audio_device(
+    apm: *mut WapAudioProcessing,
+    device_id: i32,
+    max_volume: i32,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        let info = PlayoutAudioDeviceInfo {
+            id: device_id,
+            max_volume,
+        };
+        apm.inner.set_runtime_setting(RuntimeSetting::PlayoutAudioDeviceChange(info));
+        WapError::None
+    }
+}
+
+/// Sets whether the capture output is used via runtime setting.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_set_capture_output_used(
+    apm: *mut WapAudioProcessing,
+    used: bool,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &mut *apm };
+        apm.inner.set_runtime_setting(RuntimeSetting::CaptureOutputUsed(used));
+        WapError::None
+    }
+}
+
+// ─── Statistics ──────────────────────────────────────────────────────
+
+/// Retrieves current processing statistics.
+///
+/// Returns `WapError::NullPointer` if `apm` or `stats_out` is null.
+#[unsafe(no_mangle)]
+pub extern "C" fn wap_get_statistics(
+    apm: *const WapAudioProcessing,
+    stats_out: *mut WapStats,
+) -> WapError {
+    ffi_guard! {
+        if apm.is_null() || stats_out.is_null() {
+            return WapError::NullPointer;
+        }
+        let apm = unsafe { &*apm };
+        let rust_stats = apm.inner.get_statistics();
+        let c_stats = WapStats::from_rust(&rust_stats);
+        unsafe { ptr::write(stats_out, c_stats) };
+        WapError::None
     }
 }
 
@@ -685,6 +865,168 @@ mod tests {
         assert_eq!(err, WapError::None);
         wap_destroy(apm);
     }
+
+    // ─── Analog level tests ─────────────────────────────────────
+
+    #[test]
+    fn set_and_get_analog_level() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let err = wap_set_stream_analog_level(apm, 128);
+        assert_eq!(err, WapError::None);
+        // Recommended level depends on processing state; just check it doesn't crash.
+        let _level = wap_recommended_stream_analog_level(apm);
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn analog_level_null_safety() {
+        let err = wap_set_stream_analog_level(ptr::null_mut(), 0);
+        assert_eq!(err, WapError::NullPointer);
+        assert_eq!(wap_recommended_stream_analog_level(ptr::null()), 0);
+    }
+
+    // ─── Stream delay tests ──────────────────────────────────────
+
+    #[test]
+    fn set_and_get_delay() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let err = wap_set_stream_delay_ms(apm, 50);
+        assert_eq!(err, WapError::None);
+        assert_eq!(wap_stream_delay_ms(apm), 50);
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn delay_clamped_high() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let err = wap_set_stream_delay_ms(apm, 600);
+        assert_eq!(err, WapError::BadStreamParameter);
+        assert_eq!(wap_stream_delay_ms(apm), 500);
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn delay_clamped_negative() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let err = wap_set_stream_delay_ms(apm, -10);
+        assert_eq!(err, WapError::BadStreamParameter);
+        assert_eq!(wap_stream_delay_ms(apm), 0);
+
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn delay_null_safety() {
+        let err = wap_set_stream_delay_ms(ptr::null_mut(), 0);
+        assert_eq!(err, WapError::NullPointer);
+        assert_eq!(wap_stream_delay_ms(ptr::null()), 0);
+    }
+
+    // ─── Runtime settings tests ──────────────────────────────────
+
+    #[test]
+    fn runtime_settings_null_safety() {
+        assert_eq!(
+            wap_set_capture_pre_gain(ptr::null_mut(), 1.0),
+            WapError::NullPointer
+        );
+        assert_eq!(
+            wap_set_capture_post_gain(ptr::null_mut(), 1.0),
+            WapError::NullPointer
+        );
+        assert_eq!(
+            wap_set_capture_fixed_post_gain(ptr::null_mut(), 0.0),
+            WapError::NullPointer
+        );
+        assert_eq!(
+            wap_set_playout_volume(ptr::null_mut(), 0),
+            WapError::NullPointer
+        );
+        assert_eq!(
+            wap_set_playout_audio_device(ptr::null_mut(), 0, 0),
+            WapError::NullPointer
+        );
+        assert_eq!(
+            wap_set_capture_output_used(ptr::null_mut(), true),
+            WapError::NullPointer
+        );
+    }
+
+    #[test]
+    fn runtime_settings_succeed() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        assert_eq!(wap_set_capture_pre_gain(apm, 2.0), WapError::None);
+        assert_eq!(wap_set_capture_post_gain(apm, 1.5), WapError::None);
+        assert_eq!(wap_set_capture_fixed_post_gain(apm, 10.0), WapError::None);
+        assert_eq!(wap_set_playout_volume(apm, 128), WapError::None);
+        assert_eq!(wap_set_playout_audio_device(apm, 1, 255), WapError::None);
+        assert_eq!(wap_set_capture_output_used(apm, false), WapError::None);
+
+        wap_destroy(apm);
+    }
+
+    // ─── Statistics tests ────────────────────────────────────────
+
+    #[test]
+    fn get_statistics_null_safety() {
+        assert_eq!(
+            wap_get_statistics(ptr::null(), ptr::null_mut()),
+            WapError::NullPointer
+        );
+        let apm = wap_create();
+        assert_eq!(
+            wap_get_statistics(apm, ptr::null_mut()),
+            WapError::NullPointer
+        );
+        wap_destroy(apm);
+    }
+
+    #[test]
+    fn get_statistics_default() {
+        let apm = wap_create();
+        assert!(!apm.is_null());
+
+        let mut stats = WapStats {
+            has_echo_return_loss: true,
+            echo_return_loss: 999.0,
+            has_echo_return_loss_enhancement: false,
+            echo_return_loss_enhancement: 0.0,
+            has_divergent_filter_fraction: false,
+            divergent_filter_fraction: 0.0,
+            has_delay_median_ms: false,
+            delay_median_ms: 0,
+            has_delay_standard_deviation_ms: false,
+            delay_standard_deviation_ms: 0,
+            has_residual_echo_likelihood: false,
+            residual_echo_likelihood: 0.0,
+            has_residual_echo_likelihood_recent_max: false,
+            residual_echo_likelihood_recent_max: 0.0,
+            has_delay_ms: false,
+            delay_ms: 0,
+        };
+        let err = wap_get_statistics(apm, &mut stats);
+        assert_eq!(err, WapError::None);
+        // With no processing done, no stats should be available.
+        assert!(!stats.has_echo_return_loss);
+        assert!(!stats.has_echo_return_loss_enhancement);
+
+        wap_destroy(apm);
+    }
+
+    // ─── Processing error tests (continued) ──────────────────────
 
     #[test]
     fn process_stream_f32_bad_rate() {
