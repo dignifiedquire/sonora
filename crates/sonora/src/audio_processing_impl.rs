@@ -23,9 +23,9 @@ use crate::stats::AudioProcessingStats;
 use crate::stream_config::StreamConfig;
 use crate::submodule_states::SubmoduleStates;
 use crate::swap_queue::SwapQueue;
-use std::collections::VecDeque;
 use sonora_ns::config::{NsConfig, SuppressionLevel};
 use sonora_ns::noise_suppressor::NoiseSuppressor;
+use std::collections::VecDeque;
 
 /// Band split rate for sub-band processing (16 kHz).
 const BAND_SPLIT_RATE: usize = 16000;

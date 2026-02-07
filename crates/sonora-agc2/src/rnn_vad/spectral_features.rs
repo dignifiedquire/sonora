@@ -11,9 +11,9 @@ use super::spectral_features_internal::{
     compute_smoothed_log_magnitude_spectrum,
 };
 use super::symmetric_matrix_buffer::SymmetricMatrixBuffer;
+use sonora_fft::pffft::{FftType, Pffft, PffftBuffer};
 use std::f32::consts::FRAC_PI_2;
 use std::fmt;
-use sonora_fft::pffft::{FftType, Pffft, PffftBuffer};
 
 const SILENCE_THRESHOLD: f32 = 0.04;
 

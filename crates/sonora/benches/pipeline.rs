@@ -1,8 +1,8 @@
 //! Benchmarks for the Sonora audio processing pipeline and components.
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
+use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora_common_audio::sinc_resampler::{SincResampler, SincResamplerCallback};
 use sonora_fft::pffft::{FftType, Pffft};
 use sonora_ns::config::NS_FRAME_SIZE;
@@ -33,13 +33,17 @@ fn make_apm(sample_rate: usize, channels: usize) -> (AudioProcessing, StreamConf
 
     // Warm up the internal state with a few frames so we bench steady-state.
     let samples = stream.num_frames();
-    let src_ch: Vec<f32> = (0..samples).map(|i| (i as f32 * 0.01).sin() * 0.1).collect();
+    let src_ch: Vec<f32> = (0..samples)
+        .map(|i| (i as f32 * 0.01).sin() * 0.1)
+        .collect();
     let src: Vec<&[f32]> = (0..channels).map(|_| src_ch.as_slice()).collect();
     let mut dst_ch = vec![0.0f32; samples];
-    let mut dst: Vec<&mut [f32]> = (0..channels).map(|_| {
-        // SAFETY: each slice is independent; we just need the borrow checker to cooperate
-        unsafe { std::slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), samples) }
-    }).collect();
+    let mut dst: Vec<&mut [f32]> = (0..channels)
+        .map(|_| {
+            // SAFETY: each slice is independent; we just need the borrow checker to cooperate
+            unsafe { std::slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), samples) }
+        })
+        .collect();
 
     for _ in 0..20 {
         let _ = apm.process_stream_f32(&src, &stream, &stream, &mut dst);
@@ -54,14 +58,17 @@ fn bench_process_stream(c: &mut Criterion) {
     {
         let (mut apm, stream) = make_apm(16000, 1);
         let samples = stream.num_frames();
-        let src_data: Vec<f32> = (0..samples).map(|i| (i as f32 * 0.01).sin() * 0.1).collect();
+        let src_data: Vec<f32> = (0..samples)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
         let src = [src_data.as_slice()];
         let mut dst_data = vec![0.0f32; samples];
 
         group.bench_function("16k_mono", |b| {
             b.iter(|| {
                 let mut dst = [dst_data.as_mut_slice()];
-                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst).unwrap();
+                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst)
+                    .unwrap();
             });
         });
     }
@@ -70,14 +77,17 @@ fn bench_process_stream(c: &mut Criterion) {
     {
         let (mut apm, stream) = make_apm(48000, 1);
         let samples = stream.num_frames();
-        let src_data: Vec<f32> = (0..samples).map(|i| (i as f32 * 0.01).sin() * 0.1).collect();
+        let src_data: Vec<f32> = (0..samples)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
         let src = [src_data.as_slice()];
         let mut dst_data = vec![0.0f32; samples];
 
         group.bench_function("48k_mono", |b| {
             b.iter(|| {
                 let mut dst = [dst_data.as_mut_slice()];
-                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst).unwrap();
+                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst)
+                    .unwrap();
             });
         });
     }
@@ -86,7 +96,9 @@ fn bench_process_stream(c: &mut Criterion) {
     {
         let (mut apm, stream) = make_apm(48000, 2);
         let samples = stream.num_frames();
-        let src_data: Vec<f32> = (0..samples).map(|i| (i as f32 * 0.01).sin() * 0.1).collect();
+        let src_data: Vec<f32> = (0..samples)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
         let src = [src_data.as_slice(), src_data.as_slice()];
         let mut dst_data_l = vec![0.0f32; samples];
         let mut dst_data_r = vec![0.0f32; samples];
@@ -94,7 +106,8 @@ fn bench_process_stream(c: &mut Criterion) {
         group.bench_function("48k_stereo", |b| {
             b.iter(|| {
                 let mut dst = [dst_data_l.as_mut_slice(), dst_data_r.as_mut_slice()];
-                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst).unwrap();
+                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst)
+                    .unwrap();
             });
         });
     }

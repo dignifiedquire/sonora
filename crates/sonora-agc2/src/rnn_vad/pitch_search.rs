@@ -90,8 +90,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn test_resources_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/rnn_vad")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/resources/rnn_vad")
     }
 
     /// Loads a binary file as a Vec of little-endian f32 values.

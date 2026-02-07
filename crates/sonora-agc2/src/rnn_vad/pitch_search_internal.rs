@@ -522,8 +522,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_resources_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/rnn_vad")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/resources/rnn_vad")
     }
 
     /// Loads PitchTestData from `pitch_search_int.dat`.

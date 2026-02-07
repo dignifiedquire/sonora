@@ -9,8 +9,8 @@
 //! ```
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
+use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora_sys;
 
 fn bench_process_stream_comparison(c: &mut Criterion) {
@@ -27,9 +27,18 @@ fn bench_process_stream_comparison(c: &mut Criterion) {
     // --- Rust backend ---
     {
         let config = Config {
-            echo_canceller: EchoCanceller { enabled: true, ..Default::default() },
-            noise_suppression: NoiseSuppression { enabled: true, ..Default::default() },
-            gain_controller2: GainController2 { enabled: true, ..Default::default() },
+            echo_canceller: EchoCanceller {
+                enabled: true,
+                ..Default::default()
+            },
+            noise_suppression: NoiseSuppression {
+                enabled: true,
+                ..Default::default()
+            },
+            gain_controller2: GainController2 {
+                enabled: true,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let stream = StreamConfig::new(sample_rate as usize, channels);
@@ -59,10 +68,10 @@ fn bench_process_stream_comparison(c: &mut Criterion) {
         // Apply matching config: EC + NS + AGC2
         sonora_sys::apply_config(
             cpp_apm.pin_mut(),
-            true,  // ec
-            true,  // ns
-            1,     // ns_level (moderate)
-            true,  // agc2
+            true, // ec
+            true, // ns
+            1,    // ns_level (moderate)
+            true, // agc2
         );
 
         // Warm up

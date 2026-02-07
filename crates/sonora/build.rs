@@ -17,9 +17,8 @@ fn main() {
         // Create the output directory if it doesn't exist.
         std::fs::create_dir_all(&output_dir).expect("Failed to create include/ directory");
 
-        let config =
-            cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml"))
-                .expect("Failed to read cbindgen.toml");
+        let config = cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml"))
+            .expect("Failed to read cbindgen.toml");
 
         cbindgen::Builder::new()
             .with_crate(&crate_dir)
