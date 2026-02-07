@@ -17,6 +17,7 @@ mod ffi {
             ns_enabled: bool,
             ns_level: u8,
             agc2_enabled: bool,
+            hpf_enabled: bool,
         );
 
         /// Process a single 10ms frame of interleaved i16 audio.
@@ -31,7 +32,7 @@ mod ffi {
             dest: &mut [i16],
         ) -> i32;
 
-        /// Process a single 10ms frame of f32 audio (single channel).
+        /// Process a single 10ms frame of f32 audio (mono).
         /// Returns 0 on success, negative error code on failure.
         fn process_stream_f32(
             handle: Pin<&mut ApmHandle>,
@@ -43,7 +44,18 @@ mod ffi {
             dest: &mut [f32],
         ) -> i32;
 
-        /// Process a single 10ms reverse stream frame of f32 audio (single channel).
+        /// Process a single 10ms frame of f32 audio (stereo, separate L/R channels).
+        /// Returns 0 on success, negative error code on failure.
+        fn process_stream_f32_2ch(
+            handle: Pin<&mut ApmHandle>,
+            src_l: &[f32],
+            src_r: &[f32],
+            sample_rate: i32,
+            dest_l: &mut [f32],
+            dest_r: &mut [f32],
+        ) -> i32;
+
+        /// Process a single 10ms reverse stream frame of f32 audio (mono).
         /// Returns 0 on success, negative error code on failure.
         fn process_reverse_stream_f32(
             handle: Pin<&mut ApmHandle>,

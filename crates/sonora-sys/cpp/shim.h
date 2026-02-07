@@ -30,7 +30,8 @@ void apply_config(
     bool ec_enabled,
     bool ns_enabled,
     uint8_t ns_level,
-    bool agc2_enabled);
+    bool agc2_enabled,
+    bool hpf_enabled);
 
 // Processing - interleaved i16
 int32_t process_stream_i16(
@@ -42,7 +43,7 @@ int32_t process_stream_i16(
     size_t output_channels,
     rust::Slice<int16_t> dest);
 
-// Processing - deinterleaved f32 (single channel)
+// Processing - deinterleaved f32 (mono)
 int32_t process_stream_f32(
     ApmHandle& handle,
     rust::Slice<const float> src,
@@ -52,7 +53,16 @@ int32_t process_stream_f32(
     size_t output_channels,
     rust::Slice<float> dest);
 
-// Reverse stream - deinterleaved f32 (single channel)
+// Processing - deinterleaved f32 (stereo)
+int32_t process_stream_f32_2ch(
+    ApmHandle& handle,
+    rust::Slice<const float> src_l,
+    rust::Slice<const float> src_r,
+    int32_t sample_rate,
+    rust::Slice<float> dest_l,
+    rust::Slice<float> dest_r);
+
+// Reverse stream - deinterleaved f32 (mono)
 int32_t process_reverse_stream_f32(
     ApmHandle& handle,
     rust::Slice<const float> src,

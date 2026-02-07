@@ -26,13 +26,15 @@ void apply_config(
     bool ec_enabled,
     bool ns_enabled,
     uint8_t ns_level,
-    bool agc2_enabled) {
+    bool agc2_enabled,
+    bool hpf_enabled) {
     webrtc::AudioProcessing::Config config;
     config.echo_canceller.enabled = ec_enabled;
     config.noise_suppression.enabled = ns_enabled;
     config.noise_suppression.level =
         static_cast<webrtc::AudioProcessing::Config::NoiseSuppression::Level>(ns_level);
     config.gain_controller2.enabled = agc2_enabled;
+    config.high_pass_filter.enabled = hpf_enabled;
     handle.apm->ApplyConfig(config);
 }
 
@@ -70,6 +72,23 @@ int32_t process_stream_f32(
 
     return handle.apm->ProcessStream(
         src_ptrs, input_config, output_config, dest_ptrs);
+}
+
+int32_t process_stream_f32_2ch(
+    ApmHandle& handle,
+    rust::Slice<const float> src_l,
+    rust::Slice<const float> src_r,
+    int32_t sample_rate,
+    rust::Slice<float> dest_l,
+    rust::Slice<float> dest_r) {
+
+    webrtc::StreamConfig config(sample_rate, 2);
+
+    const float* src_ptrs[2] = { src_l.data(), src_r.data() };
+    float* dest_ptrs[2] = { dest_l.data(), dest_r.data() };
+
+    return handle.apm->ProcessStream(
+        src_ptrs, config, config, dest_ptrs);
 }
 
 int32_t process_reverse_stream_f32(
