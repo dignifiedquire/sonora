@@ -189,7 +189,7 @@ impl AudioProcessingImpl {
                 noise_suppressors: Vec::new(),
                 gain_controller2: None,
                 capture_levels_adjuster: None,
-                echo_detector: Some(ResidualEchoDetector::new()),
+                echo_detector: None,
             },
             formats: FormatState::default(),
             capture: CaptureState::default(),
