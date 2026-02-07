@@ -173,8 +173,7 @@ impl Default for NoiseSuppression {
 }
 
 /// AGC2 (Automatic Gain Controller 2) settings.
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct GainController2 {
     pub enabled: bool,
     /// Input volume controller settings.
@@ -184,7 +183,6 @@ pub struct GainController2 {
     /// Fixed digital controller settings.
     pub fixed_digital: FixedDigital,
 }
-
 
 /// Input volume controller settings within AGC2.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

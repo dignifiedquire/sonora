@@ -280,7 +280,8 @@ impl ReverbDecayEstimator {
         }
 
         let filter_size = filter.len() as i32;
-        let mut estimation_feasible = filter_delay_blocks < self.filter_length_blocks as i32 - EARLY_REVERB_MIN_SIZE_BLOCKS as i32;
+        let mut estimation_feasible = filter_delay_blocks
+            < self.filter_length_blocks as i32 - EARLY_REVERB_MIN_SIZE_BLOCKS as i32;
         estimation_feasible =
             estimation_feasible && filter_size == self.filter_length_coefficients as i32;
         estimation_feasible = estimation_feasible && filter_delay_blocks > 0;

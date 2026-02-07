@@ -72,7 +72,11 @@ impl Default for SpectralCorrelator {
 
 impl SpectralCorrelator {
     /// Computes band-wise spectral auto-correlation.
-    pub(crate) fn compute_auto_correlation(&self, x: &[f32], auto_corr: &mut [f32; OPUS_BANDS_24K_HZ]) {
+    pub(crate) fn compute_auto_correlation(
+        &self,
+        x: &[f32],
+        auto_corr: &mut [f32; OPUS_BANDS_24K_HZ],
+    ) {
         self.compute_cross_correlation(x, x, auto_corr);
     }
 
@@ -159,7 +163,11 @@ pub(crate) fn compute_dct_table() -> [f32; NUM_BANDS * NUM_BANDS] {
 ///
 /// In-place computation is not allowed. `output` can be smaller than `input`
 /// to compute only the first DCT coefficients.
-pub(crate) fn compute_dct(input: &[f32], dct_table: &[f32; NUM_BANDS * NUM_BANDS], output: &mut [f32]) {
+pub(crate) fn compute_dct(
+    input: &[f32],
+    dct_table: &[f32; NUM_BANDS * NUM_BANDS],
+    output: &mut [f32],
+) {
     // DCT scaling factor: sqrt(2 / NUM_BANDS).
     #[allow(clippy::excessive_precision, reason = "value from C++ source")]
     const DCT_SCALING_FACTOR: f32 = 0.301511345;

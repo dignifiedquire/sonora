@@ -78,6 +78,26 @@ cargo bench -p sonora --bench pipeline
 PKG_CONFIG_PATH=cpp/install/lib/pkgconfig cargo bench -p sonora --features cpp-comparison --bench cpp_comparison
 ```
 
+## Supported Platforms
+
+Sonora is tested on the following platforms in CI:
+
+| Platform | Architecture | SIMD Backend | CI Status |
+|----------|-------------|--------------|-----------|
+| Linux (Ubuntu) | x86_64 | SSE2, AVX2 | Build, test, clippy, fmt, docs |
+| macOS | ARM64 (Apple Silicon) | NEON | Build, test |
+| Windows | x86_64 | SSE2, AVX2 | Build, test |
+| Android | aarch64 | NEON | Cross-compile check |
+| Android | x86_64 | SSE2, AVX2 | Cross-compile check |
+
+### C++ Integration
+
+The C++ reference test suite (WebRTC M145, 2400+ tests) is validated on Ubuntu x86_64 with the Rust backend linked via the `sonora-sys` FFI bridge. Tests requiring AGC1 (not ported) are disabled when the Rust backend is active.
+
+### SIMD
+
+Runtime feature detection is used for AVX2 on x86_64. SSE2 is assumed available on all x86_64 targets. NEON is used on AArch64. A scalar fallback is provided for all other architectures.
+
 ## MSRV
 
 The minimum supported Rust version is **1.91**.

@@ -40,7 +40,11 @@ pub(crate) fn compute_and_post_process_lpc_coefficients(
 /// Computes the LP residual for the input frame `x` and the LPC coefficients.
 ///
 /// `y` and `x` can point to the same slice for in-place computation.
-pub(crate) fn compute_lp_residual(lpc_coeffs: &[f32; NUM_LPC_COEFFICIENTS], x: &[f32], y: &mut [f32]) {
+pub(crate) fn compute_lp_residual(
+    lpc_coeffs: &[f32; NUM_LPC_COEFFICIENTS],
+    x: &[f32],
+    y: &mut [f32],
+) {
     debug_assert!(x.len() > NUM_LPC_COEFFICIENTS);
     debug_assert_eq!(x.len(), y.len());
 

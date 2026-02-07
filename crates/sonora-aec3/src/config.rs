@@ -3,8 +3,7 @@
 //! Ported from `api/audio/echo_canceller3_config.h/cc`.
 
 /// Configuration for the Echo Canceller 3.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct EchoCanceller3Config {
     pub buffering: Buffering,
     pub delay: Delay,
@@ -19,7 +18,6 @@ pub struct EchoCanceller3Config {
     pub suppressor: Suppressor,
     pub multi_channel: MultiChannel,
 }
-
 
 impl EchoCanceller3Config {
     /// Validates and clamps config parameters to reasonable ranges.
@@ -600,13 +598,11 @@ impl Default for RenderLevels {
     }
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct EchoRemovalControl {
     pub has_clock_drift: bool,
     pub linear_and_stable_echo_path: bool,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct EchoModel {

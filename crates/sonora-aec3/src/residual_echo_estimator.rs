@@ -388,7 +388,7 @@ impl ResidualEchoEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use crate::block_buffer::BlockBuffer;
     use crate::fft_buffer::FftBuffer;
     use crate::spectrum_buffer::SpectrumBuffer;

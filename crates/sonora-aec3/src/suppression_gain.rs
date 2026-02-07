@@ -339,9 +339,10 @@ impl SuppressionGain {
         let num_render_channels = render.num_channels();
 
         if let Some(peak_band) = narrow_peak_band
-            && peak_band > FFT_LENGTH_BY_2_PLUS_1 - 10 {
-                return 0.001;
-            }
+            && peak_band > FFT_LENGTH_BY_2_PLUS_1 - 10
+        {
+            return 0.001;
+        }
 
         const K_LOW_BAND_GAIN_LIMIT: usize = FFT_LENGTH_BY_2 / 2;
         let gain_below_8_khz = low_band_gain[K_LOW_BAND_GAIN_LIMIT..]

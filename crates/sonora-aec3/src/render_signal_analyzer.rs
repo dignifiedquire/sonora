@@ -91,12 +91,15 @@ fn identify_strong_narrow_band_component(
 
         // Detect whether the spectral peak has a strong narrowband nature.
         let peak_level = x2_latest[peak_bin];
-        if peak_bin > 0 && max_abs > 100.0 && peak_level > 100.0 * non_peak_power
-            && peak_level > max_peak_level {
-                max_peak_level = peak_level;
-                *narrow_peak_band = Some(peak_bin);
-                *narrow_peak_counter = 0;
-            }
+        if peak_bin > 0
+            && max_abs > 100.0
+            && peak_level > 100.0 * non_peak_power
+            && peak_level > max_peak_level
+        {
+            max_peak_level = peak_level;
+            *narrow_peak_band = Some(peak_bin);
+            *narrow_peak_counter = 0;
+        }
     }
 }
 
