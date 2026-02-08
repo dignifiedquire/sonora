@@ -10,7 +10,7 @@ use std::error;
 use std::fmt;
 
 use crate::audio_processing_impl::AudioProcessingImpl;
-use crate::config::{Config, RuntimeSetting};
+use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
 use crate::stats::AudioProcessingStats;
 use crate::stream_config::StreamConfig;
 
@@ -461,11 +461,55 @@ impl AudioProcessing {
         self.inner.apply_config(config);
     }
 
-    /// Enqueues a runtime setting for the capture path.
+    /// Sets the capture pre-gain as a linear factor.
     ///
-    /// Runtime settings are applied at the next `process_capture_*` call.
-    pub fn set_runtime_setting(&mut self, setting: RuntimeSetting) {
-        self.inner.set_runtime_setting(setting);
+    /// Applied at the next `process_capture_*` call.
+    pub fn set_capture_pre_gain(&mut self, gain: f32) {
+        self.inner
+            .set_runtime_setting(RuntimeSetting::CapturePreGain(gain));
+    }
+
+    /// Sets the capture post-gain as a linear factor.
+    ///
+    /// Applied at the next `process_capture_*` call.
+    pub fn set_capture_post_gain(&mut self, gain: f32) {
+        self.inner
+            .set_runtime_setting(RuntimeSetting::CapturePostGain(gain));
+    }
+
+    /// Sets the fixed post-gain in dB (range `0.0..=90.0`).
+    ///
+    /// Applied at the next `process_capture_*` call.
+    pub fn set_capture_fixed_post_gain(&mut self, gain_db: f32) {
+        self.inner
+            .set_runtime_setting(RuntimeSetting::CaptureFixedPostGain(gain_db));
+    }
+
+    /// Notifies that the playout (render) volume has changed.
+    ///
+    /// Applied at the next `process_capture_*` call.
+    pub fn set_playout_volume(&mut self, volume: i32) {
+        self.inner
+            .set_runtime_setting(RuntimeSetting::PlayoutVolumeChange(volume));
+    }
+
+    /// Notifies that the playout (render) audio device has changed.
+    ///
+    /// Applied at the next `process_capture_*` call.
+    pub fn set_playout_audio_device(&mut self, id: i32, max_volume: i32) {
+        self.inner
+            .set_runtime_setting(RuntimeSetting::PlayoutAudioDeviceChange(
+                PlayoutAudioDeviceInfo { id, max_volume },
+            ));
+    }
+
+    /// Sets whether the capture output is being used.
+    ///
+    /// When `false`, some components may optimize by skipping work.
+    /// Applied at the next `process_capture_*` call.
+    pub fn set_capture_output_used(&mut self, used: bool) {
+        self.inner
+            .set_runtime_setting(RuntimeSetting::CaptureOutputUsed(used));
     }
 
     /// Returns current processing statistics.
@@ -1363,7 +1407,7 @@ mod tests {
         let mut apm = AudioProcessing::builder().config(config).build();
 
         // Change gain via runtime setting.
-        apm.set_runtime_setting(RuntimeSetting::CapturePreGain(2.0));
+        apm.set_capture_pre_gain(2.0);
 
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;

@@ -9,7 +9,7 @@ use std::ptr;
 use std::slice;
 
 use crate::AudioProcessing;
-use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
+use crate::config::Config;
 
 use super::panic_guard::{ffi_guard, ffi_guard_ptr};
 use super::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamConfig};
@@ -567,7 +567,7 @@ pub unsafe extern "C" fn wap_set_capture_pre_gain(
             return WapError::NullPointer;
         }
         let apm = unsafe { &mut *apm };
-        apm.inner.set_runtime_setting(RuntimeSetting::CapturePreGain(gain));
+        apm.inner.set_capture_pre_gain(gain);
         WapError::None
     }
 }
@@ -588,7 +588,7 @@ pub unsafe extern "C" fn wap_set_capture_post_gain(
             return WapError::NullPointer;
         }
         let apm = unsafe { &mut *apm };
-        apm.inner.set_runtime_setting(RuntimeSetting::CapturePostGain(gain));
+        apm.inner.set_capture_post_gain(gain);
         WapError::None
     }
 }
@@ -609,7 +609,7 @@ pub unsafe extern "C" fn wap_set_capture_fixed_post_gain(
             return WapError::NullPointer;
         }
         let apm = unsafe { &mut *apm };
-        apm.inner.set_runtime_setting(RuntimeSetting::CaptureFixedPostGain(gain_db));
+        apm.inner.set_capture_fixed_post_gain(gain_db);
         WapError::None
     }
 }
@@ -630,7 +630,7 @@ pub unsafe extern "C" fn wap_set_playout_volume(
             return WapError::NullPointer;
         }
         let apm = unsafe { &mut *apm };
-        apm.inner.set_runtime_setting(RuntimeSetting::PlayoutVolumeChange(volume));
+        apm.inner.set_playout_volume(volume);
         WapError::None
     }
 }
@@ -652,11 +652,7 @@ pub unsafe extern "C" fn wap_set_playout_audio_device(
             return WapError::NullPointer;
         }
         let apm = unsafe { &mut *apm };
-        let info = PlayoutAudioDeviceInfo {
-            id: device_id,
-            max_volume,
-        };
-        apm.inner.set_runtime_setting(RuntimeSetting::PlayoutAudioDeviceChange(info));
+        apm.inner.set_playout_audio_device(device_id, max_volume);
         WapError::None
     }
 }
@@ -677,7 +673,7 @@ pub unsafe extern "C" fn wap_set_capture_output_used(
             return WapError::NullPointer;
         }
         let apm = unsafe { &mut *apm };
-        apm.inner.set_runtime_setting(RuntimeSetting::CaptureOutputUsed(used));
+        apm.inner.set_capture_output_used(used);
         WapError::None
     }
 }

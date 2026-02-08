@@ -6,8 +6,9 @@
 ///
 /// This config is intended to be used during setup, and to enable/disable
 /// top-level processing effects. Use during processing may cause undesired
-/// submodule resets, affecting audio quality. Use [`RuntimeSetting`] for
-/// runtime configuration changes.
+/// submodule resets, affecting audio quality. Use the `set_capture_pre_gain`,
+/// `set_playout_volume`, and similar methods on
+/// [`AudioProcessing`](crate::AudioProcessing) for runtime changes.
 ///
 /// All components are disabled (`None`) by default. Setting a component to
 /// `Some(...)` enables it and triggers memory allocation and initialization.
@@ -283,7 +284,7 @@ pub struct FixedDigital {
 /// [`AudioProcessing::process_capture_f32()`](crate::AudioProcessing::process_capture_f32)
 /// or [`AudioProcessing::process_capture_i16()`](crate::AudioProcessing::process_capture_i16).
 #[derive(Debug, Clone)]
-pub enum RuntimeSetting {
+pub(crate) enum RuntimeSetting {
     /// Capture pre-gain linear factor.
     CapturePreGain(f32),
     /// Capture post-gain linear factor.
@@ -293,7 +294,11 @@ pub enum RuntimeSetting {
     /// Playout (render) volume change. The value is the unnormalized volume.
     PlayoutVolumeChange(i32),
     /// Notifies that the playout (render) audio device has changed.
-    PlayoutAudioDeviceChange(PlayoutAudioDeviceInfo),
+    /// Currently a no-op in the Rust port (no render pre-processor).
+    PlayoutAudioDeviceChange(
+        #[allow(dead_code, reason = "no render pre-processor in Rust port yet")]
+        PlayoutAudioDeviceInfo,
+    ),
     /// Whether the capture output is used. When false, some components may
     /// optimize by skipping work.
     CaptureOutputUsed(bool),
@@ -301,7 +306,7 @@ pub enum RuntimeSetting {
 
 /// Play-out audio device properties.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PlayoutAudioDeviceInfo {
+pub(crate) struct PlayoutAudioDeviceInfo {
     /// Identifies the audio device.
     pub id: i32,
     /// Maximum volume of the audio device.

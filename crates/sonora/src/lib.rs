@@ -54,7 +54,7 @@ pub(crate) mod three_band_filter_bank;
 
 // Public re-exports.
 pub use audio_processing::{AudioProcessing, AudioProcessingBuilder, Error};
-pub use config::{Config, RuntimeSetting};
+pub use config::Config;
 pub use stats::AudioProcessingStats;
 pub use stream_config::StreamConfig;
 
