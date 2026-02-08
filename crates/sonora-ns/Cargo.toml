@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Noise Suppression for WebRTC Audio Processing"
 keywords = ["webrtc", "audio", "noise-suppression", "denoising"]
 categories = ["multimedia::audio"]
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

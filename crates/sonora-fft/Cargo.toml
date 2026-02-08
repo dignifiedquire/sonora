@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FFT implementations for WebRTC Audio Processing (Ooura, PFFFT)"
 keywords = ["fft", "audio", "dsp", "ooura"]
 categories = ["algorithms", "multimedia::audio"]
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

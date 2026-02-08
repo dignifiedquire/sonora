@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "SIMD abstraction layer for WebRTC Audio Processing"
 keywords = ["simd", "sse2", "avx2", "neon"]
 categories = ["hardware-support"]
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

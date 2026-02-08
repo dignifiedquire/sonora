@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Automatic Gain Control 2 (AGC2) with RNN VAD for WebRTC Audio Processing"
 keywords = ["webrtc", "audio", "agc", "gain-control", "vad"]
 categories = ["multimedia::audio"]
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
