@@ -48,11 +48,17 @@ pub enum ClippingPredictorMode {
 #[derive(Debug, Clone, Copy)]
 pub struct ClippingPredictorConfig {
     pub enabled: bool,
+    /// Prediction mode to use.
     pub mode: ClippingPredictorMode,
+    /// Number of frames in the sliding analysis window.
     pub window_length: i32,
+    /// Number of frames in the sliding reference window.
     pub reference_window_length: i32,
+    /// Reference window delay (unit: number of frames).
     pub reference_window_delay: i32,
+    /// Clipping prediction threshold (dBFS).
     pub clipping_threshold: f32,
+    /// Crest factor drop threshold (dB).
     pub crest_factor_margin: f32,
 }
 

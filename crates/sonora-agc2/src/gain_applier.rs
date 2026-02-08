@@ -65,6 +65,10 @@ pub struct GainApplier {
 }
 
 impl GainApplier {
+    /// Creates a new gain applier.
+    ///
+    /// - `hard_clip_samples`: if true, output is clamped to `[-32768, 32767]`
+    /// - `initial_gain_factor`: starting linear gain factor
     pub fn new(hard_clip_samples: bool, initial_gain_factor: f32) -> Self {
         Self {
             hard_clip_samples,
@@ -102,6 +106,7 @@ impl GainApplier {
         self.current_gain_factor = gain_factor;
     }
 
+    /// Returns the current gain factor.
     pub fn get_gain_factor(&self) -> f32 {
         self.current_gain_factor
     }

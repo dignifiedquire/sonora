@@ -102,6 +102,7 @@ pub struct AdaptiveDigitalGainController {
 }
 
 impl AdaptiveDigitalGainController {
+    /// Creates a new adaptive digital gain controller.
     pub fn new(config: AdaptiveDigitalConfig, adjacent_speech_frames_threshold: i32) -> Self {
         let max_gain_change_db_per_10ms =
             config.max_gain_change_db_per_second * FRAME_DURATION_MS as f32 / 1000.0;

@@ -3,21 +3,32 @@
 //! Ported from `AudioProcessing::Config` in `api/audio/audio_processing.h`.
 
 /// Top-level configuration for the audio processing pipeline.
+///
+/// This config is intended to be used during setup, and to enable/disable
+/// top-level processing effects. Use during processing may cause undesired
+/// submodule resets, affecting audio quality. Use [`RuntimeSetting`] for
+/// runtime configuration changes.
+///
+/// All components are disabled by default. Enabling a component triggers
+/// memory allocation and initialization to allow it to start processing.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     /// Pipeline processing properties.
     pub pipeline: Pipeline,
-    /// Pre-amplifier settings.
+    /// Pre-amplifier settings. Amplifies the capture signal before any other
+    /// processing.
     pub pre_amplifier: PreAmplifier,
-    /// Capture-level adjustment settings.
+    /// Capture-level adjustment settings. Should not be used together with
+    /// [`PreAmplifier`].
     pub capture_level_adjustment: CaptureLevelAdjustment,
     /// High-pass filter settings.
     pub high_pass_filter: HighPassFilter,
-    /// Echo canceller settings.
+    /// Echo canceller (AEC3) settings.
     pub echo_canceller: EchoCanceller,
     /// Noise suppression settings.
     pub noise_suppression: NoiseSuppression,
-    /// AGC2 settings.
+    /// Automatic Gain Controller 2 (AGC2) settings. Combines input volume
+    /// control, adaptive digital gain, fixed digital gain, and a limiter.
     pub gain_controller2: GainController2,
 }
 
@@ -60,6 +71,7 @@ impl Default for Pipeline {
 #[derive(Debug, Clone)]
 pub struct PreAmplifier {
     pub enabled: bool,
+    /// Linear gain factor applied to the capture signal (default: 1.0).
     pub fixed_gain_factor: f32,
 }
 
@@ -72,13 +84,14 @@ impl Default for PreAmplifier {
     }
 }
 
-/// General level adjustment in the capture pipeline.
+/// General level adjustment in the capture pipeline. Should not be used
+/// together with the legacy [`PreAmplifier`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptureLevelAdjustment {
     pub enabled: bool,
-    /// Scales the signal before any processing is done.
+    /// Linear gain factor applied before any processing (default: 1.0).
     pub pre_gain_factor: f32,
-    /// Scales the signal after all processing is done.
+    /// Linear gain factor applied after all processing (default: 1.0).
     pub post_gain_factor: f32,
     /// Analog mic gain emulation settings.
     pub analog_mic_gain_emulation: AnalogMicGainEmulation,
@@ -99,7 +112,8 @@ impl Default for CaptureLevelAdjustment {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnalogMicGainEmulation {
     pub enabled: bool,
-    /// Initial analog gain level (range: 0..=255).
+    /// Initial analog gain level to use for the emulated analog gain.
+    /// Must be in the range `0..=255` (default: 255).
     pub initial_level: i32,
 }
 
@@ -116,6 +130,8 @@ impl Default for AnalogMicGainEmulation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HighPassFilter {
     pub enabled: bool,
+    /// When true, the filter operates on the full-band signal rather than
+    /// only the split band (default: true).
     pub apply_in_full_band: bool,
 }
 
@@ -128,11 +144,12 @@ impl Default for HighPassFilter {
     }
 }
 
-/// Echo canceller settings.
+/// Echo canceller (AEC3) settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EchoCanceller {
     pub enabled: bool,
-    /// Enforce high-pass filtering (no effect in mobile mode).
+    /// Enforce the highpass filter to be on (default: true). Has no effect
+    /// in mobile mode.
     pub enforce_high_pass_filtering: bool,
 }
 
@@ -145,20 +162,27 @@ impl Default for EchoCanceller {
     }
 }
 
-/// Noise suppression settings.
+/// Background noise suppression settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoiseSuppression {
     pub enabled: bool,
+    /// Aggressiveness level for noise suppression (default: `Moderate`).
     pub level: NoiseSuppressionLevel,
+    /// When true and linear AEC output is available, noise suppression
+    /// analyzes the linear AEC output instead of the regular signal.
     pub analyze_linear_aec_output_when_available: bool,
 }
 
 /// Noise suppression aggressiveness level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoiseSuppressionLevel {
+    /// Low suppression (~6 dB).
     Low,
+    /// Moderate suppression (~12 dB, default).
     Moderate,
+    /// High suppression (~18 dB).
     High,
+    /// Very high suppression (~21 dB).
     VeryHigh,
 }
 
@@ -172,32 +196,50 @@ impl Default for NoiseSuppression {
     }
 }
 
-/// AGC2 (Automatic Gain Controller 2) settings.
+/// Automatic Gain Controller 2 (AGC2) settings.
+///
+/// AGC2 brings the captured audio signal to the desired level by combining
+/// three controllers (input volume, adaptive digital, and fixed digital)
+/// and a limiter.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GainController2 {
     pub enabled: bool,
-    /// Input volume controller settings.
+    /// Adjusts the input volume applied when audio is captured (e.g.,
+    /// microphone volume on a soundcard).
     pub input_volume_controller: InputVolumeControllerConfig,
-    /// Adaptive digital controller settings.
+    /// Adjusts and applies a digital gain after echo cancellation and
+    /// noise suppression.
     pub adaptive_digital: AdaptiveDigital,
-    /// Fixed digital controller settings.
+    /// Applies a fixed digital gain after the adaptive digital controller
+    /// and before the limiter.
     pub fixed_digital: FixedDigital,
 }
 
 /// Input volume controller settings within AGC2.
+///
+/// Adjusts the input volume applied when audio is captured (e.g.,
+/// microphone volume on a soundcard, input volume on HAL).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InputVolumeControllerConfig {
     pub enabled: bool,
 }
 
 /// Adaptive digital controller settings within AGC2.
+///
+/// Adjusts and applies a digital gain after echo cancellation and after
+/// noise suppression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdaptiveDigital {
     pub enabled: bool,
+    /// Headroom in dB (default: 5.0).
     pub headroom_db: f32,
+    /// Maximum gain in dB (default: 50.0).
     pub max_gain_db: f32,
+    /// Initial gain in dB (default: 15.0).
     pub initial_gain_db: f32,
+    /// Maximum gain change rate in dB/second (default: 6.0).
     pub max_gain_change_db_per_second: f32,
+    /// Maximum output noise level in dBFS (default: -50.0).
     pub max_output_noise_level_dbfs: f32,
 }
 
@@ -215,26 +257,35 @@ impl Default for AdaptiveDigital {
 }
 
 /// Fixed digital controller settings within AGC2.
+///
+/// Applies a fixed digital gain after the adaptive digital controller
+/// and before the limiter.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FixedDigital {
-    /// Fixed gain in dB. Setting > 0 turns the limiter into a compressor.
+    /// Fixed gain in dB (default: 0.0). Setting a value greater than zero
+    /// turns the limiter into a compressor that first applies a fixed gain.
     pub gain_db: f32,
 }
 
 /// Runtime settings that can be applied without reinitialization.
+///
+/// These are enqueued and applied at the next call to
+/// [`AudioProcessing::process_stream_f32()`](crate::AudioProcessing::process_stream_f32)
+/// or [`AudioProcessing::process_stream_i16()`](crate::AudioProcessing::process_stream_i16).
 #[derive(Debug, Clone)]
 pub enum RuntimeSetting {
-    /// Capture pre-gain factor.
+    /// Capture pre-gain linear factor.
     CapturePreGain(f32),
-    /// Capture post-gain factor.
+    /// Capture post-gain linear factor.
     CapturePostGain(f32),
-    /// Fixed post-gain in dB (range: 0..=90).
+    /// Fixed post-gain in dB. Must be in the range `0.0..=90.0`.
     CaptureFixedPostGain(f32),
-    /// Playout volume change (unnormalized).
+    /// Playout (render) volume change. The value is the unnormalized volume.
     PlayoutVolumeChange(i32),
-    /// Playout audio device change.
+    /// Notifies that the playout (render) audio device has changed.
     PlayoutAudioDeviceChange(PlayoutAudioDeviceInfo),
-    /// Whether the capture output is used.
+    /// Whether the capture output is used. When false, some components may
+    /// optimize by skipping work.
     CaptureOutputUsed(bool),
 }
 

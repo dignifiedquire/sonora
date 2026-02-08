@@ -51,9 +51,9 @@ pub enum SuppressionLevel {
 }
 
 /// Configuration for the noise suppressor.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NsConfig {
-    /// Target suppression level.
+    /// Target suppression level (default: [`SuppressionLevel::K12dB`]).
     pub target_level: SuppressionLevel,
 }
 

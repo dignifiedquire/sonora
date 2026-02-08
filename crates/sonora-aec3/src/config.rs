@@ -3,19 +3,36 @@
 //! Ported from `api/audio/echo_canceller3_config.h/cc`.
 
 /// Configuration for the Echo Canceller 3.
+///
+/// This is a detailed internal configuration with many tuning parameters.
+/// Most users should not need to modify these values — the defaults match
+/// the upstream C++ WebRTC configuration. Use [`validate()`](Self::validate) to
+/// clamp all parameters to reasonable ranges.
 #[derive(Debug, Clone, Default)]
 pub struct EchoCanceller3Config {
+    /// Render buffering and excess detection settings.
     pub buffering: Buffering,
+    /// Delay estimation and alignment settings.
     pub delay: Delay,
+    /// Adaptive filter configuration.
     pub filter: Filter,
+    /// Echo Return Loss Enhancement (ERLE) estimation settings.
     pub erle: Erle,
+    /// Echo path strength estimation settings.
     pub ep_strength: EpStrength,
+    /// Echo audibility detection settings.
     pub echo_audibility: EchoAudibility,
+    /// Render signal power thresholds.
     pub render_levels: RenderLevels,
+    /// Echo removal control settings.
     pub echo_removal_control: EchoRemovalControl,
+    /// Echo model parameters.
     pub echo_model: EchoModel,
+    /// Comfort noise generation settings.
     pub comfort_noise: ComfortNoise,
+    /// Suppression filter settings.
     pub suppressor: Suppressor,
+    /// Multi-channel processing settings.
     pub multi_channel: MultiChannel,
 }
 

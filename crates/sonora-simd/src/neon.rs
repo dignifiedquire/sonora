@@ -141,7 +141,7 @@ pub(crate) unsafe fn convolve_sinc(
     result
 }
 
-/// NEON multiply-accumulate: acc[i] += a[i] * b[i]
+/// NEON multiply-accumulate: `acc[i] += a[i] * b[i]`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -203,7 +203,7 @@ pub(crate) unsafe fn sum(x: &[f32]) -> f32 {
     result
 }
 
-/// NEON elementwise square root: x[i] = sqrt(x[i])
+/// NEON elementwise square root: `x[i] = sqrt(x[i])`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -229,7 +229,7 @@ pub(crate) unsafe fn elementwise_sqrt(x: &mut [f32]) {
     }
 }
 
-/// NEON elementwise multiply: z[i] = x[i] * y[i]
+/// NEON elementwise multiply: `z[i] = x[i] * y[i]`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -260,7 +260,7 @@ pub(crate) unsafe fn elementwise_multiply(x: &[f32], y: &[f32], z: &mut [f32]) {
     }
 }
 
-/// NEON elementwise accumulate: z[i] += x[i]
+/// NEON elementwise accumulate: `z[i] += x[i]`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -290,7 +290,7 @@ pub(crate) unsafe fn elementwise_accumulate(x: &[f32], z: &mut [f32]) {
     }
 }
 
-/// NEON power spectrum: out[i] = re[i]^2 + im[i]^2
+/// NEON power spectrum: `out[i] = re[i]^2 + im[i]^2`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -322,7 +322,7 @@ pub(crate) unsafe fn power_spectrum(re: &[f32], im: &[f32], out: &mut [f32]) {
     }
 }
 
-/// NEON elementwise min: out[i] = min(a[i], b[i])
+/// NEON elementwise min: `out[i] = min(a[i], b[i])`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -353,7 +353,7 @@ pub(crate) unsafe fn elementwise_min(a: &[f32], b: &[f32], out: &mut [f32]) {
     }
 }
 
-/// NEON elementwise max: out[i] = max(a[i], b[i])
+/// NEON elementwise max: `out[i] = max(a[i], b[i])`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -385,8 +385,8 @@ pub(crate) unsafe fn elementwise_max(a: &[f32], b: &[f32], out: &mut [f32]) {
 }
 
 /// NEON complex multiply-accumulate (AEC3 conjugate convention):
-///   acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]
-///   acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]
+///   `acc_re[i] += x_re[i]*h_re[i] + x_im[i]*h_im[i]`
+///   `acc_im[i] += x_re[i]*h_im[i] - x_im[i]*h_re[i]`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.
@@ -441,8 +441,8 @@ pub(crate) unsafe fn complex_multiply_accumulate(
 }
 
 /// NEON standard complex multiply-accumulate:
-///   acc_re[i] += x_re[i]*h_re[i] - x_im[i]*h_im[i]
-///   acc_im[i] += x_re[i]*h_im[i] + x_im[i]*h_re[i]
+///   `acc_re[i] += x_re[i]*h_re[i] - x_im[i]*h_im[i]`
+///   `acc_im[i] += x_re[i]*h_im[i] + x_im[i]*h_re[i]`
 ///
 /// # Safety
 /// Caller must ensure NEON is available.

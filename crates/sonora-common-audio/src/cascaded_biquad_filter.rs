@@ -2,10 +2,14 @@
 //!
 //! Ported from `modules/audio_processing/utility/cascaded_biquad_filter.h/cc`.
 
-/// Coefficients for a single second-order section.
+/// Coefficients for a single second-order (biquad) IIR section.
+///
+/// Transfer function: `H(z) = (b[0] + b[1]*z^-1 + b[2]*z^-2) / (1 + a[0]*z^-1 + a[1]*z^-2)`
 #[derive(Debug, Clone, Copy)]
 pub struct BiQuadCoefficients {
+    /// Feedforward (numerator) coefficients `[b0, b1, b2]`.
     pub b: [f32; 3],
+    /// Feedback (denominator) coefficients `[a1, a2]` (the leading 1 is implicit).
     pub a: [f32; 2],
 }
 
@@ -39,6 +43,7 @@ pub struct CascadedBiQuadFilter {
 }
 
 impl CascadedBiQuadFilter {
+    /// Creates a new cascaded filter from the given second-order sections.
     pub fn new(coefficients: &[BiQuadCoefficients]) -> Self {
         Self {
             biquads: coefficients.iter().map(|c| BiQuad::new(*c)).collect(),
@@ -117,6 +122,7 @@ impl CascadedBiQuadFilter {
         }
     }
 
+    /// Resets all filter states to zero.
     pub fn reset(&mut self) {
         for bq in &mut self.biquads {
             bq.reset();
