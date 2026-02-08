@@ -21,11 +21,20 @@ fn main() {
         let config = cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml"))
             .expect("Failed to read cbindgen.toml");
 
-        cbindgen::Builder::new()
+        match cbindgen::Builder::new()
             .with_crate(&crate_dir)
             .with_config(config)
             .generate()
-            .expect("Failed to generate C header")
-            .write_to_file(&output_file);
+        {
+            Ok(bindings) => {
+                bindings.write_to_file(&output_file);
+            }
+            Err(e) => {
+                // During `cargo publish --verify`, dependencies may not be
+                // resolvable yet (crates not on crates.io). Skip header
+                // generation — the checked-in header is still valid.
+                println!("cargo::warning=cbindgen skipped: {e}");
+            }
+        }
     }
 }
