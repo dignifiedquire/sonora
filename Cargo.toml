@@ -56,3 +56,13 @@ absolute_paths = "warn"
 manual_let_else = "warn"
 allow_attributes_without_reason = "warn"
 mod_module_files = "deny"
+
+# Match C++ optimization level: -O3, LTO, single codegen unit
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1
+debug = true

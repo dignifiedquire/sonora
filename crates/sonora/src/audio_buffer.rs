@@ -370,15 +370,20 @@ impl AudioBuffer {
         } else {
             for i in 0..self.num_channels {
                 let len = self.buffer_num_frames;
-                let src: Vec<f32> = self.data.bands(i)[..len].to_vec();
-                buffer.channel_mut(i)[..len].copy_from_slice(&src);
+                buffer.channel_mut(i)[..len].copy_from_slice(&self.data.bands(i)[..len]);
             }
         }
 
         // Copy channel 0 to extra channels in destination.
+        let num_frames = buffer.data.num_frames();
+        let len = self.output_num_frames;
         for i in self.num_channels..buffer.num_channels() {
-            let src: Vec<f32> = buffer.channel(0)[..self.output_num_frames].to_vec();
-            buffer.channel_mut(i)[..self.output_num_frames].copy_from_slice(&src);
+            let src_start = 0; // channel 0
+            let dst_start = i * num_frames;
+            buffer
+                .data
+                .data_mut()
+                .copy_within(src_start..src_start + len, dst_start);
         }
     }
 

@@ -32,14 +32,12 @@ const QMF_STATE_SIZE: usize = 6;
 ///
 /// The three sections alternate between two scratch buffers to avoid allocation.
 fn allpass_qmf(
-    in_data: &mut [f32],
-    out_data: &mut [f32],
+    in_data: &mut [f32; SAMPLES_PER_BAND],
+    out_data: &mut [f32; SAMPLES_PER_BAND],
     coefficients: &[f32; 3],
     state: &mut [f32; QMF_STATE_SIZE],
 ) {
-    let data_length = in_data.len();
-    debug_assert_eq!(data_length, out_data.len());
-    debug_assert!(data_length > 0);
+    let data_length = SAMPLES_PER_BAND;
 
     // First cascade: in_data → out_data
     let diff = in_data[0] - state[1];
@@ -74,29 +72,23 @@ fn allpass_qmf(
 
 /// Split a fullband signal into low-band and high-band using QMF analysis.
 fn analysis_qmf(
-    in_data: &[f32],
-    low_band: &mut [f32],
-    high_band: &mut [f32],
+    in_data: &[f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME],
+    low_band: &mut [f32; SAMPLES_PER_BAND],
+    high_band: &mut [f32; SAMPLES_PER_BAND],
     filter_state1: &mut [f32; QMF_STATE_SIZE],
     filter_state2: &mut [f32; QMF_STATE_SIZE],
 ) {
-    let in_data_length = in_data.len();
-    debug_assert_eq!(in_data_length % 2, 0);
-    let band_length = in_data_length / 2;
-    debug_assert_eq!(low_band.len(), band_length);
-    debug_assert_eq!(high_band.len(), band_length);
-
-    // Split even and odd samples.
-    let mut half_in1 = vec![0.0f32; band_length];
-    let mut half_in2 = vec![0.0f32; band_length];
-    for (i, (h1, h2)) in half_in1.iter_mut().zip(half_in2.iter_mut()).enumerate() {
-        *h2 = in_data[2 * i];
-        *h1 = in_data[2 * i + 1];
+    // Split even and odd samples (stack arrays, matching C++).
+    let mut half_in1 = [0.0f32; SAMPLES_PER_BAND];
+    let mut half_in2 = [0.0f32; SAMPLES_PER_BAND];
+    for i in 0..SAMPLES_PER_BAND {
+        half_in2[i] = in_data[2 * i];
+        half_in1[i] = in_data[2 * i + 1];
     }
 
     // Allpass filter even and odd samples independently.
-    let mut filter1 = vec![0.0f32; band_length];
-    let mut filter2 = vec![0.0f32; band_length];
+    let mut filter1 = [0.0f32; SAMPLES_PER_BAND];
+    let mut filter2 = [0.0f32; SAMPLES_PER_BAND];
     allpass_qmf(
         &mut half_in1,
         &mut filter1,
@@ -111,43 +103,31 @@ fn analysis_qmf(
     );
 
     // Sum and difference to get low and high bands.
-    for ((lo, hi), (f1, f2)) in low_band
-        .iter_mut()
-        .zip(high_band.iter_mut())
-        .zip(filter1.iter().zip(filter2.iter()))
-    {
-        *lo = (f1 + f2) * 0.5;
-        *hi = (f1 - f2) * 0.5;
+    for i in 0..SAMPLES_PER_BAND {
+        low_band[i] = (filter1[i] + filter2[i]) * 0.5;
+        high_band[i] = (filter1[i] - filter2[i]) * 0.5;
     }
 }
 
 /// Merge low-band and high-band into a fullband signal using QMF synthesis.
 fn synthesis_qmf(
-    low_band: &[f32],
-    high_band: &[f32],
-    out_data: &mut [f32],
+    low_band: &[f32; SAMPLES_PER_BAND],
+    high_band: &[f32; SAMPLES_PER_BAND],
+    out_data: &mut [f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME],
     filter_state1: &mut [f32; QMF_STATE_SIZE],
     filter_state2: &mut [f32; QMF_STATE_SIZE],
 ) {
-    let band_length = low_band.len();
-    debug_assert_eq!(high_band.len(), band_length);
-    debug_assert_eq!(out_data.len(), band_length * 2);
-
-    // Sum and difference channels.
-    let mut half_in1 = vec![0.0f32; band_length];
-    let mut half_in2 = vec![0.0f32; band_length];
-    for ((h1, h2), (lo, hi)) in half_in1
-        .iter_mut()
-        .zip(half_in2.iter_mut())
-        .zip(low_band.iter().zip(high_band.iter()))
-    {
-        *h1 = lo + hi;
-        *h2 = lo - hi;
+    // Sum and difference channels (stack arrays, matching C++).
+    let mut half_in1 = [0.0f32; SAMPLES_PER_BAND];
+    let mut half_in2 = [0.0f32; SAMPLES_PER_BAND];
+    for i in 0..SAMPLES_PER_BAND {
+        half_in1[i] = low_band[i] + high_band[i];
+        half_in2[i] = low_band[i] - high_band[i];
     }
 
     // Allpass filter.
-    let mut filter1 = vec![0.0f32; band_length];
-    let mut filter2 = vec![0.0f32; band_length];
+    let mut filter1 = [0.0f32; SAMPLES_PER_BAND];
+    let mut filter2 = [0.0f32; SAMPLES_PER_BAND];
     allpass_qmf(
         &mut half_in1,
         &mut filter1,
@@ -162,9 +142,9 @@ fn synthesis_qmf(
     );
 
     // Interleave with saturation (matching C++ int16 range clamp).
-    for (i, (f1, f2)) in filter1.iter().zip(filter2.iter()).enumerate() {
-        out_data[2 * i] = f2.clamp(-32768.0, 32767.0);
-        out_data[2 * i + 1] = f1.clamp(-32768.0, 32767.0);
+    for i in 0..SAMPLES_PER_BAND {
+        out_data[2 * i] = filter2[i].clamp(-32768.0, 32767.0);
+        out_data[2 * i + 1] = filter1[i].clamp(-32768.0, 32767.0);
     }
 }
 
@@ -277,8 +257,10 @@ impl SplittingFilter {
 
             // C++ uses channels(0)[i] with num_frames() length, which reads
             // the full channel data across all bands (320 samples).
+            let in_data: &[f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME] =
+                data.bands(i).try_into().unwrap();
             analysis_qmf(
-                data.bands(i),
+                in_data,
                 &mut low_band,
                 &mut high_band,
                 &mut state.analysis_state1,
@@ -305,10 +287,12 @@ impl SplittingFilter {
             high_band.copy_from_slice(bands.channel(1, i));
 
             // C++ writes to channels(0)[i] with full num_frames() length.
+            let out_data: &mut [f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME] =
+                data.bands_mut(i).try_into().unwrap();
             synthesis_qmf(
                 &low_band,
                 &high_band,
-                data.bands_mut(i),
+                out_data,
                 &mut state.synthesis_state1,
                 &mut state.synthesis_state2,
             );
@@ -377,15 +361,13 @@ mod tests {
         let mut state2 = [0.0f32; QMF_STATE_SIZE];
 
         // Generate a low-frequency sine (500 Hz at 32 kHz = well within low band).
-        let num_samples = 320;
-        let mut input = vec![0.0f32; num_samples];
+        let mut input = [0.0f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME];
         for (i, sample) in input.iter_mut().enumerate() {
             *sample = (2.0 * PI * 500.0 * i as f32 / 32000.0).sin();
         }
 
-        let band_length = num_samples / 2;
-        let mut low_band = vec![0.0f32; band_length];
-        let mut high_band = vec![0.0f32; band_length];
+        let mut low_band = [0.0f32; SAMPLES_PER_BAND];
+        let mut high_band = [0.0f32; SAMPLES_PER_BAND];
 
         analysis_qmf(
             &input,
@@ -413,21 +395,19 @@ mod tests {
         let mut s_state2 = [0.0f32; QMF_STATE_SIZE];
 
         // Process multiple frames to let filter settle.
-        let num_samples = 320;
-        let band_length = num_samples / 2;
         let num_frames = 10;
-        let mut last_input = vec![0.0f32; num_samples];
-        let mut last_output = vec![0.0f32; num_samples];
+        let mut last_input = [0.0f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME];
+        let mut last_output = [0.0f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME];
 
         for frame in 0..num_frames {
-            let mut input = vec![0.0f32; num_samples];
+            let mut input = [0.0f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME];
             for (i, sample) in input.iter_mut().enumerate() {
-                let t = (frame * num_samples + i) as f32 / 32000.0;
+                let t = (frame * TWO_BAND_FILTER_SAMPLES_PER_FRAME + i) as f32 / 32000.0;
                 *sample = (2.0 * PI * 1000.0 * t).sin() * 1000.0;
             }
 
-            let mut low_band = vec![0.0f32; band_length];
-            let mut high_band = vec![0.0f32; band_length];
+            let mut low_band = [0.0f32; SAMPLES_PER_BAND];
+            let mut high_band = [0.0f32; SAMPLES_PER_BAND];
             analysis_qmf(
                 &input,
                 &mut low_band,
@@ -436,7 +416,7 @@ mod tests {
                 &mut a_state2,
             );
 
-            let mut output = vec![0.0f32; num_samples];
+            let mut output = [0.0f32; TWO_BAND_FILTER_SAMPLES_PER_FRAME];
             synthesis_qmf(
                 &low_band,
                 &high_band,

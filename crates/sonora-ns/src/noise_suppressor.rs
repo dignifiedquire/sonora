@@ -42,18 +42,13 @@ const BLOCKS_160W256_FIRST_HALF: [f32; 96] = [
 
 /// Apply the analysis/synthesis window to an extended frame.
 fn apply_filterbank_window(x: &mut [f32; FFT_SIZE]) {
-    for (x_i, &w) in x[..OVERLAP_SIZE]
-        .iter_mut()
-        .zip(BLOCKS_160W256_FIRST_HALF.iter())
-    {
-        *x_i *= w;
+    for i in 0..OVERLAP_SIZE {
+        x[i] *= BLOCKS_160W256_FIRST_HALF[i];
     }
     // x[96..160] are left as-is (window = 1.0).
-    for (x_i, &w) in x[NS_FRAME_SIZE + 1..]
-        .iter_mut()
-        .zip(BLOCKS_160W256_FIRST_HALF.iter().rev())
-    {
-        *x_i *= w;
+    // x[161..256] = 95 elements, window indices 95 down to 1 (k != 0 in C++).
+    for i in 0..(FFT_SIZE - NS_FRAME_SIZE - 1) {
+        x[NS_FRAME_SIZE + 1 + i] *= BLOCKS_160W256_FIRST_HALF[OVERLAP_SIZE - 1 - i];
     }
 }
 
@@ -121,7 +116,11 @@ fn compute_snr(
 
 /// Compute energy of an extended frame.
 fn compute_energy(x: &[f32; FFT_SIZE]) -> f32 {
-    x.iter().map(|&v| v * v).sum()
+    let mut energy = 0.0f32;
+    for i in 0..FFT_SIZE {
+        energy += x[i] * x[i];
+    }
+    energy
 }
 
 /// Delay an upper-band frame to match the band-0 filter-bank delay.
@@ -221,6 +220,30 @@ impl ChannelState {
     }
 }
 
+/// Pre-allocated scratch buffers for FFT and filterbank operations.
+///
+/// Matches C++ `NoiseSuppressor::FilterBankState`. By storing these in the
+/// struct instead of as stack locals, we avoid touching fresh stack pages
+/// on every call (macOS ARM stack probes show up as `_os_alloc_slow`).
+#[derive(Debug)]
+struct FilterBankState {
+    real: [f32; FFT_SIZE],
+    imag: [f32; FFT_SIZE],
+    extended_frame: [f32; FFT_SIZE],
+    signal_spectrum: [f32; FFT_SIZE_BY_2_PLUS_1],
+}
+
+impl FilterBankState {
+    fn new() -> Self {
+        Self {
+            real: [0.0; FFT_SIZE],
+            imag: [0.0; FFT_SIZE],
+            extended_frame: [0.0; FFT_SIZE],
+            signal_spectrum: [0.0; FFT_SIZE_BY_2_PLUS_1],
+        }
+    }
+}
+
 /// Single-channel noise suppressor.
 ///
 /// Processes 10ms frames (160 samples at 16kHz) using overlap-add
@@ -251,6 +274,7 @@ pub struct NoiseSuppressor {
     suppression_params: &'static SuppressionParams,
     fft: NsFft,
     channel: ChannelState,
+    filter_bank_state: FilterBankState,
     /// Upper band gain computed during the most recent `process()` call.
     /// Only meaningful when `num_bands > 1`.
     cached_upper_band_gain: f32,
@@ -266,6 +290,7 @@ impl NoiseSuppressor {
             suppression_params,
             fft: NsFft::default(),
             channel: ChannelState::new(suppression_params, 1),
+            filter_bank_state: FilterBankState::new(),
             cached_upper_band_gain: 1.0,
         }
     }
@@ -284,6 +309,7 @@ impl NoiseSuppressor {
             suppression_params,
             fft: NsFft::default(),
             channel: ChannelState::new(suppression_params, num_bands),
+            filter_bank_state: FilterBankState::new(),
             cached_upper_band_gain: 1.0,
         }
     }
@@ -327,32 +353,36 @@ impl NoiseSuppressor {
             self.num_analyzed_frames = 0;
         }
 
+        // Use pre-allocated scratch buffers (avoids stack probe overhead).
+        let fbs = &mut self.filter_bank_state;
+
         // Form extended frame and apply analysis window.
-        let mut extended_frame = [0.0f32; FFT_SIZE];
-        form_extended_frame(frame, &mut ch.analyze_analysis_memory, &mut extended_frame);
-        apply_filterbank_window(&mut extended_frame);
+        form_extended_frame(
+            frame,
+            &mut ch.analyze_analysis_memory,
+            &mut fbs.extended_frame,
+        );
+        apply_filterbank_window(&mut fbs.extended_frame);
 
         // Compute FFT and magnitude spectrum.
-        let mut real = [0.0f32; FFT_SIZE];
-        let mut imag = [0.0f32; FFT_SIZE];
-        self.fft.fft(&mut extended_frame, &mut real, &mut imag);
+        self.fft
+            .fft(&mut fbs.extended_frame, &mut fbs.real, &mut fbs.imag);
 
-        let mut signal_spectrum = [0.0f32; FFT_SIZE_BY_2_PLUS_1];
-        compute_magnitude_spectrum(&real, &imag, &mut signal_spectrum);
+        compute_magnitude_spectrum(&fbs.real, &fbs.imag, &mut fbs.signal_spectrum);
 
         // Compute energies.
         let mut signal_energy = 0.0f32;
         for i in 0..FFT_SIZE_BY_2_PLUS_1 {
-            signal_energy += real[i] * real[i] + imag[i] * imag[i];
+            signal_energy += fbs.real[i] * fbs.real[i] + fbs.imag[i] * fbs.imag[i];
         }
         signal_energy /= FFT_SIZE_BY_2_PLUS_1 as f32;
 
-        let signal_spectral_sum: f32 = signal_spectrum.iter().sum();
+        let signal_spectral_sum: f32 = fbs.signal_spectrum.iter().sum();
 
         // Estimate noise spectra.
         ch.noise_estimator.pre_update(
             self.num_analyzed_frames,
-            &signal_spectrum,
+            &fbs.signal_spectrum,
             signal_spectral_sum,
         );
 
@@ -362,7 +392,7 @@ impl NoiseSuppressor {
         compute_snr(
             ch.wiener_filter.filter(),
             &ch.prev_analysis_signal_spectrum,
-            &signal_spectrum,
+            &fbs.signal_spectrum,
             ch.noise_estimator.prev_noise_spectrum(),
             ch.noise_estimator.noise_spectrum(),
             &mut prior_snr,
@@ -375,7 +405,7 @@ impl NoiseSuppressor {
             &prior_snr,
             &post_snr,
             ch.noise_estimator.conservative_noise_spectrum(),
-            &signal_spectrum,
+            &fbs.signal_spectrum,
             signal_spectral_sum,
             signal_energy,
         );
@@ -383,11 +413,11 @@ impl NoiseSuppressor {
         // Post-update noise estimator with speech probability.
         ch.noise_estimator.post_update(
             ch.speech_probability_estimator.probability(),
-            &signal_spectrum,
+            &fbs.signal_spectrum,
         );
 
         // Store magnitude spectrum for the process step.
-        ch.prev_analysis_signal_spectrum = signal_spectrum;
+        ch.prev_analysis_signal_spectrum = fbs.signal_spectrum;
     }
 
     /// Apply noise suppression to the band-0 frame.
@@ -401,21 +431,23 @@ impl NoiseSuppressor {
     /// gain to upper bands.
     pub fn process(&mut self, frame: &mut [f32; NS_FRAME_SIZE]) {
         let ch = &mut self.channel;
+        let fbs = &mut self.filter_bank_state;
 
         // Form extended frame and apply analysis window.
-        let mut extended_frame = [0.0f32; FFT_SIZE];
-        form_extended_frame(frame, &mut ch.process_analysis_memory, &mut extended_frame);
-        apply_filterbank_window(&mut extended_frame);
+        form_extended_frame(
+            frame,
+            &mut ch.process_analysis_memory,
+            &mut fbs.extended_frame,
+        );
+        apply_filterbank_window(&mut fbs.extended_frame);
 
-        let energy_before_filtering = compute_energy(&extended_frame);
+        let energy_before_filtering = compute_energy(&fbs.extended_frame);
 
         // FFT and magnitude spectrum.
-        let mut real = [0.0f32; FFT_SIZE];
-        let mut imag = [0.0f32; FFT_SIZE];
-        self.fft.fft(&mut extended_frame, &mut real, &mut imag);
+        self.fft
+            .fft(&mut fbs.extended_frame, &mut fbs.real, &mut fbs.imag);
 
-        let mut signal_spectrum = [0.0f32; FFT_SIZE_BY_2_PLUS_1];
-        compute_magnitude_spectrum(&real, &imag, &mut signal_spectrum);
+        compute_magnitude_spectrum(&fbs.real, &fbs.imag, &mut fbs.signal_spectrum);
 
         // Update the Wiener filter.
         ch.wiener_filter.update(
@@ -423,7 +455,7 @@ impl NoiseSuppressor {
             ch.noise_estimator.noise_spectrum(),
             ch.noise_estimator.prev_noise_spectrum(),
             ch.noise_estimator.parametric_noise_spectrum(),
-            &signal_spectrum,
+            &fbs.signal_spectrum,
         );
 
         // Compute upper band gain before applying the filter (needs both
@@ -434,7 +466,7 @@ impl NoiseSuppressor {
                 ch.wiener_filter.filter(),
                 ch.speech_probability_estimator.probability(),
                 &ch.prev_analysis_signal_spectrum,
-                &signal_spectrum,
+                &fbs.signal_spectrum,
             );
         }
 
@@ -442,17 +474,17 @@ impl NoiseSuppressor {
         let filter = ch.wiener_filter.filter();
 
         for i in 0..FFT_SIZE_BY_2_PLUS_1 {
-            real[i] *= filter[i];
-            imag[i] *= filter[i];
+            fbs.real[i] *= filter[i];
+            fbs.imag[i] *= filter[i];
         }
 
         // Inverse FFT.
-        self.fft.ifft(&real, &imag, &mut extended_frame);
+        self.fft.ifft(&fbs.real, &fbs.imag, &mut fbs.extended_frame);
 
-        let energy_after_filtering = compute_energy(&extended_frame);
+        let energy_after_filtering = compute_energy(&fbs.extended_frame);
 
         // Apply synthesis window.
-        apply_filterbank_window(&mut extended_frame);
+        apply_filterbank_window(&mut fbs.extended_frame);
 
         // Compute overall gain adjustment.
         let gain_adjustment = ch.wiener_filter.compute_overall_scaling_factor(
@@ -463,12 +495,12 @@ impl NoiseSuppressor {
         );
 
         // Apply gain adjustment.
-        for v in extended_frame.iter_mut() {
+        for v in fbs.extended_frame.iter_mut() {
             *v *= gain_adjustment;
         }
 
         // Overlap-and-add to produce the output frame.
-        overlap_and_add(&extended_frame, &mut ch.process_synthesis_memory, frame);
+        overlap_and_add(&fbs.extended_frame, &mut ch.process_synthesis_memory, frame);
 
         // Clamp output to valid range.
         for v in frame.iter_mut() {

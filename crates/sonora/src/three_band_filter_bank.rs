@@ -56,6 +56,8 @@ const DCT_MODULATION: [[f32; NUM_BANDS]; NUM_NON_ZERO_FILTERS] = [
 
 /// Polyphase filter core: filters `input` through `filter` with shift `in_shift`,
 /// using and updating `state`.
+///
+/// Direct port of C++ `FilterCore` in `three_band_filter_bank.cc`.
 fn filter_core(
     filter: &[f32; FILTER_SIZE],
     input: &[f32; SPLIT_BAND_SIZE],
@@ -64,41 +66,56 @@ fn filter_core(
     state: &mut [f32; MEMORY_SIZE],
 ) {
     debug_assert!(in_shift < STRIDE);
+
+    // Zero-initialize output (matches C++ std::fill).
     output.fill(0.0);
 
-    // Part 1: samples that depend entirely on state.
-    // C++: for i in 0..kFilterSize, j starts at kMemorySize + k - in_shift, j -= kStride
-    for (k, out) in output[..in_shift].iter_mut().enumerate() {
-        let mut j = MEMORY_SIZE + k - in_shift;
-        for f in &filter[..] {
-            *out += state[j] * f;
-            j = j.wrapping_sub(STRIDE);
-        }
+    let f0 = filter[0];
+    let f1 = filter[1];
+    let f2 = filter[2];
+    let f3 = filter[3];
+
+    // Part 1: samples that depend entirely on state (0..in_shift, at most 3 iterations).
+    for k in 0..in_shift {
+        let j = MEMORY_SIZE + k - in_shift;
+        output[k] = f0 * state[j]
+            + f1 * state[j - STRIDE]
+            + f2 * state[j - 2 * STRIDE]
+            + f3 * state[j - 3 * STRIDE];
     }
 
     // Part 2: transition samples (partially from input, partially from state).
-    for (shift, out) in output[in_shift..(FILTER_SIZE * STRIDE)]
-        .iter_mut()
-        .enumerate()
+    // Matches C++ loop structure with loop_limit = min(kFilterSize, 1 + (shift >> kStrideLog2)).
     {
-        let loop_limit = (1 + (shift >> STRIDE_LOG2)).min(FILTER_SIZE);
-        for (i, f) in filter[..loop_limit].iter().enumerate() {
-            *out += input[shift - i * STRIDE] * f;
-        }
-        for (i, f) in filter.iter().enumerate().skip(loop_limit) {
-            let j = MEMORY_SIZE + shift - i * STRIDE;
-            *out += state[j] * f;
+        let mut shift = 0usize;
+        for k in in_shift..(FILTER_SIZE * STRIDE) {
+            let loop_limit = (1 + (shift >> STRIDE_LOG2)).min(FILTER_SIZE);
+
+            // Taps sourced from input.
+            for i in 0..loop_limit {
+                output[k] += input[shift - i * STRIDE] * filter[i];
+            }
+
+            // Taps sourced from state.
+            let j_base = MEMORY_SIZE + shift - loop_limit * STRIDE;
+            for i in loop_limit..FILTER_SIZE {
+                output[k] += state[j_base - (i - loop_limit) * STRIDE] * filter[i];
+            }
+
+            shift += 1;
         }
     }
 
-    // Part 3: samples fully within input.
-    for (idx, out) in output[(FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE]
-        .iter_mut()
-        .enumerate()
+    // Part 3: samples fully within input (hottest path — 144 of 160 iterations).
+    // All 4 taps read from input at fixed offsets.
     {
-        let shift = FILTER_SIZE * STRIDE - in_shift + idx;
-        for (i, f) in filter.iter().enumerate() {
-            *out += input[shift - i * STRIDE] * f;
+        let mut base = FILTER_SIZE * STRIDE - in_shift;
+        for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
+            output[k] = f0 * input[base]
+                + f1 * input[base - STRIDE]
+                + f2 * input[base - 2 * STRIDE]
+                + f3 * input[base - 3 * STRIDE];
+            base += 1;
         }
     }
 
