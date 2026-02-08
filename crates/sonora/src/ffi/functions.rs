@@ -700,7 +700,7 @@ pub unsafe extern "C" fn wap_get_statistics(
         }
         let apm = unsafe { &*apm };
         let rust_stats = apm.inner.get_statistics();
-        let c_stats = WapStats::from_rust(&rust_stats);
+        let c_stats = WapStats::from_rust(rust_stats);
         unsafe { ptr::write(stats_out, c_stats) };
         WapError::None
     }

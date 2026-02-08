@@ -444,13 +444,13 @@ impl AudioProcessing {
     }
 
     /// Returns the current capture stream config.
-    pub fn capture_config(&self) -> StreamConfig {
-        self.capture_config
+    pub fn capture_config(&self) -> &StreamConfig {
+        &self.capture_config
     }
 
     /// Returns the current render stream config.
-    pub fn render_config(&self) -> StreamConfig {
-        self.render_config
+    pub fn render_config(&self) -> &StreamConfig {
+        &self.render_config
     }
 
     // ─── Processing configuration ────────────────────────────────
@@ -513,7 +513,7 @@ impl AudioProcessing {
     }
 
     /// Returns current processing statistics.
-    pub fn get_statistics(&self) -> AudioProcessingStats {
+    pub fn get_statistics(&self) -> &AudioProcessingStats {
         self.inner.get_statistics()
     }
 

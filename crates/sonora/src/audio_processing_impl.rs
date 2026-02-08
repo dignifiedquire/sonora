@@ -285,8 +285,8 @@ impl AudioProcessingImpl {
     }
 
     /// Returns current processing statistics.
-    pub(crate) fn get_statistics(&self) -> AudioProcessingStats {
-        self.capture.stats.clone()
+    pub(crate) fn get_statistics(&self) -> &AudioProcessingStats {
+        &self.capture.stats
     }
 
     /// Sets the applied input volume (e.g. from the OS mixer).
