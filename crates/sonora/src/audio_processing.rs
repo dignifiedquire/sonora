@@ -427,38 +427,19 @@ impl AudioProcessing {
         AudioProcessingBuilder::new()
     }
 
-    // ─── Stream configuration ────────────────────────────────────
+    // ─── Configuration ─────────────────────────────────────────
 
-    /// Sets the capture (near-end / microphone) stream format.
+    /// Applies a new processing configuration at runtime.
     ///
-    /// Takes effect on the next `process_capture_*` call.
-    pub fn set_capture_config(&mut self, config: StreamConfig) {
-        self.capture_config = config;
-    }
-
-    /// Sets the render (far-end / playback) stream format.
-    ///
-    /// Takes effect on the next `process_render_*` call.
-    pub fn set_render_config(&mut self, config: StreamConfig) {
-        self.render_config = config;
-    }
-
-    /// Returns the current capture stream config.
-    pub fn capture_config(&self) -> &StreamConfig {
-        &self.capture_config
-    }
-
-    /// Returns the current render stream config.
-    pub fn render_config(&self) -> &StreamConfig {
-        &self.render_config
-    }
-
-    // ─── Processing configuration ────────────────────────────────
-
-    /// Applies a new configuration, selectively reinitializing submodules
-    /// as needed.
+    /// Selectively reinitializes submodules as needed. May cause brief
+    /// audio artifacts — prefer setting the initial config via the builder.
     pub fn apply_config(&mut self, config: Config) {
         self.inner.apply_config(config);
+    }
+
+    /// Returns the current processing configuration.
+    pub fn config(&self) -> &Config {
+        self.inner.config()
     }
 
     /// Sets the capture pre-gain as a linear factor.
@@ -513,13 +494,8 @@ impl AudioProcessing {
     }
 
     /// Returns current processing statistics.
-    pub fn get_statistics(&self) -> &AudioProcessingStats {
+    pub fn statistics(&self) -> &AudioProcessingStats {
         self.inner.get_statistics()
-    }
-
-    /// Returns the last applied configuration.
-    pub fn get_config(&self) -> &Config {
-        self.inner.config()
     }
 
     // ─── Analog level (for AGC) ──────────────────────────────────
@@ -589,9 +565,8 @@ impl AudioProcessing {
 
     /// Processes a capture audio frame (float, deinterleaved).
     ///
-    /// Uses the stream config set via [`set_capture_config()`](Self::set_capture_config)
-    /// or the builder. Each element of `src` / `dest` is one channel with
-    /// `capture_config().num_frames()` samples. Values in `[-1.0, 1.0]`.
+    /// Uses the stream config set via the builder. Each element of `src` /
+    /// `dest` is one channel. Values in `[-1.0, 1.0]`.
     pub fn process_capture_f32(
         &mut self,
         src: &[&[f32]],
@@ -619,8 +594,7 @@ impl AudioProcessing {
 
     /// Processes a render (far-end / playback) audio frame (float, deinterleaved).
     ///
-    /// Uses the stream config set via [`set_render_config()`](Self::set_render_config)
-    /// or the builder.
+    /// Uses the stream config set via the builder.
     pub fn process_render_f32(
         &mut self,
         src: &[&[f32]],
@@ -648,8 +622,7 @@ impl AudioProcessing {
 
     /// Processes a capture audio frame (int16, interleaved).
     ///
-    /// Uses the stream config set via [`set_capture_config()`](Self::set_capture_config)
-    /// or the builder.
+    /// Uses the stream config set via the builder.
     pub fn process_capture_i16(&mut self, src: &[i16], dest: &mut [i16]) -> Result<(), Error> {
         let cfg = self.capture_config;
         self.process_capture_i16_with_config(src, &cfg, &cfg, dest)
@@ -671,8 +644,7 @@ impl AudioProcessing {
 
     /// Processes a render (far-end / playback) audio frame (int16, interleaved).
     ///
-    /// Uses the stream config set via [`set_render_config()`](Self::set_render_config)
-    /// or the builder.
+    /// Uses the stream config set via the builder.
     pub fn process_render_i16(&mut self, src: &[i16], dest: &mut [i16]) -> Result<(), Error> {
         let cfg = self.render_config;
         self.process_render_i16_with_config(src, &cfg, &cfg, dest)
@@ -1141,7 +1113,7 @@ mod tests {
     fn all_processing_disabled_by_default() {
         // Matches C++ test: AllProcessingDisabledByDefault.
         let apm = AudioProcessing::new();
-        let config = apm.get_config();
+        let config = apm.config();
         assert!(config.echo_canceller.is_none());
         assert!(config.high_pass_filter.is_none());
         assert!(config.noise_suppression.is_none());
@@ -1312,7 +1284,7 @@ mod tests {
         }
 
         // Enable noise suppression mid-stream.
-        let mut config = apm.get_config().clone();
+        let mut config = apm.config().clone();
         config.noise_suppression = Some(NoiseSuppression::default());
         apm.apply_config(config);
 
@@ -1423,7 +1395,7 @@ mod tests {
         }
 
         // Verify the config was updated.
-        let config = apm.get_config();
+        let config = apm.config();
         assert_eq!(
             config.pre_amplifier.as_ref().unwrap().fixed_gain_factor,
             2.0

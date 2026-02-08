@@ -127,7 +127,7 @@ pub unsafe extern "C" fn wap_get_config(
         }
         // Safety: the caller guarantees the pointers are valid.
         let apm = unsafe { &*apm };
-        let rust_config = apm.inner.get_config();
+        let rust_config = apm.inner.config();
         let c_config = WapConfig::from_rust(rust_config);
         unsafe { ptr::write(config_out, c_config) };
         WapError::None
@@ -166,10 +166,7 @@ pub unsafe extern "C" fn wap_initialize(
         let rev_in_cfg = reverse_input_config.to_rust();
         let rev_out_cfg = reverse_output_config.to_rust();
         // The C API supports distinct input/output configs per path.
-        // Use set_capture_config with the input config and set_render_config
-        // with the reverse input config, then trigger reinitialization via
-        // a process call with explicit configs. For full flexibility, call
-        // the internal impl directly.
+        // Update stored configs and reinitialize via the internal impl.
         use crate::audio_processing_impl::ProcessingConfig;
         let processing_config = ProcessingConfig {
             input_stream: in_cfg,
@@ -699,7 +696,7 @@ pub unsafe extern "C" fn wap_get_statistics(
             return WapError::NullPointer;
         }
         let apm = unsafe { &*apm };
-        let rust_stats = apm.inner.get_statistics();
+        let rust_stats = apm.inner.statistics();
         let c_stats = WapStats::from_rust(rust_stats);
         unsafe { ptr::write(stats_out, c_stats) };
         WapError::None
