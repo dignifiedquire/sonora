@@ -30,8 +30,10 @@ unsafe fn hsum_ab(a: __m256, b: __m256) -> __m128 {
 /// Requires SSE2. `idx` must be 0..3.
 #[target_feature(enable = "sse2")]
 unsafe fn extract_f32_128(v: __m128, idx: i32) -> f32 {
-    #[allow(clippy::cast_ptr_alignment, reason = "__m128 is 16-byte aligned")]
-    *(&v as *const __m128).cast::<f32>().offset(idx as isize)
+    unsafe {
+        #[allow(clippy::cast_ptr_alignment, reason = "__m128 is 16-byte aligned")]
+        *(&v as *const __m128).cast::<f32>().offset(idx as isize)
+    }
 }
 
 /// Extract a single f32 from a __m256 by index.
@@ -40,8 +42,10 @@ unsafe fn extract_f32_128(v: __m128, idx: i32) -> f32 {
 /// Requires AVX. `idx` must be 0..7.
 #[target_feature(enable = "avx")]
 unsafe fn extract_f32_256(v: __m256, idx: i32) -> f32 {
-    #[allow(clippy::cast_ptr_alignment, reason = "__m256 is 32-byte aligned")]
-    *(&v as *const __m256).cast::<f32>().offset(idx as isize)
+    unsafe {
+        #[allow(clippy::cast_ptr_alignment, reason = "__m256 is 32-byte aligned")]
+        *(&v as *const __m256).cast::<f32>().offset(idx as isize)
+    }
 }
 
 /// AVX2+FMA matched filter core without accumulated error.
