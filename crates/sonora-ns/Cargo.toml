@@ -12,10 +12,16 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+cpp-comparison = ["dep:sonora-sys"]
+
 [dependencies]
 sonora-fft = { workspace = true }
 tracing = { workspace = true }
+sonora-sys = { workspace = true, features = ["cxx-bridge"], optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 test-strategy = { workspace = true }
+sonora-proptest = { workspace = true }

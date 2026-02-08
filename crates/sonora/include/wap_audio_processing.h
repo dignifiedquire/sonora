@@ -8,6 +8,21 @@
 #include <stddef.h>
 
 /**
+ * Number of frequency bands.
+ */
+#define NUM_BANDS 3
+
+/**
+ * Full-band frame size (480 samples = 48 kHz × 10 ms).
+ */
+#define FULL_BAND_SIZE 480
+
+/**
+ * Split-band frame size (160 samples per band).
+ */
+#define SPLIT_BAND_SIZE (FULL_BAND_SIZE / NUM_BANDS)
+
+/**
  * Downmix method for multi-channel capture.
  */
 enum WapDownmixMethod

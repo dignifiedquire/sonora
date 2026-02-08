@@ -51,3 +51,13 @@ pub use audio_processing::{AudioProcessing, AudioProcessingBuilder, Error};
 pub use config::{Config, RuntimeSetting};
 pub use stats::AudioProcessingStats;
 pub use stream_config::StreamConfig;
+
+// Expose internal types for per-component comparison testing.
+#[cfg(feature = "cpp-comparison")]
+#[doc(hidden)]
+pub mod internals {
+    pub use crate::high_pass_filter::HighPassFilter;
+    pub use crate::three_band_filter_bank::{
+        FULL_BAND_SIZE, NUM_BANDS, SPLIT_BAND_SIZE, ThreeBandFilterBank,
+    };
+}

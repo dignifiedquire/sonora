@@ -35,6 +35,7 @@ sonora-proptest = { path = "crates/sonora-proptest" }
 cpufeatures = "0.3"
 derive_more = { version = "2", features = ["debug"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytemuck = { version = "1", features = ["derive"] }
 proptest = "1.9"
 test-strategy = "0.4"

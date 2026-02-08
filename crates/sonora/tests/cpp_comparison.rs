@@ -1,16 +1,158 @@
 //! Integration tests comparing Rust and C++ audio processing output.
 //!
-//! Verifies that the Rust port produces near-identical output to the C++
-//! reference implementation for every supported configuration.
+//! Per-component tests verify bit-level matching at each DSP stage.
+//! Full-pipeline tests verify end-to-end equivalence.
 //!
 //! Requires the `cpp-comparison` feature and a pre-built C++ library.
 
 #![cfg(feature = "cpp-comparison")]
 
 use sonora::config::{EchoCanceller, GainController2, HighPassFilter, NoiseSuppression};
+use sonora::internals::{self, FULL_BAND_SIZE, NUM_BANDS, SPLIT_BAND_SIZE};
 use sonora::{AudioProcessing, Config, StreamConfig};
+use sonora_proptest::comparison::{assert_f32_near, compare_f32};
 
-// ── Test matrix ──────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+fn gen_signal(len: usize) -> Vec<f32> {
+    (0..len).map(|i| (i as f32 * 0.01).sin() * 0.1).collect()
+}
+
+// ── Per-component: ThreeBandFilterBank ────────────────────────────────────────
+
+#[test]
+fn filter_bank_analysis_matches_cpp() {
+    let mut rust_bank = internals::ThreeBandFilterBank::new();
+    let mut cpp_bank = sonora_sys::create_filter_bank();
+
+    let input = gen_signal(FULL_BAND_SIZE);
+    let input_arr: &[f32; FULL_BAND_SIZE] = input.as_slice().try_into().unwrap();
+
+    // Process multiple frames to test state accumulation.
+    for frame_idx in 0..10 {
+        let mut rust_out = [[0.0f32; SPLIT_BAND_SIZE]; NUM_BANDS];
+        rust_bank.analysis(input_arr, &mut rust_out);
+
+        let mut cpp_out = vec![0.0f32; FULL_BAND_SIZE]; // 3×160 packed
+        sonora_sys::filter_bank_analysis(cpp_bank.pin_mut(), &input, &mut cpp_out);
+
+        // Compare each band separately for clearer diagnostics.
+        for band in 0..NUM_BANDS {
+            let cpp_band = &cpp_out[band * SPLIT_BAND_SIZE..(band + 1) * SPLIT_BAND_SIZE];
+            let result = compare_f32(&rust_out[band], cpp_band, 0.0);
+            assert!(
+                result.mismatches == 0,
+                "filter_bank analysis band {band} frame {frame_idx}: {result}",
+            );
+        }
+    }
+}
+
+#[test]
+fn filter_bank_synthesis_matches_cpp() {
+    let mut rust_bank = internals::ThreeBandFilterBank::new();
+    let mut cpp_bank = sonora_sys::create_filter_bank();
+
+    // Generate band data (3×160 samples).
+    let band_data: Vec<f32> = (0..FULL_BAND_SIZE)
+        .map(|i| (i as f32 * 0.007).sin() * 0.05)
+        .collect();
+
+    for frame_idx in 0..10 {
+        // Rust: unpack into [[f32; 160]; 3]
+        let mut rust_input = [[0.0f32; SPLIT_BAND_SIZE]; NUM_BANDS];
+        for band in 0..NUM_BANDS {
+            rust_input[band]
+                .copy_from_slice(&band_data[band * SPLIT_BAND_SIZE..(band + 1) * SPLIT_BAND_SIZE]);
+        }
+        let mut rust_out = [0.0f32; FULL_BAND_SIZE];
+        rust_bank.synthesis(&rust_input, &mut rust_out);
+
+        let mut cpp_out = vec![0.0f32; FULL_BAND_SIZE];
+        sonora_sys::filter_bank_synthesis(cpp_bank.pin_mut(), &band_data, &mut cpp_out);
+
+        let result = compare_f32(&rust_out, &cpp_out, 0.0);
+        assert!(
+            result.mismatches == 0,
+            "filter_bank synthesis frame {frame_idx}: {result}",
+        );
+    }
+}
+
+#[test]
+fn filter_bank_roundtrip_matches_cpp() {
+    let mut rust_bank = internals::ThreeBandFilterBank::new();
+    let mut cpp_bank = sonora_sys::create_filter_bank();
+
+    let input = gen_signal(FULL_BAND_SIZE);
+    let input_arr: &[f32; FULL_BAND_SIZE] = input.as_slice().try_into().unwrap();
+
+    for frame_idx in 0..10 {
+        // Analysis
+        let mut rust_bands = [[0.0f32; SPLIT_BAND_SIZE]; NUM_BANDS];
+        rust_bank.analysis(input_arr, &mut rust_bands);
+
+        let mut cpp_bands = vec![0.0f32; FULL_BAND_SIZE];
+        sonora_sys::filter_bank_analysis(cpp_bank.pin_mut(), &input, &mut cpp_bands);
+
+        // Verify analysis matches
+        for band in 0..NUM_BANDS {
+            let cpp_band = &cpp_bands[band * SPLIT_BAND_SIZE..(band + 1) * SPLIT_BAND_SIZE];
+            let result = compare_f32(&rust_bands[band], cpp_band, 0.0);
+            assert!(
+                result.mismatches == 0,
+                "filter_bank roundtrip analysis band {band} frame {frame_idx}: {result}",
+            );
+        }
+
+        // Synthesis (use Rust analysis output for both to isolate synthesis comparison)
+        let rust_packed: Vec<f32> = rust_bands.iter().flatten().copied().collect();
+
+        let mut rust_synth_bank = internals::ThreeBandFilterBank::new();
+        let mut cpp_synth_bank = sonora_sys::create_filter_bank();
+
+        let mut rust_out = [0.0f32; FULL_BAND_SIZE];
+        rust_synth_bank.synthesis(&rust_bands, &mut rust_out);
+
+        let mut cpp_out = vec![0.0f32; FULL_BAND_SIZE];
+        sonora_sys::filter_bank_synthesis(cpp_synth_bank.pin_mut(), &rust_packed, &mut cpp_out);
+
+        let result = compare_f32(&rust_out, &cpp_out, 0.0);
+        assert!(
+            result.mismatches == 0,
+            "filter_bank roundtrip synthesis frame {frame_idx}: {result}",
+        );
+    }
+}
+
+// ── Per-component: HighPassFilter ────────────────────────────────────────────
+
+#[test]
+fn hpf_matches_cpp() {
+    for &sample_rate in &[16000i32, 32000, 48000] {
+        let frame_size = sample_rate as usize / 100;
+        let mut rust_hpf = internals::HighPassFilter::new(sample_rate, 1);
+        let mut cpp_hpf = sonora_sys::create_hpf(sample_rate, 1);
+
+        let input = gen_signal(frame_size);
+
+        for frame_idx in 0..20 {
+            let mut rust_data = vec![input.clone()];
+            rust_hpf.process_channels(&mut rust_data);
+
+            let mut cpp_data = input.clone();
+            sonora_sys::hpf_process(cpp_hpf.pin_mut(), &mut cpp_data);
+
+            let result = compare_f32(&rust_data[0], &cpp_data, 0.0);
+            assert!(
+                result.mismatches == 0,
+                "hpf {sample_rate}Hz frame {frame_idx}: {result}",
+            );
+        }
+    }
+}
+
+// ── Full pipeline ────────────────────────────────────────────────────────────
 
 struct ComponentConfig {
     name: &'static str,
@@ -27,10 +169,10 @@ struct Format {
 
 const CONFIGS: &[ComponentConfig] = &[
     ComponentConfig {
-        name: "all",
-        ec: true,
-        ns: true,
-        agc2: true,
+        name: "none",
+        ec: false,
+        ns: false,
+        agc2: false,
     },
     ComponentConfig {
         name: "ec_only",
@@ -51,10 +193,10 @@ const CONFIGS: &[ComponentConfig] = &[
         agc2: true,
     },
     ComponentConfig {
-        name: "none",
-        ec: false,
-        ns: false,
-        agc2: false,
+        name: "all",
+        ec: true,
+        ns: true,
+        agc2: true,
     },
 ];
 
@@ -76,11 +218,8 @@ const FORMATS: &[Format] = &[
     },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn gen_signal(len: usize) -> Vec<f32> {
-    (0..len).map(|i| (i as f32 * 0.01).sin() * 0.1).collect()
-}
+const WARMUP_FRAMES: usize = 50;
+const TEST_FRAMES: usize = 10;
 
 fn make_rust_apm(cfg: &ComponentConfig) -> AudioProcessing {
     let config = Config {
@@ -105,77 +244,10 @@ fn make_rust_apm(cfg: &ComponentConfig) -> AudioProcessing {
     AudioProcessing::builder().config(config).build()
 }
 
-// ── Divergence tracking ──────────────────────────────────────────────────────
-
-/// Track the worst divergence seen across all frames for a given config.
-struct DivergenceTracker {
-    label: String,
-    max_diff: f32,
-    max_diff_idx: usize,
-    max_diff_frame: usize,
-    rust_val: f32,
-    cpp_val: f32,
-}
-
-impl DivergenceTracker {
-    fn new(label: String) -> Self {
-        Self {
-            label,
-            max_diff: 0.0,
-            max_diff_idx: 0,
-            max_diff_frame: 0,
-            rust_val: 0.0,
-            cpp_val: 0.0,
-        }
-    }
-
-    fn update(&mut self, rust_out: &[f32], cpp_out: &[f32], frame: usize) {
-        for (i, (&r, &c)) in rust_out.iter().zip(cpp_out.iter()).enumerate() {
-            let diff = (r - c).abs();
-            if diff > self.max_diff {
-                self.max_diff = diff;
-                self.max_diff_idx = i;
-                self.max_diff_frame = frame;
-                self.rust_val = r;
-                self.cpp_val = c;
-            }
-        }
-    }
-
-    fn report(&self) -> String {
-        if self.max_diff > 0.0 {
-            format!(
-                "{}: max_diff={:.6e} at sample [{}] frame {} (rust={}, cpp={})",
-                self.label,
-                self.max_diff,
-                self.max_diff_idx,
-                self.max_diff_frame,
-                self.rust_val,
-                self.cpp_val,
-            )
-        } else {
-            format!("{}: bit-identical", self.label)
-        }
-    }
-}
-
-// ── Test ─────────────────────────────────────────────────────────────────────
-
-const WARMUP_FRAMES: usize = 50;
-const TEST_FRAMES: usize = 100;
-
-/// Tolerance for comparing Rust vs C++ output.
-///
-/// Small FP divergence is expected due to differences in SIMD intrinsic usage
-/// and compiler-level FP operation reordering between the Rust and C++ builds.
-///
-/// This tolerance should be kept as tight as possible and investigated if it
-/// needs to be raised.
-const TOLERANCE: f32 = 1e-4;
-
 #[test]
-fn rust_cpp_output_comparison() {
-    let mut trackers: Vec<DivergenceTracker> = Vec::new();
+fn rust_cpp_pipeline_comparison() {
+    let mut all_results: Vec<(String, sonora_proptest::comparison::ComparisonResult)> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
 
     for fmt in FORMATS {
         let frames_per_10ms = fmt.sample_rate / 100;
@@ -191,9 +263,15 @@ fn rust_cpp_output_comparison() {
             sonora_sys::apply_config(cpp_apm.pin_mut(), cfg.ec, cfg.ns, 1, cfg.agc2, false);
 
             if fmt.channels == 1 {
-                let mut tracker = DivergenceTracker::new(label);
                 let mut rust_dst = vec![0.0f32; frames_per_10ms];
                 let mut cpp_dst = vec![0.0f32; frames_per_10ms];
+                let mut worst = sonora_proptest::comparison::ComparisonResult {
+                    max_abs_diff: 0.0,
+                    max_abs_diff_index: 0,
+                    mean_abs_diff: 0.0,
+                    mismatches: 0,
+                    total: 0,
+                };
 
                 for frame_idx in 0..(WARMUP_FRAMES + TEST_FRAMES) {
                     rust_dst.fill(0.0);
@@ -215,18 +293,31 @@ fn rust_cpp_output_comparison() {
                     );
 
                     if frame_idx >= WARMUP_FRAMES {
-                        tracker.update(&rust_dst, &cpp_dst, frame_idx);
+                        let result = compare_f32(&rust_dst, &cpp_dst, 0.0);
+                        if result.max_abs_diff > worst.max_abs_diff {
+                            worst = result;
+                        }
                     }
                 }
-                trackers.push(tracker);
+
+                if worst.max_abs_diff > 0.0 {
+                    failures.push(format!("{label}: {worst}"));
+                }
+                all_results.push((label, worst));
             } else {
                 let src_r = gen_signal(frames_per_10ms);
-                let mut tracker_l = DivergenceTracker::new(format!("{label}/L"));
-                let mut tracker_r = DivergenceTracker::new(format!("{label}/R"));
                 let mut rust_dst_l = vec![0.0f32; frames_per_10ms];
                 let mut rust_dst_r = vec![0.0f32; frames_per_10ms];
                 let mut cpp_dst_l = vec![0.0f32; frames_per_10ms];
                 let mut cpp_dst_r = vec![0.0f32; frames_per_10ms];
+                let mut worst_l = sonora_proptest::comparison::ComparisonResult {
+                    max_abs_diff: 0.0,
+                    max_abs_diff_index: 0,
+                    mean_abs_diff: 0.0,
+                    mismatches: 0,
+                    total: 0,
+                };
+                let mut worst_r = worst_l.clone();
 
                 for frame_idx in 0..(WARMUP_FRAMES + TEST_FRAMES) {
                     rust_dst_l.fill(0.0);
@@ -249,31 +340,45 @@ fn rust_cpp_output_comparison() {
                     );
 
                     if frame_idx >= WARMUP_FRAMES {
-                        tracker_l.update(&rust_dst_l, &cpp_dst_l, frame_idx);
-                        tracker_r.update(&rust_dst_r, &cpp_dst_r, frame_idx);
+                        let rl = compare_f32(&rust_dst_l, &cpp_dst_l, 0.0);
+                        let rr = compare_f32(&rust_dst_r, &cpp_dst_r, 0.0);
+                        if rl.max_abs_diff > worst_l.max_abs_diff {
+                            worst_l = rl;
+                        }
+                        if rr.max_abs_diff > worst_r.max_abs_diff {
+                            worst_r = rr;
+                        }
                     }
                 }
-                trackers.push(tracker_l);
-                trackers.push(tracker_r);
+
+                if worst_l.max_abs_diff > 0.0 {
+                    failures.push(format!("{label}/L: {worst_l}"));
+                }
+                if worst_r.max_abs_diff > 0.0 {
+                    failures.push(format!("{label}/R: {worst_r}"));
+                }
+                all_results.push((format!("{label}/L"), worst_l));
+                all_results.push((format!("{label}/R"), worst_r));
             }
         }
     }
 
-    // Print full divergence report
+    // Print full report.
     eprintln!("\n=== Rust vs C++ divergence report ({WARMUP_FRAMES}+{TEST_FRAMES} frames) ===");
-    for t in &trackers {
-        eprintln!("  {}", t.report());
+    for (label, result) in &all_results {
+        if result.max_abs_diff > 0.0 {
+            eprintln!("  DIFF  {label}: {result}");
+        } else {
+            eprintln!("  OK    {label}: bit-identical");
+        }
     }
     eprintln!();
 
-    // Fail if any exceed tolerance
-    let failures: Vec<_> = trackers.iter().filter(|t| t.max_diff > TOLERANCE).collect();
     if !failures.is_empty() {
-        let msgs: Vec<_> = failures.iter().map(|t| t.report()).collect();
         panic!(
-            "Rust/C++ divergence exceeds tolerance ({TOLERANCE}) in {} config(s):\n{}",
+            "Rust/C++ divergence in {} config(s):\n{}",
             failures.len(),
-            msgs.join("\n")
+            failures.join("\n")
         );
     }
 }

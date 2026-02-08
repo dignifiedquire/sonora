@@ -3,7 +3,7 @@
 use std::fmt;
 
 /// Result of comparing two audio buffers.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ComparisonResult {
     pub max_abs_diff: f32,
     pub max_abs_diff_index: usize,

@@ -440,6 +440,7 @@ impl NoiseSuppressor {
 
         // Apply the filter to the frequency domain.
         let filter = ch.wiener_filter.filter();
+
         for i in 0..FFT_SIZE_BY_2_PLUS_1 {
             real[i] *= filter[i];
             imag[i] *= filter[i];

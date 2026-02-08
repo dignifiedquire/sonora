@@ -539,6 +539,7 @@ impl AudioProcessingImpl {
             for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
                 let capture_buffer = self.capture.capture_audio.as_ref().unwrap();
                 let band0 = capture_buffer.split_band(ch, 0);
+
                 if let Ok(frame) = <&[f32; 160]>::try_from(band0) {
                     ns.analyze(frame);
                 }

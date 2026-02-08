@@ -1,11 +1,16 @@
 // C++ shim implementation.
 //
 // Wraps the abstract AudioProcessing interface for cxx interop.
+// Also provides per-component shims for comparison testing.
 
 #include "sonora-sys/cpp/shim.h"
 
+#include <vector>
+
+#include "webrtc/api/array_view.h"
 #include "webrtc/api/audio/builtin_audio_processing_builder.h"
 #include "webrtc/api/environment/environment_factory.h"
+#include "webrtc/modules/audio_processing/ns/ns_config.h"
 
 namespace webrtc_shim {
 
@@ -108,6 +113,135 @@ int32_t process_reverse_stream_f32(
 
     return handle.apm->ProcessReverseStream(
         src_ptrs, input_config, output_config, dest_ptrs);
+}
+
+// ── Per-component: ThreeBandFilterBank ────────────────────────────────────────
+
+std::unique_ptr<FilterBankHandle> create_filter_bank() {
+    return std::make_unique<FilterBankHandle>();
+}
+
+void filter_bank_analysis(
+    FilterBankHandle& handle,
+    rust::Slice<const float> in,
+    rust::Slice<float> out) {
+    constexpr int kNumBands = webrtc::ThreeBandFilterBank::kNumBands;
+    constexpr int kSplitBandSize = webrtc::ThreeBandFilterBank::kSplitBandSize;
+    constexpr int kFullBandSize = webrtc::ThreeBandFilterBank::kFullBandSize;
+
+    // Wrap the packed output slice as 3 separate ArrayViews.
+    std::array<webrtc::ArrayView<float>, kNumBands> out_bands = {
+        webrtc::ArrayView<float>(out.data(), kSplitBandSize),
+        webrtc::ArrayView<float>(out.data() + kSplitBandSize, kSplitBandSize),
+        webrtc::ArrayView<float>(out.data() + 2 * kSplitBandSize, kSplitBandSize),
+    };
+    // Zero-init the output.
+    for (auto& band : out_bands) {
+        std::fill(band.begin(), band.end(), 0.f);
+    }
+
+    handle.bank.Analysis(
+        webrtc::ArrayView<const float, kFullBandSize>(in.data(), kFullBandSize),
+        webrtc::ArrayView<const webrtc::ArrayView<float>, kNumBands>(
+            out_bands.data(), kNumBands));
+}
+
+void filter_bank_synthesis(
+    FilterBankHandle& handle,
+    rust::Slice<const float> in,
+    rust::Slice<float> out) {
+    constexpr int kNumBands = webrtc::ThreeBandFilterBank::kNumBands;
+    constexpr int kSplitBandSize = webrtc::ThreeBandFilterBank::kSplitBandSize;
+    constexpr int kFullBandSize = webrtc::ThreeBandFilterBank::kFullBandSize;
+
+    // Wrap the packed input slice as 3 separate ArrayViews.
+    // Need non-const copy since ArrayView<const ArrayView<float>> requires ArrayView<float>.
+    std::array<float, kFullBandSize> in_copy;
+    std::copy(in.data(), in.data() + kFullBandSize, in_copy.data());
+
+    std::array<webrtc::ArrayView<float>, kNumBands> in_bands = {
+        webrtc::ArrayView<float>(in_copy.data(), kSplitBandSize),
+        webrtc::ArrayView<float>(in_copy.data() + kSplitBandSize, kSplitBandSize),
+        webrtc::ArrayView<float>(in_copy.data() + 2 * kSplitBandSize, kSplitBandSize),
+    };
+
+    handle.bank.Synthesis(
+        webrtc::ArrayView<const webrtc::ArrayView<float>, kNumBands>(
+            in_bands.data(), kNumBands),
+        webrtc::ArrayView<float, kFullBandSize>(out.data(), kFullBandSize));
+}
+
+// ── Per-component: HighPassFilter ────────────────────────────────────────────
+
+std::unique_ptr<HpfHandle> create_hpf(
+    int32_t sample_rate_hz,
+    size_t num_channels) {
+    auto handle = std::make_unique<HpfHandle>();
+    handle->hpf = std::make_unique<webrtc::HighPassFilter>(
+        sample_rate_hz, num_channels);
+    return handle;
+}
+
+void hpf_process(
+    HpfHandle& handle,
+    rust::Slice<float> ch0) {
+    // Use the vector<vector<float>>* overload of Process.
+    std::vector<std::vector<float>> audio(1);
+    audio[0].assign(ch0.data(), ch0.data() + ch0.size());
+    handle.hpf->Process(&audio);
+    std::copy(audio[0].begin(), audio[0].end(), ch0.data());
+}
+
+// ── Per-component: NoiseSuppressor ───────────────────────────────────────────
+
+std::unique_ptr<NsHandle> create_ns(
+    uint8_t level,
+    int32_t sample_rate_hz,
+    size_t num_channels) {
+    auto handle = std::make_unique<NsHandle>();
+
+    webrtc::NsConfig config;
+    config.target_level =
+        static_cast<webrtc::NsConfig::SuppressionLevel>(level);
+
+    handle->ns = std::make_unique<webrtc::NoiseSuppressor>(
+        config, static_cast<size_t>(sample_rate_hz), num_channels);
+
+    // Create an AudioBuffer sized for the split band (160 samples at 16kHz
+    // internal rate). For NS, the buffer rate is always 16000 (single band).
+    size_t buffer_rate = 16000;
+    handle->buf = std::make_unique<webrtc::AudioBuffer>(
+        buffer_rate, num_channels,
+        buffer_rate, num_channels,
+        buffer_rate);
+
+    return handle;
+}
+
+void ns_analyze(
+    NsHandle& handle,
+    rust::Slice<const float> band0) {
+    // Copy input into the AudioBuffer's channel 0.
+    auto& buf = *handle.buf;
+    float* ch = buf.channels()[0];
+    std::copy(band0.data(), band0.data() + band0.size(), ch);
+
+    handle.ns->Analyze(buf);
+}
+
+void ns_process(
+    NsHandle& handle,
+    rust::Slice<float> band0) {
+    // Copy input into the AudioBuffer's channel 0.
+    auto& buf = *handle.buf;
+    float* ch = buf.channels()[0];
+    std::copy(band0.data(), band0.data() + band0.size(), ch);
+
+    handle.ns->Process(&buf);
+
+    // Copy result back.
+    const float* out = buf.channels_const()[0];
+    std::copy(out, out + band0.size(), band0.data());
 }
 
 }  // namespace webrtc_shim

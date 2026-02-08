@@ -8,46 +8,58 @@ use crate::audio_buffer::AudioBuffer;
 
 const HIGH_PASS_FILTER_COEFFICIENTS_16KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
-        b: [0.877_353_9_f32, -1.754_683_9_f32, 0.877_353_9_f32],
-        a: [-1.881_687_3_f32, 0.888_058_5_f32],
+        b: [
+            0.8773539420715290582_f32,
+            -1.754683920749088077_f32,
+            0.8773539420715289472_f32,
+        ],
+        a: [-1.881687317862849707_f32, 0.8880584644559580410_f32],
     },
     BiQuadCoefficients {
-        b: [1.0, -1.999_810_1_f32, 1.0],
-        a: [-1.976_035_4_f32, 0.977_970_9_f32],
+        b: [1.0, -1.999810143464515022_f32, 1.0],
+        a: [-1.976035417167170793_f32, 0.9779708644868606582_f32],
     },
     BiQuadCoefficients {
-        b: [1.0, -1.999_669_2_f32, 1.0],
-        a: [-1.994_265_8_f32, 0.995_486_2_f32],
+        b: [1.0, -1.999669231394235469_f32, 1.0],
+        a: [-1.994265767864654482_f32, 0.9954861594635392441_f32],
     },
 ];
 
 const HIGH_PASS_FILTER_COEFFICIENTS_32KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
-        b: [0.910_205_6_f32, -1.820_404_9_f32, 0.910_205_6_f32],
-        a: [-1.940_710_9_f32, 0.942_351_3_f32],
+        b: [
+            0.9102055685511306615_f32,
+            -1.820404922871161624_f32,
+            0.9102055685511306615_f32,
+        ],
+        a: [-1.940710875829138482_f32, 0.9423512845457852061_f32],
     },
     BiQuadCoefficients {
-        b: [1.0, -1.999_952_5_f32, 1.0],
-        a: [-1.988_434_6_f32, 0.988_921_3_f32],
+        b: [1.0, -1.999952541587768806_f32, 1.0],
+        a: [-1.988434609801665420_f32, 0.9889212529819323416_f32],
     },
     BiQuadCoefficients {
-        b: [1.0, -1.999_917_3_f32, 1.0],
-        a: [-1.997_434_7_f32, 0.997_740_2_f32],
+        b: [1.0, -1.999917315632020021_f32, 1.0],
+        a: [-1.997434723613889629_f32, 0.9977401885079651978_f32],
     },
 ];
 
 const HIGH_PASS_FILTER_COEFFICIENTS_48KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
-        b: [0.921_379_f32, -1.842_755_2_f32, 0.921_379_f32],
-        a: [-1.960_45_f32, 0.961_186_3_f32],
+        b: [
+            0.9213790163564168_f32,
+            -1.8427552370064049_f32,
+            0.9213790163564168_f32,
+        ],
+        a: [-1.9604500061078971_f32, 0.9611862979079667_f32],
     },
     BiQuadCoefficients {
-        b: [1.0, -1.999_979_f32, 1.0],
-        a: [-1.992_383_4_f32, 0.992_600_1_f32],
+        b: [1.0, -1.9999789078432082_f32, 1.0],
+        a: [-1.9923834169149972_f32, 0.9926001112941157_f32],
     },
     BiQuadCoefficients {
-        b: [1.0, -1.999_963_3_f32, 1.0],
-        a: [-1.998_357_f32, 0.998_492_8_f32],
+        b: [1.0, -1.9999632520325810_f32, 1.0],
+        a: [-1.9983570340145236_f32, 0.9984928491805198_f32],
     },
 ];
 
@@ -61,13 +73,13 @@ fn choose_coefficients(sample_rate_hz: i32) -> &'static [BiQuadCoefficients; 3] 
 }
 
 /// Per-channel high-pass filter using cascaded biquad sections.
-pub(crate) struct HighPassFilter {
+pub struct HighPassFilter {
     sample_rate_hz: i32,
     filters: Vec<CascadedBiQuadFilter>,
 }
 
 impl HighPassFilter {
-    pub(crate) fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
+    pub fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
         let coefficients = choose_coefficients(sample_rate_hz);
         let filters = (0..num_channels)
             .map(|_| CascadedBiQuadFilter::new(coefficients))
@@ -95,7 +107,7 @@ impl HighPassFilter {
     }
 
     /// Process audio through the high-pass filter using raw channel vectors.
-    pub(crate) fn process_channels(&mut self, audio: &mut [Vec<f32>]) {
+    pub fn process_channels(&mut self, audio: &mut [Vec<f32>]) {
         debug_assert_eq!(self.filters.len(), audio.len());
         for (k, channel) in audio.iter_mut().enumerate() {
             self.filters[k].process_in_place(channel);

@@ -36,6 +36,8 @@ test-strategy = { workspace = true }
 criterion = { workspace = true }
 sonora-fft = { workspace = true }
 sonora-common-audio = { workspace = true }
+sonora-proptest = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true
