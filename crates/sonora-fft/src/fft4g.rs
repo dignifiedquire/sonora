@@ -435,8 +435,8 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
         let wk2i = w[k1 + 1];
         let wk1r = w[k2];
         let wk1i = w[k2 + 1];
-        let wk3r = wk1r - 2.0 * wk2i * wk1i;
-        let wk3i = 2.0 * wk2i * wk1r - wk1i;
+        let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
+        let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
 
         let x0r = a[j] + a[j + 2];
         let x0i = a[j + 1] + a[j + 3];
@@ -450,21 +450,21 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
         a[j + 1] = x0i + x2i;
         let x0r = x0r - x2r;
         let x0i = x0i - x2i;
-        a[j + 4] = wk2r * x0r - wk2i * x0i;
-        a[j + 5] = wk2r * x0i + wk2i * x0r;
+        a[j + 4] = wk2r.mul_add(x0r, -wk2i * x0i);
+        a[j + 5] = wk2r.mul_add(x0i, wk2i * x0r);
         let x0r = x1r - x3i;
         let x0i = x1i + x3r;
-        a[j + 2] = wk1r * x0r - wk1i * x0i;
-        a[j + 3] = wk1r * x0i + wk1i * x0r;
+        a[j + 2] = wk1r.mul_add(x0r, -wk1i * x0i);
+        a[j + 3] = wk1r.mul_add(x0i, wk1i * x0r);
         let x0r = x1r + x3i;
         let x0i = x1i - x3r;
-        a[j + 6] = wk3r * x0r - wk3i * x0i;
-        a[j + 7] = wk3r * x0i + wk3i * x0r;
+        a[j + 6] = wk3r.mul_add(x0r, -wk3i * x0i);
+        a[j + 7] = wk3r.mul_add(x0i, wk3i * x0r);
 
         let wk1r = w[k2 + 2];
         let wk1i = w[k2 + 3];
-        let wk3r = wk1r - 2.0 * wk2r * wk1i;
-        let wk3i = 2.0 * wk2r * wk1r - wk1i;
+        let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
+        let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
 
         let x0r = a[j + 8] + a[j + 10];
         let x0i = a[j + 9] + a[j + 11];
@@ -478,16 +478,16 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
         a[j + 9] = x0i + x2i;
         let x0r = x0r - x2r;
         let x0i = x0i - x2i;
-        a[j + 12] = -wk2i * x0r - wk2r * x0i;
-        a[j + 13] = -wk2i * x0i + wk2r * x0r;
+        a[j + 12] = (-wk2i).mul_add(x0r, -wk2r * x0i);
+        a[j + 13] = (-wk2i).mul_add(x0i, wk2r * x0r);
         let x0r = x1r - x3i;
         let x0i = x1i + x3r;
-        a[j + 10] = wk1r * x0r - wk1i * x0i;
-        a[j + 11] = wk1r * x0i + wk1i * x0r;
+        a[j + 10] = wk1r.mul_add(x0r, -wk1i * x0i);
+        a[j + 11] = wk1r.mul_add(x0i, wk1i * x0r);
         let x0r = x1r + x3i;
         let x0i = x1i - x3r;
-        a[j + 14] = wk3r * x0r - wk3i * x0i;
-        a[j + 15] = wk3r * x0i + wk3i * x0r;
+        a[j + 14] = wk3r.mul_add(x0r, -wk3i * x0i);
+        a[j + 15] = wk3r.mul_add(x0i, wk3i * x0r);
 
         j += 16;
     }
@@ -556,8 +556,8 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
         let wk2i = w[k1 + 1];
         let wk1r = w[k2];
         let wk1i = w[k2 + 1];
-        let wk3r = wk1r - 2.0 * wk2i * wk1i;
-        let wk3i = 2.0 * wk2i * wk1r - wk1i;
+        let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
+        let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
 
         for j in (k..l + k).step_by(2) {
             let j1 = j + l;
@@ -575,22 +575,22 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
             a[j + 1] = x0i + x2i;
             let x0r = x0r - x2r;
             let x0i = x0i - x2i;
-            a[j2] = wk2r * x0r - wk2i * x0i;
-            a[j2 + 1] = wk2r * x0i + wk2i * x0r;
+            a[j2] = wk2r.mul_add(x0r, -wk2i * x0i);
+            a[j2 + 1] = wk2r.mul_add(x0i, wk2i * x0r);
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            a[j1] = wk1r * x0r - wk1i * x0i;
-            a[j1 + 1] = wk1r * x0i + wk1i * x0r;
+            a[j1] = wk1r.mul_add(x0r, -wk1i * x0i);
+            a[j1 + 1] = wk1r.mul_add(x0i, wk1i * x0r);
             let x0r = x1r + x3i;
             let x0i = x1i - x3r;
-            a[j3] = wk3r * x0r - wk3i * x0i;
-            a[j3 + 1] = wk3r * x0i + wk3i * x0r;
+            a[j3] = wk3r.mul_add(x0r, -wk3i * x0i);
+            a[j3 + 1] = wk3r.mul_add(x0i, wk3i * x0r);
         }
 
         let wk1r = w[k2 + 2];
         let wk1i = w[k2 + 3];
-        let wk3r = wk1r - 2.0 * wk2r * wk1i;
-        let wk3i = 2.0 * wk2r * wk1r - wk1i;
+        let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
+        let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
 
         for j in (k + m..l + (k + m)).step_by(2) {
             let j1 = j + l;
@@ -608,16 +608,16 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
             a[j + 1] = x0i + x2i;
             let x0r = x0r - x2r;
             let x0i = x0i - x2i;
-            a[j2] = -wk2i * x0r - wk2r * x0i;
-            a[j2 + 1] = -wk2i * x0i + wk2r * x0r;
+            a[j2] = (-wk2i).mul_add(x0r, -wk2r * x0i);
+            a[j2 + 1] = (-wk2i).mul_add(x0i, wk2r * x0r);
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            a[j1] = wk1r * x0r - wk1i * x0i;
-            a[j1 + 1] = wk1r * x0i + wk1i * x0r;
+            a[j1] = wk1r.mul_add(x0r, -wk1i * x0i);
+            a[j1 + 1] = wk1r.mul_add(x0i, wk1i * x0r);
             let x0r = x1r + x3i;
             let x0i = x1i - x3r;
-            a[j3] = wk3r * x0r - wk3i * x0i;
-            a[j3 + 1] = wk3r * x0i + wk3i * x0r;
+            a[j3] = wk3r.mul_add(x0r, -wk3i * x0i);
+            a[j3 + 1] = wk3r.mul_add(x0i, wk3i * x0r);
         }
 
         k += m2;
@@ -637,8 +637,8 @@ fn rftfsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
         let wki = c[kk];
         let xr = a[j] - a[k];
         let xi = a[j + 1] + a[k + 1];
-        let yr = wkr * xr - wki * xi;
-        let yi = wkr * xi + wki * xr;
+        let yr = wkr.mul_add(xr, -wki * xi);
+        let yi = wkr.mul_add(xi, wki * xr);
         a[j] -= yr;
         a[j + 1] -= yi;
         a[k] += yr;
@@ -661,8 +661,8 @@ fn rftbsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
         let wki = c[kk];
         let xr = a[j] - a[k];
         let xi = a[j + 1] + a[k + 1];
-        let yr = wkr * xr + wki * xi;
-        let yi = wkr * xi - wki * xr;
+        let yr = wkr.mul_add(xr, wki * xi);
+        let yi = wkr.mul_add(xi, -wki * xr);
         a[j] -= yr;
         a[j + 1] = yi - a[j + 1];
         a[k] += yr;

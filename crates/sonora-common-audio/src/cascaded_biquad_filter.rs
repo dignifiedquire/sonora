@@ -68,7 +68,14 @@ impl CascadedBiQuadFilter {
             let mut m_y_1 = bq.y[1];
             for v in y.iter_mut() {
                 let tmp = *v;
-                *v = c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1;
+                // Use mul_add chains to emit fmadd/fmsub instructions.
+                *v = c_b_0.mul_add(
+                    tmp,
+                    c_b_1.mul_add(
+                        m_x_0,
+                        c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
+                    ),
+                );
                 m_x_1 = m_x_0;
                 m_x_0 = tmp;
                 m_y_1 = m_y_0;
@@ -93,7 +100,13 @@ impl CascadedBiQuadFilter {
             let mut m_y_1 = bq.y[1];
             for v in y.iter_mut() {
                 let tmp = *v;
-                *v = c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1;
+                *v = c_b_0.mul_add(
+                    tmp,
+                    c_b_1.mul_add(
+                        m_x_0,
+                        c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
+                    ),
+                );
                 m_x_1 = m_x_0;
                 m_x_0 = tmp;
                 m_y_1 = m_y_0;
@@ -123,7 +136,13 @@ impl CascadedBiQuadFilter {
         let mut m_y_1 = bq.y[1];
         for (xi, yi) in x.iter().zip(y.iter_mut()) {
             let tmp = *xi;
-            *yi = c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1;
+            *yi = c_b_0.mul_add(
+                tmp,
+                c_b_1.mul_add(
+                    m_x_0,
+                    c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
+                ),
+            );
             m_x_1 = m_x_0;
             m_x_0 = tmp;
             m_y_1 = m_y_0;

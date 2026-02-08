@@ -78,10 +78,13 @@ fn filter_core(
     // Part 1: samples that depend entirely on state (0..in_shift, at most 3 iterations).
     for k in 0..in_shift {
         let j = MEMORY_SIZE + k - in_shift;
-        output[k] = f0 * state[j]
-            + f1 * state[j - STRIDE]
-            + f2 * state[j - 2 * STRIDE]
-            + f3 * state[j - 3 * STRIDE];
+        output[k] = f0.mul_add(
+            state[j],
+            f1.mul_add(
+                state[j - STRIDE],
+                f2.mul_add(state[j - 2 * STRIDE], f3 * state[j - 3 * STRIDE]),
+            ),
+        );
     }
 
     // Part 2: transition samples (partially from input, partially from state).
@@ -111,10 +114,13 @@ fn filter_core(
     {
         let mut base = FILTER_SIZE * STRIDE - in_shift;
         for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
-            output[k] = f0 * input[base]
-                + f1 * input[base - STRIDE]
-                + f2 * input[base - 2 * STRIDE]
-                + f3 * input[base - 3 * STRIDE];
+            output[k] = f0.mul_add(
+                input[base],
+                f1.mul_add(
+                    input[base - STRIDE],
+                    f2.mul_add(input[base - 2 * STRIDE], f3 * input[base - 3 * STRIDE]),
+                ),
+            );
             base += 1;
         }
     }
