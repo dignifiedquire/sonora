@@ -280,8 +280,8 @@ pub struct FixedDigital {
 /// Runtime settings that can be applied without reinitialization.
 ///
 /// These are enqueued and applied at the next call to
-/// [`AudioProcessing::process_stream_f32()`](crate::AudioProcessing::process_stream_f32)
-/// or [`AudioProcessing::process_stream_i16()`](crate::AudioProcessing::process_stream_i16).
+/// [`AudioProcessing::process_capture_f32()`](crate::AudioProcessing::process_capture_f32)
+/// or [`AudioProcessing::process_capture_i16()`](crate::AudioProcessing::process_capture_i16).
 #[derive(Debug, Clone)]
 pub enum RuntimeSetting {
     /// Capture pre-gain linear factor.
