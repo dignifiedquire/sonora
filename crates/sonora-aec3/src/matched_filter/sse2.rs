@@ -14,13 +14,11 @@ use std::arch::x86_64::*;
 /// Requires SSE2 support.
 #[target_feature(enable = "sse2")]
 unsafe fn hsum_ps(v: __m128) -> f32 {
-    unsafe {
-        let shuf = _mm_shuffle_ps::<0b01_00_11_10>(v, v);
-        let sum1 = _mm_add_ps(v, shuf);
-        let shuf2 = _mm_shuffle_ps::<0b00_01_00_01>(sum1, sum1);
-        let sum2 = _mm_add_ps(sum1, shuf2);
-        _mm_cvtss_f32(sum2)
-    }
+    let shuf = _mm_shuffle_ps::<0b01_00_11_10>(v, v);
+    let sum1 = _mm_add_ps(v, shuf);
+    let shuf2 = _mm_shuffle_ps::<0b00_01_00_01>(sum1, sum1);
+    let sum2 = _mm_add_ps(sum1, shuf2);
+    _mm_cvtss_f32(sum2)
 }
 
 /// SSE2 matched filter core without accumulated error.

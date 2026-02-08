@@ -15,15 +15,13 @@ use std::arch::x86_64::*;
 /// Requires AVX2 support.
 #[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn hsum_ab(a: __m256, b: __m256) -> __m128 {
-    unsafe {
-        let s_256 = _mm256_hadd_ps(a, b);
-        let mask = _mm256_set_epi32(7, 6, 3, 2, 5, 4, 1, 0);
-        let s_256 = _mm256_permutevar8x32_ps(s_256, mask);
-        let lo = _mm256_extractf128_ps::<0>(s_256);
-        let hi = _mm256_extractf128_ps::<1>(s_256);
-        let s = _mm_hadd_ps(lo, hi);
-        _mm_hadd_ps(s, s)
-    }
+    let s_256 = _mm256_hadd_ps(a, b);
+    let mask = _mm256_set_epi32(7, 6, 3, 2, 5, 4, 1, 0);
+    let s_256 = _mm256_permutevar8x32_ps(s_256, mask);
+    let lo = _mm256_extractf128_ps::<0>(s_256);
+    let hi = _mm256_extractf128_ps::<1>(s_256);
+    let s = _mm_hadd_ps(lo, hi);
+    _mm_hadd_ps(s, s)
 }
 
 /// Extract a single f32 from a __m128 by index.
@@ -32,10 +30,8 @@ unsafe fn hsum_ab(a: __m256, b: __m256) -> __m128 {
 /// Requires SSE2. `idx` must be 0..3.
 #[target_feature(enable = "sse2")]
 unsafe fn extract_f32_128(v: __m128, idx: i32) -> f32 {
-    unsafe {
-        #[allow(clippy::cast_ptr_alignment, reason = "__m128 is 16-byte aligned")]
-        *(&v as *const __m128).cast::<f32>().offset(idx as isize)
-    }
+    #[allow(clippy::cast_ptr_alignment, reason = "__m128 is 16-byte aligned")]
+    *(&v as *const __m128).cast::<f32>().offset(idx as isize)
 }
 
 /// Extract a single f32 from a __m256 by index.
@@ -44,10 +40,8 @@ unsafe fn extract_f32_128(v: __m128, idx: i32) -> f32 {
 /// Requires AVX. `idx` must be 0..7.
 #[target_feature(enable = "avx")]
 unsafe fn extract_f32_256(v: __m256, idx: i32) -> f32 {
-    unsafe {
-        #[allow(clippy::cast_ptr_alignment, reason = "__m256 is 32-byte aligned")]
-        *(&v as *const __m256).cast::<f32>().offset(idx as isize)
-    }
+    #[allow(clippy::cast_ptr_alignment, reason = "__m256 is 32-byte aligned")]
+    *(&v as *const __m256).cast::<f32>().offset(idx as isize)
 }
 
 /// AVX2+FMA matched filter core without accumulated error.
