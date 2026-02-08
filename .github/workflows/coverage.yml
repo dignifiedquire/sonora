@@ -48,8 +48,10 @@ jobs:
           sudo apt-get install -y meson ninja-build libabsl-dev libprotobuf-dev protobuf-compiler pkg-config
       - name: Build instrumented Rust library
         run: |
-          source <(cargo llvm-cov show-env --export-prefix)
-          cargo llvm-cov clean --workspace
+          # Persist instrumentation env vars for subsequent steps.
+          cargo llvm-cov show-env --release 2>/dev/null | tr -d "'" >> "$GITHUB_ENV"
+          eval "$(cargo llvm-cov show-env --release)"
+          cargo llvm-cov clean --workspace --release
           cargo build --release -p sonora
       - name: Build and test C++ with Rust backend
         working-directory: cpp
@@ -61,9 +63,7 @@ jobs:
           ninja -C builddir
           meson test -C builddir -v --print-errorlogs
       - name: Generate coverage report
-        run: |
-          source <(cargo llvm-cov show-env --export-prefix)
-          cargo llvm-cov report --codecov --output-path cpp-rust-codecov.json
+        run: cargo llvm-cov report --release --codecov --output-path cpp-rust-codecov.json
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
