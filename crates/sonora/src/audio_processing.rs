@@ -42,10 +42,10 @@ impl error::Error for Error {}
 // ─── Format validation ──────────────────────────────────────────────
 
 /// Maximum supported sample rate.
-const MAX_SAMPLE_RATE: usize = 384_000;
+const MAX_SAMPLE_RATE: u32 = 384_000;
 
 /// Minimum supported sample rate.
-const MIN_SAMPLE_RATE: usize = 8_000;
+const MIN_SAMPLE_RATE: u32 = 8_000;
 
 /// Result of validating a single audio format.
 ///
@@ -54,10 +54,8 @@ const MIN_SAMPLE_RATE: usize = 8_000;
 enum FormatValidity {
     /// Rate and channels are within supported bounds.
     ValidAndSupported,
-    /// Rate is in [0, 7999] or above 384000 (interpretable but unsupported).
+    /// Rate is outside [8000, 384000] (interpretable but unsupported).
     ValidButUnsupportedRate,
-    /// Rate is negative (uninterpretable).
-    InvalidRate,
     /// Zero channels (uninterpretable).
     InvalidChannels,
 }
@@ -65,14 +63,14 @@ enum FormatValidity {
 impl FormatValidity {
     /// Whether the format is interpretable (we can read/write its buffers).
     fn is_interpretable(self) -> bool {
-        !matches!(self, Self::InvalidRate | Self::InvalidChannels)
+        !matches!(self, Self::InvalidChannels)
     }
 
     /// Convert to the corresponding error code, or `None` for valid formats.
     fn to_error(self) -> Option<Error> {
         match self {
             Self::ValidAndSupported => None,
-            Self::ValidButUnsupportedRate | Self::InvalidRate => Some(Error::BadSampleRate),
+            Self::ValidButUnsupportedRate => Some(Error::BadSampleRate),
             Self::InvalidChannels => Some(Error::BadNumberChannels),
         }
     }
@@ -82,14 +80,11 @@ impl FormatValidity {
 ///
 /// Mirrors C++ `ValidateAudioFormat`.
 fn validate_audio_format(config: &StreamConfig) -> FormatValidity {
-    let rate = config.sample_rate_hz_signed();
-    if rate < 0 {
-        return FormatValidity::InvalidRate;
-    }
     if config.num_channels() == 0 {
         return FormatValidity::InvalidChannels;
     }
-    if (rate as usize) < MIN_SAMPLE_RATE || (rate as usize) > MAX_SAMPLE_RATE {
+    let rate = config.sample_rate_hz();
+    if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&rate) {
         return FormatValidity::ValidButUnsupportedRate;
     }
     FormatValidity::ValidAndSupported
@@ -234,8 +229,8 @@ fn handle_unsupported_formats_i16(
     };
 
     let out_frames = output_config.num_frames();
-    let out_channels = output_config.num_channels();
-    let in_channels = input_config.num_channels();
+    let out_channels = output_config.num_channels() as usize;
+    let in_channels = input_config.num_channels() as usize;
     let out_samples = out_frames * out_channels;
 
     match option {
@@ -769,22 +764,6 @@ mod tests {
     }
 
     #[test]
-    fn format_handling_f32_error_and_unmodified() {
-        // When output format is uninterpretable (negative rate),
-        // output buffer should not be touched.
-        let mut apm = AudioProcessing::new();
-        let input_config = StreamConfig::new(16000, 1);
-        let output_config = StreamConfig::from_signed(-16000, 1);
-        let src_data = [0.5f32; 160];
-        let src: &[&[f32]] = &[&src_data];
-        // Output has 0 frames (rate is negative → 0), so nothing to check.
-        // But the key is that we get an error.
-        let dest: &mut [&mut [f32]] = &mut [];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn format_handling_i16_error_and_silence() {
         // When input rate is unsupported and rates differ, output gets silence.
         let mut apm = AudioProcessing::new();
@@ -856,12 +835,6 @@ mod tests {
         let output_config = StreamConfig::new(16000, 1);
         let result = choose_error_output_option(&input_config, &output_config);
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn format_handling_negative_rate_is_invalid() {
-        let config = StreamConfig::from_signed(-16000, 1);
-        assert_eq!(validate_audio_format(&config), FormatValidity::InvalidRate);
     }
 
     #[test]
@@ -958,9 +931,9 @@ mod tests {
     fn no_processing_when_all_disabled_i16() {
         // Matches C++ test: NoProcessingWhenAllComponentsDisabledInt.
         let mut apm = AudioProcessing::new();
-        for &rate in &[8000usize, 16000, 32000, 48000] {
+        for &rate in &[8000u32, 16000, 32000, 48000] {
             let config = StreamConfig::new(rate, 1);
-            let num_frames = rate / 100;
+            let num_frames = config.num_frames();
             let src: Vec<i16> = (0..num_frames)
                 .map(|i| ((i as i32 * 200) % 30000 - 15000) as i16)
                 .collect();

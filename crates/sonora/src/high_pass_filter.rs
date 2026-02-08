@@ -161,8 +161,8 @@ mod tests {
         stream_config: &StreamConfig,
         hpf: &mut HighPassFilter,
     ) -> Vec<f32> {
-        let rate = stream_config.sample_rate_hz();
-        let ch_count = stream_config.num_channels();
+        let rate = stream_config.sample_rate_hz() as usize;
+        let ch_count = stream_config.num_channels() as usize;
         let mut audio_buffer = AudioBuffer::new(rate, ch_count, rate, ch_count, rate);
 
         // CopyVectorToAudioBuffer: deinterleave into per-channel data.
@@ -193,7 +193,7 @@ mod tests {
         hpf: &mut HighPassFilter,
     ) -> Vec<f32> {
         let frames = stream_config.num_frames();
-        let ch_count = stream_config.num_channels();
+        let ch_count = stream_config.num_channels() as usize;
 
         let mut process_vector: Vec<Vec<f32>> = vec![vec![0.0; frames]; ch_count];
         for k in 0..frames {
@@ -208,21 +208,22 @@ mod tests {
     }
 
     fn run_bitexactness_test(
-        num_channels: usize,
+        num_channels: u16,
         use_audio_buffer_interface: bool,
         input: &[f32],
         reference: &[f32],
     ) {
         let stream_config = StreamConfig::new(16000, num_channels);
-        let mut hpf = HighPassFilter::new(16000, num_channels);
+        let mut hpf = HighPassFilter::new(16000, num_channels as usize);
 
         let frames = stream_config.num_frames();
-        let num_frames_to_process = input.len() / (frames * num_channels);
+        let nch = num_channels as usize;
+        let num_frames_to_process = input.len() / (frames * nch);
         let mut output = Vec::new();
 
         for frame_no in 0..num_frames_to_process {
-            let start = frames * num_channels * frame_no;
-            let end = frames * num_channels * (frame_no + 1);
+            let start = frames * nch * frame_no;
+            let end = frames * nch * (frame_no + 1);
             let frame_input = &input[start..end];
 
             output = if use_audio_buffer_interface {
@@ -232,9 +233,9 @@ mod tests {
             };
         }
 
-        let reference_frame_length = reference.len() / num_channels;
+        let reference_frame_length = reference.len() / nch;
         let mut output_to_verify = Vec::new();
-        for channel_no in 0..num_channels {
+        for channel_no in 0..nch {
             let start = channel_no * frames;
             let end = start + reference_frame_length;
             output_to_verify.extend_from_slice(&output[start..end]);

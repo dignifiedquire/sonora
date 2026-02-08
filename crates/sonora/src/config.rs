@@ -59,8 +59,8 @@ pub enum MaxProcessingRate {
 }
 
 impl MaxProcessingRate {
-    /// Returns the rate in Hz as a `usize`.
-    pub(crate) fn as_hz(self) -> usize {
+    /// Returns the rate in Hz.
+    pub(crate) fn as_hz(self) -> u32 {
         match self {
             Self::Rate32kHz => 32000,
             Self::Rate48kHz => 48000,

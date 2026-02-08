@@ -286,12 +286,12 @@ pub unsafe extern "C" fn wap_process_stream_f32(
 
         // Safety: caller guarantees valid pointers with correct dimensions.
         let Some(src_slices) = (unsafe {
-            rebuild_channel_slices(src, in_cfg.num_channels(), in_frames)
+            rebuild_channel_slices(src, in_cfg.num_channels() as usize, in_frames)
         }) else {
             return WapError::NullPointer;
         };
         let Some(mut dest_slices) = (unsafe {
-            rebuild_channel_slices_mut(dest, out_cfg.num_channels(), out_frames)
+            rebuild_channel_slices_mut(dest, out_cfg.num_channels() as usize, out_frames)
         }) else {
             return WapError::NullPointer;
         };
@@ -333,12 +333,12 @@ pub unsafe extern "C" fn wap_process_reverse_stream_f32(
 
         // Safety: caller guarantees valid pointers with correct dimensions.
         let Some(src_slices) = (unsafe {
-            rebuild_channel_slices(src, in_cfg.num_channels(), in_frames)
+            rebuild_channel_slices(src, in_cfg.num_channels() as usize, in_frames)
         }) else {
             return WapError::NullPointer;
         };
         let Some(mut dest_slices) = (unsafe {
-            rebuild_channel_slices_mut(dest, out_cfg.num_channels(), out_frames)
+            rebuild_channel_slices_mut(dest, out_cfg.num_channels() as usize, out_frames)
         }) else {
             return WapError::NullPointer;
         };
@@ -382,8 +382,8 @@ pub unsafe extern "C" fn wap_process_stream_i16(
         }
         let in_cfg = input_config.to_rust();
         let out_cfg = output_config.to_rust();
-        let expected_src_len = in_cfg.num_frames() * in_cfg.num_channels();
-        let expected_dest_len = out_cfg.num_frames() * out_cfg.num_channels();
+        let expected_src_len = in_cfg.num_frames() * in_cfg.num_channels() as usize;
+        let expected_dest_len = out_cfg.num_frames() * out_cfg.num_channels() as usize;
 
         if (src_len as usize) < expected_src_len || (dest_len as usize) < expected_dest_len {
             return WapError::BadDataLength;
@@ -425,8 +425,8 @@ pub unsafe extern "C" fn wap_process_reverse_stream_i16(
         }
         let in_cfg = input_config.to_rust();
         let out_cfg = output_config.to_rust();
-        let expected_src_len = in_cfg.num_frames() * in_cfg.num_channels();
-        let expected_dest_len = out_cfg.num_frames() * out_cfg.num_channels();
+        let expected_src_len = in_cfg.num_frames() * in_cfg.num_channels() as usize;
+        let expected_dest_len = out_cfg.num_frames() * out_cfg.num_channels() as usize;
 
         if (src_len as usize) < expected_src_len || (dest_len as usize) < expected_dest_len {
             return WapError::BadDataLength;

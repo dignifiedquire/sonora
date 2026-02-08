@@ -264,7 +264,10 @@ impl AudioBuffer {
         stream_config: &StreamConfig,
     ) {
         debug_assert_eq!(stream_config.num_frames(), self.input_num_frames);
-        debug_assert_eq!(stream_config.num_channels(), self.input_num_channels);
+        debug_assert_eq!(
+            stream_config.num_channels() as usize,
+            self.input_num_channels
+        );
         self.restore_num_channels();
 
         let downmix_needed = self.input_num_channels > 1 && self.num_channels == 1;
@@ -344,9 +347,9 @@ impl AudioBuffer {
         }
 
         // Copy channel 0 to any extra output channels.
-        if self.num_channels < stream_config.num_channels() {
+        if self.num_channels < stream_config.num_channels() as usize {
             let (first, rest) = stacked_data.split_at_mut(1);
-            for i in self.num_channels..stream_config.num_channels() {
+            for i in self.num_channels..stream_config.num_channels() as usize {
                 rest[i - 1][..self.output_num_frames]
                     .copy_from_slice(&first[0][..self.output_num_frames]);
             }
@@ -393,7 +396,10 @@ impl AudioBuffer {
         interleaved_data: &[i16],
         stream_config: &StreamConfig,
     ) {
-        debug_assert_eq!(stream_config.num_channels(), self.input_num_channels);
+        debug_assert_eq!(
+            stream_config.num_channels() as usize,
+            self.input_num_channels
+        );
         debug_assert_eq!(stream_config.num_frames(), self.input_num_frames);
         self.restore_num_channels();
 
@@ -478,7 +484,7 @@ impl AudioBuffer {
         stream_config: &StreamConfig,
         interleaved_data: &mut [i16],
     ) {
-        let config_num_channels = stream_config.num_channels();
+        let config_num_channels = stream_config.num_channels() as usize;
         debug_assert!(config_num_channels == self.num_channels || self.num_channels == 1);
         debug_assert_eq!(stream_config.num_frames(), self.output_num_frames);
 

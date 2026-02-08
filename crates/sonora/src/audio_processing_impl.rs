@@ -962,7 +962,7 @@ impl AudioProcessingImpl {
     pub(crate) fn proc_sample_rate_hz(&self) -> usize {
         self.capture_nonlocked
             .capture_processing_format
-            .sample_rate_hz()
+            .sample_rate_hz() as usize
     }
 
     /// The fullband capture sample rate.
@@ -975,7 +975,7 @@ impl AudioProcessingImpl {
 
     /// The number of reverse (render) channels.
     fn num_reverse_channels(&self) -> usize {
-        self.formats.render_processing_format.num_channels()
+        self.formats.render_processing_format.num_channels() as usize
     }
 
     /// The number of processing channels (may be 1 if AEC3 forces mono).
@@ -989,7 +989,7 @@ impl AudioProcessingImpl {
 
     /// The number of output channels.
     fn num_output_channels(&self) -> usize {
-        self.formats.api_format.output_stream.num_channels()
+        self.formats.api_format.output_stream.num_channels() as usize
     }
 
     // ─── Initialization internals ────────────────────────────────
@@ -999,12 +999,12 @@ impl AudioProcessingImpl {
 
         let render_audiobuffer_sample_rate_hz =
             if self.formats.api_format.reverse_output_stream.num_frames() == 0 {
-                self.formats.render_processing_format.sample_rate_hz()
+                self.formats.render_processing_format.sample_rate_hz() as usize
             } else {
                 self.formats
                     .api_format
                     .reverse_output_stream
-                    .sample_rate_hz()
+                    .sample_rate_hz() as usize
             };
 
         // Set up render audio buffer.
@@ -1013,19 +1013,19 @@ impl AudioProcessingImpl {
                 self.formats
                     .api_format
                     .reverse_input_stream
-                    .sample_rate_hz(),
-                self.formats.api_format.reverse_input_stream.num_channels(),
-                self.formats.render_processing_format.sample_rate_hz(),
-                self.formats.render_processing_format.num_channels(),
+                    .sample_rate_hz() as usize,
+                self.formats.api_format.reverse_input_stream.num_channels() as usize,
+                self.formats.render_processing_format.sample_rate_hz() as usize,
+                self.formats.render_processing_format.num_channels() as usize,
                 render_audiobuffer_sample_rate_hz,
             ));
             if self.formats.api_format.reverse_input_stream
                 != self.formats.api_format.reverse_output_stream
             {
                 self.render.render_converter = Some(AudioConverter::new(
-                    self.formats.api_format.reverse_input_stream.num_channels(),
+                    self.formats.api_format.reverse_input_stream.num_channels() as usize,
                     self.formats.api_format.reverse_input_stream.num_frames(),
-                    self.formats.api_format.reverse_output_stream.num_channels(),
+                    self.formats.api_format.reverse_output_stream.num_channels() as usize,
                     self.formats.api_format.reverse_output_stream.num_frames(),
                 ));
             } else {
@@ -1040,11 +1040,11 @@ impl AudioProcessingImpl {
         let capture_processing_rate = self
             .capture_nonlocked
             .capture_processing_format
-            .sample_rate_hz();
-        let input_rate = self.formats.api_format.input_stream.sample_rate_hz();
-        let input_channels = self.formats.api_format.input_stream.num_channels();
-        let output_rate = self.formats.api_format.output_stream.sample_rate_hz();
-        let output_channels = self.formats.api_format.output_stream.num_channels();
+            .sample_rate_hz() as usize;
+        let input_rate = self.formats.api_format.input_stream.sample_rate_hz() as usize;
+        let input_channels = self.formats.api_format.input_stream.num_channels() as usize;
+        let output_rate = self.formats.api_format.output_stream.sample_rate_hz() as usize;
+        let output_channels = self.formats.api_format.output_stream.num_channels() as usize;
 
         self.capture.capture_audio = Some(AudioBuffer::new(
             input_rate,
@@ -1376,16 +1376,16 @@ impl AudioProcessingImpl {
 
 /// Choose a suitable internal processing rate.
 fn suitable_process_rate(
-    minimum_rate: usize,
-    max_splitting_rate: usize,
+    minimum_rate: u32,
+    max_splitting_rate: u32,
     band_splitting_required: bool,
-) -> usize {
+) -> u32 {
     let uppermost_native_rate = if band_splitting_required {
         max_splitting_rate
     } else {
         48000
     };
-    for rate in [16000, 32000, 48000] {
+    for rate in [16000u32, 32000, 48000] {
         if rate >= uppermost_native_rate {
             return uppermost_native_rate;
         }
@@ -1417,8 +1417,8 @@ fn map_ns_level(level: NoiseSuppressionLevel) -> SuppressionLevel {
 /// Returns `true` if the sample rate supports multi-band (sub-band) processing.
 ///
 /// Multi-band splitting is only meaningful above the band-split rate (16 kHz).
-fn sample_rate_supports_multi_band(sample_rate_hz: usize) -> bool {
-    sample_rate_hz > BAND_SPLIT_RATE
+fn sample_rate_supports_multi_band(sample_rate_hz: u32) -> bool {
+    sample_rate_hz > BAND_SPLIT_RATE as u32
 }
 
 /// Helper trait to negate booleans of `is_empty()` result.

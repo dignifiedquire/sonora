@@ -14,7 +14,7 @@ use sonora_ns::noise_suppressor::NoiseSuppressor;
 // Full pipeline benchmarks
 // ---------------------------------------------------------------------------
 
-fn make_apm(sample_rate: usize, channels: usize) -> (AudioProcessing, StreamConfig) {
+fn make_apm(sample_rate: u32, channels: u16) -> (AudioProcessing, StreamConfig) {
     let config = Config {
         echo_canceller: Some(EchoCanceller::default()),
         noise_suppression: Some(NoiseSuppression::default()),
@@ -26,12 +26,13 @@ fn make_apm(sample_rate: usize, channels: usize) -> (AudioProcessing, StreamConf
 
     // Warm up the internal state with a few frames so we bench steady-state.
     let samples = stream.num_frames();
+    let nch = channels as usize;
     let src_ch: Vec<f32> = (0..samples)
         .map(|i| (i as f32 * 0.01).sin() * 0.1)
         .collect();
-    let src: Vec<&[f32]> = (0..channels).map(|_| src_ch.as_slice()).collect();
+    let src: Vec<&[f32]> = (0..nch).map(|_| src_ch.as_slice()).collect();
     let mut dst_ch = vec![0.0f32; samples];
-    let mut dst: Vec<&mut [f32]> = (0..channels)
+    let mut dst: Vec<&mut [f32]> = (0..nch)
         .map(|_| {
             // SAFETY: each slice is independent; we just need the borrow checker to cooperate
             unsafe { slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), samples) }

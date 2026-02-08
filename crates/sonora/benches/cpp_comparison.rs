@@ -59,8 +59,8 @@ const CONFIGS: &[ComponentConfig] = &[
 
 struct Format {
     name: &'static str,
-    sample_rate: usize,
-    channels: usize,
+    sample_rate: u32,
+    channels: u16,
 }
 
 const FORMATS: &[Format] = &[
@@ -85,7 +85,7 @@ fn gen_signal(len: usize) -> Vec<f32> {
     (0..len).map(|i| (i as f32 * 0.01).sin() * 0.1).collect()
 }
 
-fn make_rust_apm(cfg: &ComponentConfig, sample_rate: usize, channels: usize) -> AudioProcessing {
+fn make_rust_apm(cfg: &ComponentConfig, sample_rate: u32, channels: u16) -> AudioProcessing {
     let config = Config {
         echo_canceller: if cfg.ec {
             Some(EchoCanceller::default())
@@ -106,13 +106,14 @@ fn make_rust_apm(cfg: &ComponentConfig, sample_rate: usize, channels: usize) -> 
     };
     let mut apm = AudioProcessing::builder().config(config).build();
     let stream = StreamConfig::new(sample_rate, channels);
-    let frames = sample_rate / 100;
+    let frames = stream.num_frames();
+    let nch = channels as usize;
 
     // Warm up
     let src_ch = gen_signal(frames);
-    let src: Vec<&[f32]> = (0..channels).map(|_| src_ch.as_slice()).collect();
+    let src: Vec<&[f32]> = (0..nch).map(|_| src_ch.as_slice()).collect();
     let mut dst_ch = vec![0.0f32; frames];
-    let mut dst: Vec<&mut [f32]> = (0..channels)
+    let mut dst: Vec<&mut [f32]> = (0..nch)
         .map(|_| unsafe { slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), frames) })
         .collect();
     for _ in 0..50 {
@@ -125,8 +126,9 @@ fn make_rust_apm(cfg: &ComponentConfig, sample_rate: usize, channels: usize) -> 
 
 fn bench_comparison(c: &mut Criterion) {
     for fmt in FORMATS {
-        let frames = fmt.sample_rate / 100;
         let stream = StreamConfig::new(fmt.sample_rate, fmt.channels);
+        let frames = stream.num_frames();
+        let nch = fmt.channels as usize;
         let src_ch = gen_signal(frames);
 
         for cfg in CONFIGS {
@@ -136,7 +138,7 @@ fn bench_comparison(c: &mut Criterion) {
             // ── Rust ──
             {
                 let mut apm = make_rust_apm(cfg, fmt.sample_rate, fmt.channels);
-                let src: Vec<&[f32]> = (0..fmt.channels).map(|_| src_ch.as_slice()).collect();
+                let src: Vec<&[f32]> = (0..nch).map(|_| src_ch.as_slice()).collect();
 
                 if fmt.channels == 1 {
                     let mut dst = vec![0.0f32; frames];

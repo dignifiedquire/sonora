@@ -163,8 +163,8 @@ struct ComponentConfig {
 
 struct Format {
     name: &'static str,
-    sample_rate: usize,
-    channels: usize,
+    sample_rate: u32,
+    channels: u16,
 }
 
 const CONFIGS: &[ComponentConfig] = &[
@@ -250,8 +250,8 @@ fn rust_cpp_pipeline_comparison() {
     let mut failures: Vec<String> = Vec::new();
 
     for fmt in FORMATS {
-        let frames_per_10ms = fmt.sample_rate / 100;
         let stream = StreamConfig::new(fmt.sample_rate, fmt.channels);
+        let frames_per_10ms = stream.num_frames();
         let sr = fmt.sample_rate as i32;
         let src_ch = gen_signal(frames_per_10ms);
 

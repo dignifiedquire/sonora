@@ -330,14 +330,17 @@ impl WapDownmixMethod {
 
 impl WapStreamConfig {
     pub(crate) fn to_rust(self) -> StreamConfig {
-        StreamConfig::from_signed(
-            self.sample_rate_hz,
-            if self.num_channels < 0 {
-                0
-            } else {
-                self.num_channels as usize
-            },
-        )
+        let rate = if self.sample_rate_hz < 0 {
+            0
+        } else {
+            self.sample_rate_hz as u32
+        };
+        let channels = if self.num_channels < 0 {
+            0
+        } else {
+            self.num_channels as u16
+        };
+        StreamConfig::new(rate, channels)
     }
 }
 
