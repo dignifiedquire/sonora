@@ -19,20 +19,46 @@ use crate::stream_config::StreamConfig;
 /// Errors returned by audio processing operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// Bad sample rate (too low, too high, or negative).
-    BadSampleRate,
-    /// Bad number of channels (zero, or output channels don't match input).
-    BadNumberChannels,
+    /// Sample rate is outside the supported range.
+    InvalidSampleRate {
+        /// The rejected sample rate.
+        rate: u32,
+    },
+    /// Channel count is zero.
+    InvalidChannelCount {
+        /// The rejected channel count.
+        count: u16,
+    },
+    /// Output channel count is incompatible with input channel count.
+    ChannelMismatch {
+        /// Input channel count.
+        input: u16,
+        /// Output channel count.
+        output: u16,
+    },
     /// A stream parameter (e.g. delay) was out of range and was clamped.
-    BadStreamParameter,
+    StreamParameterClamped,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::BadSampleRate => write!(f, "bad sample rate"),
-            Self::BadNumberChannels => write!(f, "bad number of channels"),
-            Self::BadStreamParameter => write!(f, "bad stream parameter (clamped)"),
+            Self::InvalidSampleRate { rate } => {
+                write!(
+                    f,
+                    "invalid sample rate {rate} (must be {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE})"
+                )
+            }
+            Self::InvalidChannelCount { count } => {
+                write!(f, "invalid channel count {count}")
+            }
+            Self::ChannelMismatch { input, output } => {
+                write!(
+                    f,
+                    "channel mismatch: output ({output}) must be 1 or match input ({input})"
+                )
+            }
+            Self::StreamParameterClamped => write!(f, "stream parameter was clamped"),
         }
     }
 }
@@ -67,11 +93,15 @@ impl FormatValidity {
     }
 
     /// Convert to the corresponding error code, or `None` for valid formats.
-    fn to_error(self) -> Option<Error> {
+    fn to_error(self, config: &StreamConfig) -> Option<Error> {
         match self {
             Self::ValidAndSupported => None,
-            Self::ValidButUnsupportedRate => Some(Error::BadSampleRate),
-            Self::InvalidChannels => Some(Error::BadNumberChannels),
+            Self::ValidButUnsupportedRate => Some(Error::InvalidSampleRate {
+                rate: config.sample_rate_hz(),
+            }),
+            Self::InvalidChannels => Some(Error::InvalidChannelCount {
+                count: config.num_channels(),
+            }),
         }
     }
 }
@@ -132,13 +162,16 @@ fn choose_error_output_option(
     }
 
     // Determine error code: input error takes priority.
-    let error = if let Some(e) = input_validity.to_error() {
+    let error = if let Some(e) = input_validity.to_error(input_config) {
         e
-    } else if let Some(e) = output_validity.to_error() {
+    } else if let Some(e) = output_validity.to_error(output_config) {
         e
     } else {
         // Both individually valid but channel mismatch.
-        Error::BadNumberChannels
+        Error::ChannelMismatch {
+            input: input_config.num_channels(),
+            output: output_config.num_channels(),
+        }
     };
 
     // Determine output option.
@@ -490,7 +523,7 @@ impl AudioProcessing {
         }
         self.stream_delay_ms = clamped;
         if warning {
-            Err(Error::BadStreamParameter)
+            Err(Error::StreamParameterClamped)
         } else {
             Ok(())
         }
@@ -652,7 +685,7 @@ mod tests {
     fn set_stream_delay_clamps_negative() {
         let mut apm = AudioProcessing::new();
         let result = apm.set_stream_delay_ms(-10);
-        assert_eq!(result, Err(Error::BadStreamParameter));
+        assert_eq!(result, Err(Error::StreamParameterClamped));
         assert_eq!(apm.stream_delay_ms(), 0);
     }
 
@@ -660,7 +693,7 @@ mod tests {
     fn set_stream_delay_clamps_high() {
         let mut apm = AudioProcessing::new();
         let result = apm.set_stream_delay_ms(600);
-        assert_eq!(result, Err(Error::BadStreamParameter));
+        assert_eq!(result, Err(Error::StreamParameterClamped));
         assert_eq!(apm.stream_delay_ms(), 500);
     }
 
@@ -681,7 +714,7 @@ mod tests {
         let mut dest_data = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
         let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
-        assert_eq!(result, Err(Error::BadSampleRate));
+        assert_eq!(result, Err(Error::InvalidSampleRate { rate: 100 }));
     }
 
     #[test]
@@ -693,7 +726,7 @@ mod tests {
         let mut dest_data = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
         let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
-        assert_eq!(result, Err(Error::BadNumberChannels));
+        assert_eq!(result, Err(Error::InvalidChannelCount { count: 0 }));
     }
 
     #[test]
@@ -708,7 +741,13 @@ mod tests {
         let mut dest2 = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest0, &mut dest1, &mut dest2];
         let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
-        assert_eq!(result, Err(Error::BadNumberChannels));
+        assert_eq!(
+            result,
+            Err(Error::ChannelMismatch {
+                input: 2,
+                output: 3
+            })
+        );
     }
 
     #[test]
@@ -768,14 +807,27 @@ mod tests {
 
     #[test]
     fn error_display() {
-        assert_eq!(format!("{}", Error::BadSampleRate), "bad sample rate");
         assert_eq!(
-            format!("{}", Error::BadNumberChannels),
-            "bad number of channels"
+            format!("{}", Error::InvalidSampleRate { rate: 100 }),
+            "invalid sample rate 100 (must be 8000..=384000)"
         );
         assert_eq!(
-            format!("{}", Error::BadStreamParameter),
-            "bad stream parameter (clamped)"
+            format!("{}", Error::InvalidChannelCount { count: 0 }),
+            "invalid channel count 0"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::ChannelMismatch {
+                    input: 2,
+                    output: 3
+                }
+            ),
+            "channel mismatch: output (3) must be 1 or match input (2)"
+        );
+        assert_eq!(
+            format!("{}", Error::StreamParameterClamped),
+            "stream parameter was clamped"
         );
     }
 
@@ -792,7 +844,7 @@ mod tests {
         let mut dest_data = [42.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
         let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
-        assert_eq!(result, Err(Error::BadSampleRate));
+        assert_eq!(result, Err(Error::InvalidSampleRate { rate: 7900 }));
         // Output should be filled with silence.
         for &sample in dest[0].iter() {
             assert_eq!(sample, 0.0, "expected silence");
@@ -814,7 +866,13 @@ mod tests {
         let mut dest1 = [42.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest0, &mut dest1];
         let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
-        assert_eq!(result, Err(Error::BadNumberChannels));
+        assert_eq!(
+            result,
+            Err(Error::ChannelMismatch {
+                input: 3,
+                output: 2
+            })
+        );
         // Both output channels should be a copy of input channel 0.
         for (i, (&d0, &d1)) in dest[0].iter().zip(dest[1].iter()).enumerate().take(160) {
             assert_eq!(d0, 0.5, "dest[0][{i}] should be ch0 value");
@@ -834,7 +892,7 @@ mod tests {
         let mut dest_data = [42.0f32; 79];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
         let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
-        assert_eq!(result, Err(Error::BadSampleRate));
+        assert_eq!(result, Err(Error::InvalidSampleRate { rate: 7900 }));
         for i in 0..79 {
             assert_eq!(dest[0][i], src_data[i], "sample {i} should be exact copy");
         }
@@ -850,7 +908,7 @@ mod tests {
         let mut dest = [42i16; 160];
         let result =
             apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
-        assert_eq!(result, Err(Error::BadSampleRate));
+        assert_eq!(result, Err(Error::InvalidSampleRate { rate: 7900 }));
         for &sample in dest.iter() {
             assert_eq!(sample, 0, "expected silence");
         }
@@ -873,7 +931,13 @@ mod tests {
         let mut dest = vec![42i16; 160 * 2];
         let result =
             apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
-        assert_eq!(result, Err(Error::BadNumberChannels));
+        assert_eq!(
+            result,
+            Err(Error::ChannelMismatch {
+                input: 3,
+                output: 2
+            })
+        );
         // Each output frame should have ch0 value broadcast to both channels.
         for i in 0..160 {
             let expected = (i * 3) as i16;
@@ -902,7 +966,7 @@ mod tests {
         let mut dest = vec![42i16; 79];
         let result =
             apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
-        assert_eq!(result, Err(Error::BadSampleRate));
+        assert_eq!(result, Err(Error::InvalidSampleRate { rate: 7900 }));
         for i in 0..79 {
             assert_eq!(dest[i], src[i], "sample {i} should be exact copy");
         }

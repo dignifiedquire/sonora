@@ -260,9 +260,11 @@ unsafe fn rebuild_channel_slices_mut<'a>(
 /// Converts a [`crate::Error`] to a [`WapError`].
 fn rust_error_to_wap(err: crate::Error) -> WapError {
     match err {
-        crate::Error::BadSampleRate => WapError::BadSampleRate,
-        crate::Error::BadNumberChannels => WapError::BadNumberChannels,
-        crate::Error::BadStreamParameter => WapError::BadStreamParameter,
+        crate::Error::InvalidSampleRate { .. } => WapError::BadSampleRate,
+        crate::Error::InvalidChannelCount { .. } | crate::Error::ChannelMismatch { .. } => {
+            WapError::BadNumberChannels
+        }
+        crate::Error::StreamParameterClamped => WapError::BadStreamParameter,
     }
 }
 
