@@ -57,11 +57,11 @@ Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C target-cpu=native`:
 
 | Benchmark | Rust | C++ | Ratio |
 |-----------|------|-----|-------|
-| 16 kHz mono (all) | 4.6 us | 4.0 us | 1.15x |
-| 16 kHz mono (NS only) | 3.9 us | 3.5 us | 1.10x |
-| 16 kHz mono (EC only) | 1.3 us | 1.2 us | 1.04x |
-| 16 kHz mono (AGC2 only) | 425 ns | 476 ns | 0.89x |
-| 48 kHz mono (all) | 12.7 us | 10.1 us | 1.25x |
+| 16 kHz mono (all) | 4.2 us | 4.0 us | 1.07x |
+| 16 kHz mono (NS only) | 3.6 us | 3.6 us | 1.01x |
+| 16 kHz mono (EC only) | 1.4 us | 1.2 us | 1.15x |
+| 16 kHz mono (AGC2 only) | 418 ns | 475 ns | 0.88x |
+| 48 kHz mono (all) | 13.3 us | 10.8 us | 1.24x |
 
 ### Profiling breakdown (48 kHz mono, all components)
 
@@ -71,27 +71,27 @@ Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C target-cpu=native`:
 | High-pass filter (cascaded biquad) | 17.6% | 17.6% | At parity |
 | Band split/merge (3-band + QMF) | 20.5% | 17.8% | Rust ~15% more |
 | Noise suppression (analyze+process) | 9.5% | 5.4% | Inlining differences |
-| FFT (Ooura fft4g) | 8.6% | 6.6% | Bounds checking overhead |
+| FFT (Ooura fft4g) | 8.6% | 6.6% | Unchecked indexing approach applied |
 | Pipeline orchestration | 3.8% | ~0% | Rust Option unwrap overhead |
 | Sinc resampler scaffolding | 8.6% | 5.9% | Loop/callback overhead |
 
 Key findings:
 - SIMD (NEON) convolution is at parity with C++
-- The remaining gap is spread across many small overheads: bounds checking in FFT inner loops, Rust's stack probes for large stack frames, pipeline orchestration cost, and dynamic dispatch through trait objects
+- Noise suppression is at parity after FMA (`mul_add`) and unchecked FFT indexing
+- The remaining gap is spread across many small overheads: Rust's stack probes for large stack frames, pipeline orchestration cost, and dynamic dispatch through trait objects
 - No single "smoking gun" — optimization requires incremental improvements across many hot paths
 
 ### Component benchmarks (Rust)
 
 | Benchmark | Time |
 |-----------|------|
-| `process_stream` 16 kHz mono | 4.6 us |
-| `process_stream` 48 kHz mono | 12.7 us |
-| `process_stream` 48 kHz stereo | 20.6 us |
-| Noise suppressor (analyze + process) | 1.4 us |
-| PFFFT forward 128-point | 263 ns |
-| PFFFT forward 256-point | 532 ns |
+| `process_stream` 16 kHz mono | 4.3 us |
+| `process_stream` 48 kHz mono | 13.3 us |
+| `process_stream` 48 kHz stereo | 19.5 us |
+| Noise suppressor (analyze + process) | 1.1 us |
+| PFFFT forward 128-point | 239 ns |
+| PFFFT forward 256-point | 487 ns |
 | PFFFT forward 512-point | 1.2 us |
-| Sinc resampler 48 kHz to 16 kHz (10 ms) | 740 ns |
 
 All times are per 10 ms frame. Reproduce with:
 

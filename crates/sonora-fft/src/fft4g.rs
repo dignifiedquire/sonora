@@ -15,6 +15,20 @@
 //! - Input: Packed frequency-domain data (as produced by `rdft`)
 //! - Output: `n` real-valued time-domain samples
 //! - To recover the original signal, multiply each element by `2/n`
+//!
+//! # Safety: unchecked indexing
+//!
+//! The internal FFT routines (`apply_bitrv2`, `cft1st`, `cftmdl`, etc.) use
+//! unchecked array accesses in their inner loops. This is necessary because
+//! the Ooura algorithm computes array indices through arithmetic on loop
+//! variables and twiddle offsets, and LLVM cannot prove these are in-bounds.
+//! The resulting bounds checks add significant overhead (measured at 2x for
+//! bit-reversal) compared to the C++ original which has no such checks.
+//!
+//! All indices are bounded by `n` (the FFT size), which equals `a.len()`.
+//! This is guaranteed by the algorithm's structure — see the C reference in
+//! `fft4g.cc` — and validated by the extensive test suite (roundtrip,
+//! Parseval, linearity, property tests across sizes 4–512).
 
 use std::f32::consts::FRAC_PI_4;
 
@@ -195,7 +209,39 @@ fn build_bitrv_table(n: usize) -> (Vec<usize>, usize, bool) {
     (ip, m, use_long_swap)
 }
 
+/// Swap `a[i]` and `a[j]` without bounds checking.
+///
+/// # Safety
+/// Both `i` and `j` must be in bounds for `a`.
+#[inline(always)]
+unsafe fn swap_unchecked(a: &mut [f32], i: usize, j: usize) {
+    debug_assert!(i < a.len() && j < a.len());
+    unsafe {
+        core::ptr::swap(a.as_mut_ptr().add(i), a.as_mut_ptr().add(j));
+    }
+}
+
+/// Read `a[i]` without bounds checking.
+#[inline(always)]
+unsafe fn get(a: &[f32], i: usize) -> f32 {
+    debug_assert!(i < a.len());
+    unsafe { *a.get_unchecked(i) }
+}
+
+/// Write `a[i] = v` without bounds checking.
+#[inline(always)]
+unsafe fn set(a: &mut [f32], i: usize, v: f32) {
+    debug_assert!(i < a.len());
+    unsafe {
+        *a.get_unchecked_mut(i) = v;
+    }
+}
+
 /// Apply precomputed bit-reversal permutation to `a`.
+///
+/// All indices are bounded by `a.len()` (the FFT size `n`), which is
+/// guaranteed by the precomputed `ip` table and the structure of the
+/// bit-reversal algorithm.
 fn apply_bitrv2(ip: &[usize], m: usize, use_long_swap: bool, a: &mut [f32]) {
     let m2 = 2 * m;
     if use_long_swap {
@@ -203,37 +249,48 @@ fn apply_bitrv2(ip: &[usize], m: usize, use_long_swap: bool, a: &mut [f32]) {
             for j in 0..k {
                 let j1 = 2 * j + ip[k];
                 let k1 = 2 * k + ip[j];
-                a.swap(j1, k1);
-                a.swap(j1 + 1, k1 + 1);
-                let j1 = j1 + m2;
-                let k1 = k1 + 2 * m2;
-                a.swap(j1, k1);
-                a.swap(j1 + 1, k1 + 1);
-                let j1 = j1 + m2;
-                let k1 = k1 - m2;
-                a.swap(j1, k1);
-                a.swap(j1 + 1, k1 + 1);
-                let j1 = j1 + m2;
-                let k1 = k1 + 2 * m2;
-                a.swap(j1, k1);
-                a.swap(j1 + 1, k1 + 1);
+                // SAFETY: All indices are < n (the FFT size = a.len()).
+                // The bit-reversal table `ip` contains values < n/2, and
+                // the maximum index is 3*m2 + 2*(m-1) + ip[m-1] + 1 < 4*m2 = n.
+                unsafe {
+                    swap_unchecked(a, j1, k1);
+                    swap_unchecked(a, j1 + 1, k1 + 1);
+                    let j1 = j1 + m2;
+                    let k1 = k1 + 2 * m2;
+                    swap_unchecked(a, j1, k1);
+                    swap_unchecked(a, j1 + 1, k1 + 1);
+                    let j1 = j1 + m2;
+                    let k1 = k1 - m2;
+                    swap_unchecked(a, j1, k1);
+                    swap_unchecked(a, j1 + 1, k1 + 1);
+                    let j1 = j1 + m2;
+                    let k1 = k1 + 2 * m2;
+                    swap_unchecked(a, j1, k1);
+                    swap_unchecked(a, j1 + 1, k1 + 1);
+                }
             }
             let j1 = 2 * k + m2 + ip[k];
             let k1 = j1 + m2;
-            a.swap(j1, k1);
-            a.swap(j1 + 1, k1 + 1);
+            // SAFETY: j1 + m2 + 1 < 4*m2 = n.
+            unsafe {
+                swap_unchecked(a, j1, k1);
+                swap_unchecked(a, j1 + 1, k1 + 1);
+            }
         }
     } else {
         for k in 1..m {
             for j in 0..k {
                 let j1 = 2 * j + ip[k];
                 let k1 = 2 * k + ip[j];
-                a.swap(j1, k1);
-                a.swap(j1 + 1, k1 + 1);
-                let j1 = j1 + m2;
-                let k1 = k1 + m2;
-                a.swap(j1, k1);
-                a.swap(j1 + 1, k1 + 1);
+                // SAFETY: j1 + m2 + 1 < 2*m2 = n, k1 + m2 + 1 < 2*m2 = n.
+                unsafe {
+                    swap_unchecked(a, j1, k1);
+                    swap_unchecked(a, j1 + 1, k1 + 1);
+                    let j1 = j1 + m2;
+                    let k1 = k1 + m2;
+                    swap_unchecked(a, j1, k1);
+                    swap_unchecked(a, j1 + 1, k1 + 1);
+                }
             }
         }
     }
@@ -304,37 +361,40 @@ fn cftfsub(n: usize, a: &mut [f32], w: &[f32]) {
             l <<= 2;
         }
     }
-    if (l << 2) == n {
-        for j in (0..l).step_by(2) {
-            let j1 = j + l;
-            let j2 = j1 + l;
-            let j3 = j2 + l;
-            let x0r = a[j] + a[j1];
-            let x0i = a[j + 1] + a[j1 + 1];
-            let x1r = a[j] - a[j1];
-            let x1i = a[j + 1] - a[j1 + 1];
-            let x2r = a[j2] + a[j3];
-            let x2i = a[j2 + 1] + a[j3 + 1];
-            let x3r = a[j2] - a[j3];
-            let x3i = a[j2 + 1] - a[j3 + 1];
-            a[j] = x0r + x2r;
-            a[j + 1] = x0i + x2i;
-            a[j2] = x0r - x2r;
-            a[j2 + 1] = x0i - x2i;
-            a[j1] = x1r - x3i;
-            a[j1 + 1] = x1i + x3r;
-            a[j3] = x1r + x3i;
-            a[j3 + 1] = x1i - x3r;
-        }
-    } else {
-        for j in (0..l).step_by(2) {
-            let j1 = j + l;
-            let x0r = a[j] - a[j1];
-            let x0i = a[j + 1] - a[j1 + 1];
-            a[j] += a[j1];
-            a[j + 1] += a[j1 + 1];
-            a[j1] = x0r;
-            a[j1 + 1] = x0i;
+    // SAFETY: All indices are bounded by `n` (see module-level doc).
+    unsafe {
+        if (l << 2) == n {
+            for j in (0..l).step_by(2) {
+                let j1 = j + l;
+                let j2 = j1 + l;
+                let j3 = j2 + l;
+                let x0r = get(a, j) + get(a, j1);
+                let x0i = get(a, j + 1) + get(a, j1 + 1);
+                let x1r = get(a, j) - get(a, j1);
+                let x1i = get(a, j + 1) - get(a, j1 + 1);
+                let x2r = get(a, j2) + get(a, j3);
+                let x2i = get(a, j2 + 1) + get(a, j3 + 1);
+                let x3r = get(a, j2) - get(a, j3);
+                let x3i = get(a, j2 + 1) - get(a, j3 + 1);
+                set(a, j, x0r + x2r);
+                set(a, j + 1, x0i + x2i);
+                set(a, j2, x0r - x2r);
+                set(a, j2 + 1, x0i - x2i);
+                set(a, j1, x1r - x3i);
+                set(a, j1 + 1, x1i + x3r);
+                set(a, j3, x1r + x3i);
+                set(a, j3 + 1, x1i - x3r);
+            }
+        } else {
+            for j in (0..l).step_by(2) {
+                let j1 = j + l;
+                let x0r = get(a, j) - get(a, j1);
+                let x0i = get(a, j + 1) - get(a, j1 + 1);
+                set(a, j, get(a, j) + get(a, j1));
+                set(a, j + 1, get(a, j + 1) + get(a, j1 + 1));
+                set(a, j1, x0r);
+                set(a, j1 + 1, x0i);
+            }
         }
     }
 }
@@ -350,277 +410,294 @@ fn cftbsub(n: usize, a: &mut [f32], w: &[f32]) {
             l <<= 2;
         }
     }
-    if (l << 2) == n {
-        for j in (0..l).step_by(2) {
-            let j1 = j + l;
-            let j2 = j1 + l;
-            let j3 = j2 + l;
-            let x0r = a[j] + a[j1];
-            let x0i = -a[j + 1] - a[j1 + 1];
-            let x1r = a[j] - a[j1];
-            let x1i = -a[j + 1] + a[j1 + 1];
-            let x2r = a[j2] + a[j3];
-            let x2i = a[j2 + 1] + a[j3 + 1];
-            let x3r = a[j2] - a[j3];
-            let x3i = a[j2 + 1] - a[j3 + 1];
-            a[j] = x0r + x2r;
-            a[j + 1] = x0i - x2i;
-            a[j2] = x0r - x2r;
-            a[j2 + 1] = x0i + x2i;
-            a[j1] = x1r - x3i;
-            a[j1 + 1] = x1i - x3r;
-            a[j3] = x1r + x3i;
-            a[j3 + 1] = x1i + x3r;
-        }
-    } else {
-        for j in (0..l).step_by(2) {
-            let j1 = j + l;
-            let x0r = a[j] - a[j1];
-            let x0i = -a[j + 1] + a[j1 + 1];
-            a[j] += a[j1];
-            a[j + 1] = -a[j + 1] - a[j1 + 1];
-            a[j1] = x0r;
-            a[j1 + 1] = x0i;
+    // SAFETY: All indices are bounded by `n` (see module-level doc).
+    unsafe {
+        if (l << 2) == n {
+            for j in (0..l).step_by(2) {
+                let j1 = j + l;
+                let j2 = j1 + l;
+                let j3 = j2 + l;
+                let x0r = get(a, j) + get(a, j1);
+                let x0i = -get(a, j + 1) - get(a, j1 + 1);
+                let x1r = get(a, j) - get(a, j1);
+                let x1i = -get(a, j + 1) + get(a, j1 + 1);
+                let x2r = get(a, j2) + get(a, j3);
+                let x2i = get(a, j2 + 1) + get(a, j3 + 1);
+                let x3r = get(a, j2) - get(a, j3);
+                let x3i = get(a, j2 + 1) - get(a, j3 + 1);
+                set(a, j, x0r + x2r);
+                set(a, j + 1, x0i - x2i);
+                set(a, j2, x0r - x2r);
+                set(a, j2 + 1, x0i + x2i);
+                set(a, j1, x1r - x3i);
+                set(a, j1 + 1, x1i - x3r);
+                set(a, j3, x1r + x3i);
+                set(a, j3 + 1, x1i + x3r);
+            }
+        } else {
+            for j in (0..l).step_by(2) {
+                let j1 = j + l;
+                let x0r = get(a, j) - get(a, j1);
+                let x0i = -get(a, j + 1) + get(a, j1 + 1);
+                set(a, j, get(a, j) + get(a, j1));
+                set(a, j + 1, -get(a, j + 1) - get(a, j1 + 1));
+                set(a, j1, x0r);
+                set(a, j1 + 1, x0i);
+            }
         }
     }
 }
 
 /// First-stage complex FFT butterfly.
+///
+/// # Safety contract
+/// `a.len() >= n >= 16` and `w.len() >= n/4`. All indices stay within bounds.
 fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
-    let x0r = a[0] + a[2];
-    let x0i = a[1] + a[3];
-    let x1r = a[0] - a[2];
-    let x1i = a[1] - a[3];
-    let x2r = a[4] + a[6];
-    let x2i = a[5] + a[7];
-    let x3r = a[4] - a[6];
-    let x3i = a[5] - a[7];
-    a[0] = x0r + x2r;
-    a[1] = x0i + x2i;
-    a[4] = x0r - x2r;
-    a[5] = x0i - x2i;
-    a[2] = x1r - x3i;
-    a[3] = x1i + x3r;
-    a[6] = x1r + x3i;
-    a[7] = x1i - x3r;
+    // SAFETY: All indices into `a` are in 0..n and all indices into `w` are
+    // in 0..n/4. This is guaranteed by the Ooura algorithm structure and
+    // validated by the test suite.
+    unsafe {
+        let x0r = get(a, 0) + get(a, 2);
+        let x0i = get(a, 1) + get(a, 3);
+        let x1r = get(a, 0) - get(a, 2);
+        let x1i = get(a, 1) - get(a, 3);
+        let x2r = get(a, 4) + get(a, 6);
+        let x2i = get(a, 5) + get(a, 7);
+        let x3r = get(a, 4) - get(a, 6);
+        let x3i = get(a, 5) - get(a, 7);
+        set(a, 0, x0r + x2r);
+        set(a, 1, x0i + x2i);
+        set(a, 4, x0r - x2r);
+        set(a, 5, x0i - x2i);
+        set(a, 2, x1r - x3i);
+        set(a, 3, x1i + x3r);
+        set(a, 6, x1r + x3i);
+        set(a, 7, x1i - x3r);
 
-    let wk1r = w[2];
-    let x0r = a[8] + a[10];
-    let x0i = a[9] + a[11];
-    let x1r = a[8] - a[10];
-    let x1i = a[9] - a[11];
-    let x2r = a[12] + a[14];
-    let x2i = a[13] + a[15];
-    let x3r = a[12] - a[14];
-    let x3i = a[13] - a[15];
-    a[8] = x0r + x2r;
-    a[9] = x0i + x2i;
-    a[12] = x2i - x0i;
-    a[13] = x0r - x2r;
-    let x0r = x1r - x3i;
-    let x0i = x1i + x3r;
-    a[10] = wk1r * (x0r - x0i);
-    a[11] = wk1r * (x0r + x0i);
-    let x0r = x3i + x1r;
-    let x0i = x3r - x1i;
-    a[14] = wk1r * (x0i - x0r);
-    a[15] = wk1r * (x0i + x0r);
-
-    let mut k1 = 0_usize;
-    let mut j = 16;
-    while j < n {
-        k1 += 2;
-        let k2 = 2 * k1;
-        let wk2r = w[k1];
-        let wk2i = w[k1 + 1];
-        let wk1r = w[k2];
-        let wk1i = w[k2 + 1];
-        let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
-        let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
-
-        let x0r = a[j] + a[j + 2];
-        let x0i = a[j + 1] + a[j + 3];
-        let x1r = a[j] - a[j + 2];
-        let x1i = a[j + 1] - a[j + 3];
-        let x2r = a[j + 4] + a[j + 6];
-        let x2i = a[j + 5] + a[j + 7];
-        let x3r = a[j + 4] - a[j + 6];
-        let x3i = a[j + 5] - a[j + 7];
-        a[j] = x0r + x2r;
-        a[j + 1] = x0i + x2i;
-        let x0r = x0r - x2r;
-        let x0i = x0i - x2i;
-        a[j + 4] = wk2r.mul_add(x0r, -wk2i * x0i);
-        a[j + 5] = wk2r.mul_add(x0i, wk2i * x0r);
+        let wk1r = get(w, 2);
+        let x0r = get(a, 8) + get(a, 10);
+        let x0i = get(a, 9) + get(a, 11);
+        let x1r = get(a, 8) - get(a, 10);
+        let x1i = get(a, 9) - get(a, 11);
+        let x2r = get(a, 12) + get(a, 14);
+        let x2i = get(a, 13) + get(a, 15);
+        let x3r = get(a, 12) - get(a, 14);
+        let x3i = get(a, 13) - get(a, 15);
+        set(a, 8, x0r + x2r);
+        set(a, 9, x0i + x2i);
+        set(a, 12, x2i - x0i);
+        set(a, 13, x0r - x2r);
         let x0r = x1r - x3i;
         let x0i = x1i + x3r;
-        a[j + 2] = wk1r.mul_add(x0r, -wk1i * x0i);
-        a[j + 3] = wk1r.mul_add(x0i, wk1i * x0r);
-        let x0r = x1r + x3i;
-        let x0i = x1i - x3r;
-        a[j + 6] = wk3r.mul_add(x0r, -wk3i * x0i);
-        a[j + 7] = wk3r.mul_add(x0i, wk3i * x0r);
+        set(a, 10, wk1r * (x0r - x0i));
+        set(a, 11, wk1r * (x0r + x0i));
+        let x0r = x3i + x1r;
+        let x0i = x3r - x1i;
+        set(a, 14, wk1r * (x0i - x0r));
+        set(a, 15, wk1r * (x0i + x0r));
 
-        let wk1r = w[k2 + 2];
-        let wk1i = w[k2 + 3];
-        let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
-        let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
+        let mut k1 = 0_usize;
+        let mut j = 16;
+        while j < n {
+            k1 += 2;
+            let k2 = 2 * k1;
+            let wk2r = get(w, k1);
+            let wk2i = get(w, k1 + 1);
+            let wk1r = get(w, k2);
+            let wk1i = get(w, k2 + 1);
+            let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
+            let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
 
-        let x0r = a[j + 8] + a[j + 10];
-        let x0i = a[j + 9] + a[j + 11];
-        let x1r = a[j + 8] - a[j + 10];
-        let x1i = a[j + 9] - a[j + 11];
-        let x2r = a[j + 12] + a[j + 14];
-        let x2i = a[j + 13] + a[j + 15];
-        let x3r = a[j + 12] - a[j + 14];
-        let x3i = a[j + 13] - a[j + 15];
-        a[j + 8] = x0r + x2r;
-        a[j + 9] = x0i + x2i;
-        let x0r = x0r - x2r;
-        let x0i = x0i - x2i;
-        a[j + 12] = (-wk2i).mul_add(x0r, -wk2r * x0i);
-        a[j + 13] = (-wk2i).mul_add(x0i, wk2r * x0r);
-        let x0r = x1r - x3i;
-        let x0i = x1i + x3r;
-        a[j + 10] = wk1r.mul_add(x0r, -wk1i * x0i);
-        a[j + 11] = wk1r.mul_add(x0i, wk1i * x0r);
-        let x0r = x1r + x3i;
-        let x0i = x1i - x3r;
-        a[j + 14] = wk3r.mul_add(x0r, -wk3i * x0i);
-        a[j + 15] = wk3r.mul_add(x0i, wk3i * x0r);
+            let x0r = get(a, j) + get(a, j + 2);
+            let x0i = get(a, j + 1) + get(a, j + 3);
+            let x1r = get(a, j) - get(a, j + 2);
+            let x1i = get(a, j + 1) - get(a, j + 3);
+            let x2r = get(a, j + 4) + get(a, j + 6);
+            let x2i = get(a, j + 5) + get(a, j + 7);
+            let x3r = get(a, j + 4) - get(a, j + 6);
+            let x3i = get(a, j + 5) - get(a, j + 7);
+            set(a, j, x0r + x2r);
+            set(a, j + 1, x0i + x2i);
+            let x0r = x0r - x2r;
+            let x0i = x0i - x2i;
+            set(a, j + 4, wk2r.mul_add(x0r, -wk2i * x0i));
+            set(a, j + 5, wk2r.mul_add(x0i, wk2i * x0r));
+            let x0r = x1r - x3i;
+            let x0i = x1i + x3r;
+            set(a, j + 2, wk1r.mul_add(x0r, -wk1i * x0i));
+            set(a, j + 3, wk1r.mul_add(x0i, wk1i * x0r));
+            let x0r = x1r + x3i;
+            let x0i = x1i - x3r;
+            set(a, j + 6, wk3r.mul_add(x0r, -wk3i * x0i));
+            set(a, j + 7, wk3r.mul_add(x0i, wk3i * x0r));
 
-        j += 16;
+            let wk1r = get(w, k2 + 2);
+            let wk1i = get(w, k2 + 3);
+            let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
+            let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
+
+            let x0r = get(a, j + 8) + get(a, j + 10);
+            let x0i = get(a, j + 9) + get(a, j + 11);
+            let x1r = get(a, j + 8) - get(a, j + 10);
+            let x1i = get(a, j + 9) - get(a, j + 11);
+            let x2r = get(a, j + 12) + get(a, j + 14);
+            let x2i = get(a, j + 13) + get(a, j + 15);
+            let x3r = get(a, j + 12) - get(a, j + 14);
+            let x3i = get(a, j + 13) - get(a, j + 15);
+            set(a, j + 8, x0r + x2r);
+            set(a, j + 9, x0i + x2i);
+            let x0r = x0r - x2r;
+            let x0i = x0i - x2i;
+            set(a, j + 12, (-wk2i).mul_add(x0r, -wk2r * x0i));
+            set(a, j + 13, (-wk2i).mul_add(x0i, wk2r * x0r));
+            let x0r = x1r - x3i;
+            let x0i = x1i + x3r;
+            set(a, j + 10, wk1r.mul_add(x0r, -wk1i * x0i));
+            set(a, j + 11, wk1r.mul_add(x0i, wk1i * x0r));
+            let x0r = x1r + x3i;
+            let x0i = x1i - x3r;
+            set(a, j + 14, wk3r.mul_add(x0r, -wk3i * x0i));
+            set(a, j + 15, wk3r.mul_add(x0i, wk3i * x0r));
+
+            j += 16;
+        }
     }
 }
 
 /// Modular complex FFT butterfly stage.
+///
+/// # Safety contract
+/// All indices into `a` are in `0..n` and into `w` are in `0..n/4`.
 fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
     let m = l << 2;
 
-    for j in (0..l).step_by(2) {
-        let j1 = j + l;
-        let j2 = j1 + l;
-        let j3 = j2 + l;
-        let x0r = a[j] + a[j1];
-        let x0i = a[j + 1] + a[j1 + 1];
-        let x1r = a[j] - a[j1];
-        let x1i = a[j + 1] - a[j1 + 1];
-        let x2r = a[j2] + a[j3];
-        let x2i = a[j2 + 1] + a[j3 + 1];
-        let x3r = a[j2] - a[j3];
-        let x3i = a[j2 + 1] - a[j3 + 1];
-        a[j] = x0r + x2r;
-        a[j + 1] = x0i + x2i;
-        a[j2] = x0r - x2r;
-        a[j2 + 1] = x0i - x2i;
-        a[j1] = x1r - x3i;
-        a[j1 + 1] = x1i + x3r;
-        a[j3] = x1r + x3i;
-        a[j3 + 1] = x1i - x3r;
-    }
-
-    let wk1r = w[2];
-    for j in (m..l + m).step_by(2) {
-        let j1 = j + l;
-        let j2 = j1 + l;
-        let j3 = j2 + l;
-        let x0r = a[j] + a[j1];
-        let x0i = a[j + 1] + a[j1 + 1];
-        let x1r = a[j] - a[j1];
-        let x1i = a[j + 1] - a[j1 + 1];
-        let x2r = a[j2] + a[j3];
-        let x2i = a[j2 + 1] + a[j3 + 1];
-        let x3r = a[j2] - a[j3];
-        let x3i = a[j2 + 1] - a[j3 + 1];
-        a[j] = x0r + x2r;
-        a[j + 1] = x0i + x2i;
-        a[j2] = x2i - x0i;
-        a[j2 + 1] = x0r - x2r;
-        let x0r = x1r - x3i;
-        let x0i = x1i + x3r;
-        a[j1] = wk1r * (x0r - x0i);
-        a[j1 + 1] = wk1r * (x0r + x0i);
-        let x0r = x3i + x1r;
-        let x0i = x3r - x1i;
-        a[j3] = wk1r * (x0i - x0r);
-        a[j3 + 1] = wk1r * (x0i + x0r);
-    }
-
-    let mut k1 = 0_usize;
-    let m2 = 2 * m;
-    let mut k = m2;
-    while k < n {
-        k1 += 2;
-        let k2 = 2 * k1;
-        let wk2r = w[k1];
-        let wk2i = w[k1 + 1];
-        let wk1r = w[k2];
-        let wk1i = w[k2 + 1];
-        let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
-        let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
-
-        for j in (k..l + k).step_by(2) {
+    // SAFETY: All indices are bounded by `n` (see module-level doc).
+    unsafe {
+        for j in (0..l).step_by(2) {
             let j1 = j + l;
             let j2 = j1 + l;
             let j3 = j2 + l;
-            let x0r = a[j] + a[j1];
-            let x0i = a[j + 1] + a[j1 + 1];
-            let x1r = a[j] - a[j1];
-            let x1i = a[j + 1] - a[j1 + 1];
-            let x2r = a[j2] + a[j3];
-            let x2i = a[j2 + 1] + a[j3 + 1];
-            let x3r = a[j2] - a[j3];
-            let x3i = a[j2 + 1] - a[j3 + 1];
-            a[j] = x0r + x2r;
-            a[j + 1] = x0i + x2i;
-            let x0r = x0r - x2r;
-            let x0i = x0i - x2i;
-            a[j2] = wk2r.mul_add(x0r, -wk2i * x0i);
-            a[j2 + 1] = wk2r.mul_add(x0i, wk2i * x0r);
-            let x0r = x1r - x3i;
-            let x0i = x1i + x3r;
-            a[j1] = wk1r.mul_add(x0r, -wk1i * x0i);
-            a[j1 + 1] = wk1r.mul_add(x0i, wk1i * x0r);
-            let x0r = x1r + x3i;
-            let x0i = x1i - x3r;
-            a[j3] = wk3r.mul_add(x0r, -wk3i * x0i);
-            a[j3 + 1] = wk3r.mul_add(x0i, wk3i * x0r);
+            let x0r = get(a, j) + get(a, j1);
+            let x0i = get(a, j + 1) + get(a, j1 + 1);
+            let x1r = get(a, j) - get(a, j1);
+            let x1i = get(a, j + 1) - get(a, j1 + 1);
+            let x2r = get(a, j2) + get(a, j3);
+            let x2i = get(a, j2 + 1) + get(a, j3 + 1);
+            let x3r = get(a, j2) - get(a, j3);
+            let x3i = get(a, j2 + 1) - get(a, j3 + 1);
+            set(a, j, x0r + x2r);
+            set(a, j + 1, x0i + x2i);
+            set(a, j2, x0r - x2r);
+            set(a, j2 + 1, x0i - x2i);
+            set(a, j1, x1r - x3i);
+            set(a, j1 + 1, x1i + x3r);
+            set(a, j3, x1r + x3i);
+            set(a, j3 + 1, x1i - x3r);
         }
 
-        let wk1r = w[k2 + 2];
-        let wk1i = w[k2 + 3];
-        let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
-        let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
-
-        for j in (k + m..l + (k + m)).step_by(2) {
+        let wk1r = get(w, 2);
+        for j in (m..l + m).step_by(2) {
             let j1 = j + l;
             let j2 = j1 + l;
             let j3 = j2 + l;
-            let x0r = a[j] + a[j1];
-            let x0i = a[j + 1] + a[j1 + 1];
-            let x1r = a[j] - a[j1];
-            let x1i = a[j + 1] - a[j1 + 1];
-            let x2r = a[j2] + a[j3];
-            let x2i = a[j2 + 1] + a[j3 + 1];
-            let x3r = a[j2] - a[j3];
-            let x3i = a[j2 + 1] - a[j3 + 1];
-            a[j] = x0r + x2r;
-            a[j + 1] = x0i + x2i;
-            let x0r = x0r - x2r;
-            let x0i = x0i - x2i;
-            a[j2] = (-wk2i).mul_add(x0r, -wk2r * x0i);
-            a[j2 + 1] = (-wk2i).mul_add(x0i, wk2r * x0r);
+            let x0r = get(a, j) + get(a, j1);
+            let x0i = get(a, j + 1) + get(a, j1 + 1);
+            let x1r = get(a, j) - get(a, j1);
+            let x1i = get(a, j + 1) - get(a, j1 + 1);
+            let x2r = get(a, j2) + get(a, j3);
+            let x2i = get(a, j2 + 1) + get(a, j3 + 1);
+            let x3r = get(a, j2) - get(a, j3);
+            let x3i = get(a, j2 + 1) - get(a, j3 + 1);
+            set(a, j, x0r + x2r);
+            set(a, j + 1, x0i + x2i);
+            set(a, j2, x2i - x0i);
+            set(a, j2 + 1, x0r - x2r);
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            a[j1] = wk1r.mul_add(x0r, -wk1i * x0i);
-            a[j1 + 1] = wk1r.mul_add(x0i, wk1i * x0r);
-            let x0r = x1r + x3i;
-            let x0i = x1i - x3r;
-            a[j3] = wk3r.mul_add(x0r, -wk3i * x0i);
-            a[j3 + 1] = wk3r.mul_add(x0i, wk3i * x0r);
+            set(a, j1, wk1r * (x0r - x0i));
+            set(a, j1 + 1, wk1r * (x0r + x0i));
+            let x0r = x3i + x1r;
+            let x0i = x3r - x1i;
+            set(a, j3, wk1r * (x0i - x0r));
+            set(a, j3 + 1, wk1r * (x0i + x0r));
         }
 
-        k += m2;
+        let mut k1 = 0_usize;
+        let m2 = 2 * m;
+        let mut k = m2;
+        while k < n {
+            k1 += 2;
+            let k2 = 2 * k1;
+            let wk2r = get(w, k1);
+            let wk2i = get(w, k1 + 1);
+            let wk1r = get(w, k2);
+            let wk1i = get(w, k2 + 1);
+            let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
+            let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
+
+            for j in (k..l + k).step_by(2) {
+                let j1 = j + l;
+                let j2 = j1 + l;
+                let j3 = j2 + l;
+                let x0r = get(a, j) + get(a, j1);
+                let x0i = get(a, j + 1) + get(a, j1 + 1);
+                let x1r = get(a, j) - get(a, j1);
+                let x1i = get(a, j + 1) - get(a, j1 + 1);
+                let x2r = get(a, j2) + get(a, j3);
+                let x2i = get(a, j2 + 1) + get(a, j3 + 1);
+                let x3r = get(a, j2) - get(a, j3);
+                let x3i = get(a, j2 + 1) - get(a, j3 + 1);
+                set(a, j, x0r + x2r);
+                set(a, j + 1, x0i + x2i);
+                let x0r = x0r - x2r;
+                let x0i = x0i - x2i;
+                set(a, j2, wk2r.mul_add(x0r, -wk2i * x0i));
+                set(a, j2 + 1, wk2r.mul_add(x0i, wk2i * x0r));
+                let x0r = x1r - x3i;
+                let x0i = x1i + x3r;
+                set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
+                set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
+                let x0r = x1r + x3i;
+                let x0i = x1i - x3r;
+                set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
+                set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
+            }
+
+            let wk1r = get(w, k2 + 2);
+            let wk1i = get(w, k2 + 3);
+            let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
+            let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
+
+            for j in (k + m..l + (k + m)).step_by(2) {
+                let j1 = j + l;
+                let j2 = j1 + l;
+                let j3 = j2 + l;
+                let x0r = get(a, j) + get(a, j1);
+                let x0i = get(a, j + 1) + get(a, j1 + 1);
+                let x1r = get(a, j) - get(a, j1);
+                let x1i = get(a, j + 1) - get(a, j1 + 1);
+                let x2r = get(a, j2) + get(a, j3);
+                let x2i = get(a, j2 + 1) + get(a, j3 + 1);
+                let x3r = get(a, j2) - get(a, j3);
+                let x3i = get(a, j2 + 1) - get(a, j3 + 1);
+                set(a, j, x0r + x2r);
+                set(a, j + 1, x0i + x2i);
+                let x0r = x0r - x2r;
+                let x0i = x0i - x2i;
+                set(a, j2, (-wk2i).mul_add(x0r, -wk2r * x0i));
+                set(a, j2 + 1, (-wk2i).mul_add(x0i, wk2r * x0r));
+                let x0r = x1r - x3i;
+                let x0i = x1i + x3r;
+                set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
+                set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
+                let x0r = x1r + x3i;
+                let x0i = x1i - x3r;
+                set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
+                set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
+            }
+
+            k += m2;
+        }
     }
 }
 
@@ -630,20 +707,23 @@ fn rftfsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
     let ks = 2 * nc / m;
     let mut kk = 0;
     let mut j = 2;
-    while j < m {
-        let k = n - j;
-        kk += ks;
-        let wkr = 0.5 - c[nc - kk];
-        let wki = c[kk];
-        let xr = a[j] - a[k];
-        let xi = a[j + 1] + a[k + 1];
-        let yr = wkr.mul_add(xr, -wki * xi);
-        let yi = wkr.mul_add(xi, wki * xr);
-        a[j] -= yr;
-        a[j + 1] -= yi;
-        a[k] += yr;
-        a[k + 1] -= yi;
-        j += 2;
+    // SAFETY: j in 2..m by 2, k = n-j, all indices in 0..n. c indices in 0..nc.
+    unsafe {
+        while j < m {
+            let k = n - j;
+            kk += ks;
+            let wkr = 0.5 - get(c, nc - kk);
+            let wki = get(c, kk);
+            let xr = get(a, j) - get(a, k);
+            let xi = get(a, j + 1) + get(a, k + 1);
+            let yr = wkr.mul_add(xr, -wki * xi);
+            let yi = wkr.mul_add(xi, wki * xr);
+            set(a, j, get(a, j) - yr);
+            set(a, j + 1, get(a, j + 1) - yi);
+            set(a, k, get(a, k) + yr);
+            set(a, k + 1, get(a, k + 1) - yi);
+            j += 2;
+        }
     }
 }
 
@@ -652,24 +732,27 @@ fn rftbsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
     let m = n >> 1;
     let ks = 2 * nc / m;
     let mut kk = 0;
-    a[1] = -a[1];
-    let mut j = 2;
-    while j < m {
-        let k = n - j;
-        kk += ks;
-        let wkr = 0.5 - c[nc - kk];
-        let wki = c[kk];
-        let xr = a[j] - a[k];
-        let xi = a[j + 1] + a[k + 1];
-        let yr = wkr.mul_add(xr, wki * xi);
-        let yi = wkr.mul_add(xi, -wki * xr);
-        a[j] -= yr;
-        a[j + 1] = yi - a[j + 1];
-        a[k] += yr;
-        a[k + 1] = yi - a[k + 1];
-        j += 2;
+    // SAFETY: All indices in 0..n. c indices in 0..nc.
+    unsafe {
+        set(a, 1, -get(a, 1));
+        let mut j = 2;
+        while j < m {
+            let k = n - j;
+            kk += ks;
+            let wkr = 0.5 - get(c, nc - kk);
+            let wki = get(c, kk);
+            let xr = get(a, j) - get(a, k);
+            let xi = get(a, j + 1) + get(a, k + 1);
+            let yr = wkr.mul_add(xr, wki * xi);
+            let yi = wkr.mul_add(xi, -wki * xr);
+            set(a, j, get(a, j) - yr);
+            set(a, j + 1, yi - get(a, j + 1));
+            set(a, k, get(a, k) + yr);
+            set(a, k + 1, yi - get(a, k + 1));
+            j += 2;
+        }
+        set(a, m + 1, -get(a, m + 1));
     }
-    a[m + 1] = -a[m + 1];
 }
 
 #[cfg(test)]
