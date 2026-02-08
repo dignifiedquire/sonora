@@ -1,0 +1,38 @@
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...90"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        informational: true
+
+flags:
+  rust:
+    paths:
+      - crates/
+    carryforward: true
+  cpp-ffi:
+    paths:
+      - crates/
+    carryforward: true
+
+comment:
+  layout: "header, diff, flags"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "cpp/"
+  - "fuzz/"
+  - "crates/sonora/benches/"
+  - "crates/sonora-proptest/"

@@ -4,3 +4,8 @@
 *.swo
 *.stamp
 .DS_Store
+
+# Coverage
+lcov.info
+*.profraw
+*.profdata

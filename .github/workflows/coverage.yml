@@ -1,0 +1,73 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-coverage:
+    name: Rust Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: taiki-e/install-action@nextest
+      - name: Generate coverage
+        run: cargo llvm-cov nextest --workspace --codecov --output-path rust-codecov.json
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: rust-codecov.json
+          flags: rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  cpp-rust-coverage:
+    name: C++ FFI Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libabsl-dev libprotobuf-dev protobuf-compiler pkg-config
+      - name: Build instrumented Rust library
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo llvm-cov clean --workspace
+          cargo build --release -p sonora
+      - name: Build and test C++ with Rust backend
+        working-directory: cpp
+        run: |
+          meson setup builddir \
+            -Dtests=enabled \
+            -Drust-backend=true \
+            -Dprefix=${{ github.workspace }}/install
+          ninja -C builddir
+          meson test -C builddir -v --print-errorlogs
+      - name: Generate coverage report
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo llvm-cov report --codecov --output-path cpp-rust-codecov.json
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: cpp-rust-codecov.json
+          flags: cpp-ffi
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
