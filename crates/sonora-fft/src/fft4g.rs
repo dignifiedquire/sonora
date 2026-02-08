@@ -31,6 +31,7 @@
 //! Parseval, linearity, property tests across sizes 4–512).
 
 use std::f32::consts::FRAC_PI_4;
+use std::ptr;
 
 /// Variable-size real FFT using Ooura's fft4g algorithm.
 ///
@@ -217,7 +218,7 @@ fn build_bitrv_table(n: usize) -> (Vec<usize>, usize, bool) {
 unsafe fn swap_unchecked(a: &mut [f32], i: usize, j: usize) {
     debug_assert!(i < a.len() && j < a.len());
     unsafe {
-        core::ptr::swap(a.as_mut_ptr().add(i), a.as_mut_ptr().add(j));
+        ptr::swap(a.as_mut_ptr().add(i), a.as_mut_ptr().add(j));
     }
 }
 

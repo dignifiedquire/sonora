@@ -117,8 +117,8 @@ fn compute_snr(
 /// Compute energy of an extended frame.
 fn compute_energy(x: &[f32; FFT_SIZE]) -> f32 {
     let mut energy = 0.0f32;
-    for i in 0..FFT_SIZE {
-        energy += x[i] * x[i];
+    for v in x {
+        energy += v * v;
     }
     energy
 }
@@ -473,9 +473,9 @@ impl NoiseSuppressor {
         // Apply the filter to the frequency domain.
         let filter = ch.wiener_filter.filter();
 
-        for i in 0..FFT_SIZE_BY_2_PLUS_1 {
-            fbs.real[i] *= filter[i];
-            fbs.imag[i] *= filter[i];
+        for (i, &f) in filter.iter().enumerate() {
+            fbs.real[i] *= f;
+            fbs.imag[i] *= f;
         }
 
         // Inverse FFT.

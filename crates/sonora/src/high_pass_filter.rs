@@ -6,6 +6,7 @@ use sonora_common_audio::cascaded_biquad_filter::{BiQuadCoefficients, CascadedBi
 
 use crate::audio_buffer::AudioBuffer;
 
+#[allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
 const HIGH_PASS_FILTER_COEFFICIENTS_16KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [
@@ -25,6 +26,7 @@ const HIGH_PASS_FILTER_COEFFICIENTS_16KHZ: [BiQuadCoefficients; 3] = [
     },
 ];
 
+#[allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
 const HIGH_PASS_FILTER_COEFFICIENTS_32KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [
@@ -44,6 +46,7 @@ const HIGH_PASS_FILTER_COEFFICIENTS_32KHZ: [BiQuadCoefficients; 3] = [
     },
 ];
 
+#[allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
 const HIGH_PASS_FILTER_COEFFICIENTS_48KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [
@@ -73,13 +76,13 @@ fn choose_coefficients(sample_rate_hz: i32) -> &'static [BiQuadCoefficients; 3] 
 }
 
 /// Per-channel high-pass filter using cascaded biquad sections.
-pub struct HighPassFilter {
+pub(crate) struct HighPassFilter {
     sample_rate_hz: i32,
     filters: Vec<CascadedBiQuadFilter>,
 }
 
 impl HighPassFilter {
-    pub fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
+    pub(crate) fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
         let coefficients = choose_coefficients(sample_rate_hz);
         let filters = (0..num_channels)
             .map(|_| CascadedBiQuadFilter::new(coefficients))
@@ -107,7 +110,7 @@ impl HighPassFilter {
     }
 
     /// Process audio through the high-pass filter using raw channel vectors.
-    pub fn process_channels(&mut self, audio: &mut [Vec<f32>]) {
+    pub(crate) fn process_channels(&mut self, audio: &mut [Vec<f32>]) {
         debug_assert_eq!(self.filters.len(), audio.len());
         for (k, channel) in audio.iter_mut().enumerate() {
             self.filters[k].process_in_place(channel);

@@ -15,11 +15,11 @@ const FILTER_SIZE: usize = 4;
 const MEMORY_SIZE: usize = FILTER_SIZE * STRIDE - 1; // 15
 
 /// Number of frequency bands.
-pub const NUM_BANDS: usize = 3;
+pub(crate) const NUM_BANDS: usize = 3;
 /// Full-band frame size (480 samples = 48 kHz × 10 ms).
-pub const FULL_BAND_SIZE: usize = 480;
+pub(crate) const FULL_BAND_SIZE: usize = 480;
 /// Split-band frame size (160 samples per band).
-pub const SPLIT_BAND_SIZE: usize = FULL_BAND_SIZE / NUM_BANDS;
+pub(crate) const SPLIT_BAND_SIZE: usize = FULL_BAND_SIZE / NUM_BANDS;
 
 const NUM_NON_ZERO_FILTERS: usize = SPARSITY * NUM_BANDS - NUM_ZERO_FILTERS; // 10
 const SUB_SAMPLING: usize = NUM_BANDS;
@@ -58,6 +58,11 @@ const DCT_MODULATION: [[f32; NUM_BANDS]; NUM_NON_ZERO_FILTERS] = [
 /// using and updating `state`.
 ///
 /// Direct port of C++ `FilterCore` in `three_band_filter_bank.cc`.
+#[allow(
+    clippy::needless_range_loop,
+    clippy::explicit_counter_loop,
+    reason = "direct C++ port with index arithmetic"
+)]
 fn filter_core(
     filter: &[f32; FILTER_SIZE],
     input: &[f32; SPLIT_BAND_SIZE],
@@ -130,13 +135,13 @@ fn filter_core(
 }
 
 /// 3-band QMF filter bank for analysis and synthesis.
-pub struct ThreeBandFilterBank {
+pub(crate) struct ThreeBandFilterBank {
     state_analysis: [[f32; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
     state_synthesis: [[f32; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
 }
 
 impl ThreeBandFilterBank {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             state_analysis: [[0.0; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
             state_synthesis: [[0.0; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
@@ -144,7 +149,7 @@ impl ThreeBandFilterBank {
     }
 
     /// Splits a 480-sample fullband frame into 3 × 160-sample sub-bands.
-    pub fn analysis(
+    pub(crate) fn analysis(
         &mut self,
         input: &[f32; FULL_BAND_SIZE],
         output: &mut [[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
@@ -201,7 +206,7 @@ impl ThreeBandFilterBank {
     }
 
     /// Merges 3 × 160-sample sub-bands into a 480-sample fullband frame.
-    pub fn synthesis(
+    pub(crate) fn synthesis(
         &mut self,
         input: &[[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
         output: &mut [f32; FULL_BAND_SIZE],
