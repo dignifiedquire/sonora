@@ -38,19 +38,22 @@ use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora::config::{EchoCanceller, NoiseSuppression, GainController2};
 
 let config = Config {
-    echo_canceller: EchoCanceller { enabled: true, ..Default::default() },
-    noise_suppression: NoiseSuppression { enabled: true, ..Default::default() },
-    gain_controller2: GainController2 { enabled: true, ..Default::default() },
+    echo_canceller: Some(EchoCanceller::default()),
+    noise_suppression: Some(NoiseSuppression::default()),
+    gain_controller2: Some(GainController2::default()),
     ..Default::default()
 };
 
-let mut apm = AudioProcessing::builder().config(config).build();
-let stream = StreamConfig::new(48000, 1);
+let mut apm = AudioProcessing::builder()
+    .config(config)
+    .capture_config(StreamConfig::new(48000, 1))
+    .render_config(StreamConfig::new(48000, 1))
+    .build();
 
 // Process 10ms frames (48kHz * 10ms = 480 samples)
 let src = vec![0.0f32; 480];
 let mut dest = vec![0.0f32; 480];
-apm.process_stream_f32(&[&src], &stream, &stream, &mut [&mut dest]).unwrap();
+apm.process_capture_f32(&[&src], &mut [&mut dest]).unwrap();
 ```
 
 ## Supported Platforms

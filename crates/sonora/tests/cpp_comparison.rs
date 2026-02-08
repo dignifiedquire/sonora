@@ -279,8 +279,12 @@ fn rust_cpp_pipeline_comparison() {
 
                     let src_slices = [src_ch.as_slice()];
                     let mut dst_slices = [rust_dst.as_mut_slice()];
-                    let _ =
-                        rust_apm.process_stream_f32(&src_slices, &stream, &stream, &mut dst_slices);
+                    let _ = rust_apm.process_capture_f32_with_config(
+                        &src_slices,
+                        &stream,
+                        &stream,
+                        &mut dst_slices,
+                    );
 
                     sonora_sys::process_stream_f32(
                         cpp_apm.pin_mut(),
@@ -327,8 +331,12 @@ fn rust_cpp_pipeline_comparison() {
 
                     let src_slices = [src_ch.as_slice(), src_r.as_slice()];
                     let mut dst_slices = [rust_dst_l.as_mut_slice(), rust_dst_r.as_mut_slice()];
-                    let _ =
-                        rust_apm.process_stream_f32(&src_slices, &stream, &stream, &mut dst_slices);
+                    let _ = rust_apm.process_capture_f32_with_config(
+                        &src_slices,
+                        &stream,
+                        &stream,
+                        &mut dst_slices,
+                    );
 
                     sonora_sys::process_stream_f32_2ch(
                         cpp_apm.pin_mut(),

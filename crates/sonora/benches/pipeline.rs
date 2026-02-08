@@ -40,7 +40,7 @@ fn make_apm(sample_rate: u32, channels: u16) -> (AudioProcessing, StreamConfig) 
         .collect();
 
     for _ in 0..20 {
-        let _ = apm.process_stream_f32(&src, &stream, &stream, &mut dst);
+        let _ = apm.process_capture_f32_with_config(&src, &stream, &stream, &mut dst);
     }
     (apm, stream)
 }
@@ -61,7 +61,7 @@ fn bench_process_stream(c: &mut Criterion) {
         group.bench_function("16k_mono", |b| {
             b.iter(|| {
                 let mut dst = [dst_data.as_mut_slice()];
-                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst)
+                apm.process_capture_f32_with_config(black_box(&src), &stream, &stream, &mut dst)
                     .unwrap();
             });
         });
@@ -80,7 +80,7 @@ fn bench_process_stream(c: &mut Criterion) {
         group.bench_function("48k_mono", |b| {
             b.iter(|| {
                 let mut dst = [dst_data.as_mut_slice()];
-                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst)
+                apm.process_capture_f32_with_config(black_box(&src), &stream, &stream, &mut dst)
                     .unwrap();
             });
         });
@@ -100,7 +100,7 @@ fn bench_process_stream(c: &mut Criterion) {
         group.bench_function("48k_stereo", |b| {
             b.iter(|| {
                 let mut dst = [dst_data_l.as_mut_slice(), dst_data_r.as_mut_slice()];
-                apm.process_stream_f32(black_box(&src), &stream, &stream, &mut dst)
+                apm.process_capture_f32_with_config(black_box(&src), &stream, &stream, &mut dst)
                     .unwrap();
             });
         });

@@ -117,7 +117,7 @@ fn make_rust_apm(cfg: &ComponentConfig, sample_rate: u32, channels: u16) -> Audi
         .map(|_| unsafe { slice::from_raw_parts_mut(dst_ch.as_mut_ptr(), frames) })
         .collect();
     for _ in 0..50 {
-        let _ = apm.process_stream_f32(&src, &stream, &stream, &mut dst);
+        let _ = apm.process_capture_f32_with_config(&src, &stream, &stream, &mut dst);
     }
     apm
 }
@@ -145,7 +145,7 @@ fn bench_comparison(c: &mut Criterion) {
                     group.bench_function("rust", |b| {
                         b.iter(|| {
                             let mut dst_slices = [dst.as_mut_slice()];
-                            apm.process_stream_f32(
+                            apm.process_capture_f32_with_config(
                                 black_box(&src),
                                 &stream,
                                 &stream,
@@ -160,7 +160,7 @@ fn bench_comparison(c: &mut Criterion) {
                     group.bench_function("rust", |b| {
                         b.iter(|| {
                             let mut dst_slices = [dst_l.as_mut_slice(), dst_r.as_mut_slice()];
-                            apm.process_stream_f32(
+                            apm.process_capture_f32_with_config(
                                 black_box(&src),
                                 &stream,
                                 &stream,

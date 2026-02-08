@@ -11,7 +11,7 @@ pub struct StreamConfig {
 
 impl StreamConfig {
     /// Create a new stream configuration.
-    pub fn new(sample_rate_hz: u32, num_channels: u16) -> Self {
+    pub const fn new(sample_rate_hz: u32, num_channels: u16) -> Self {
         Self {
             sample_rate_hz,
             num_channels,

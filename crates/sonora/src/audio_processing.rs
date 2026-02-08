@@ -268,7 +268,7 @@ fn handle_unsupported_formats_i16(
 ///
 /// # Example
 /// ```ignore
-/// use sonora::{AudioProcessing, Config};
+/// use sonora::{AudioProcessing, Config, StreamConfig};
 /// use sonora::config::{EchoCanceller, NoiseSuppression};
 ///
 /// let config = Config {
@@ -279,30 +279,68 @@ fn handle_unsupported_formats_i16(
 ///
 /// let apm = AudioProcessing::builder()
 ///     .config(config)
+///     .capture_config(StreamConfig::new(16000, 1))
+///     .render_config(StreamConfig::new(16000, 1))
 ///     .build();
 /// ```
 #[derive(Debug)]
 pub struct AudioProcessingBuilder {
     config: Config,
+    capture_config: StreamConfig,
+    render_config: StreamConfig,
 }
+
+/// Default stream config: 16 kHz mono.
+const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig::new(16000, 1);
 
 impl AudioProcessingBuilder {
     fn new() -> Self {
         Self {
             config: Config::default(),
+            capture_config: DEFAULT_STREAM_CONFIG,
+            render_config: DEFAULT_STREAM_CONFIG,
         }
     }
 
-    /// Set the initial configuration.
+    /// Set the initial processing configuration.
     pub fn config(mut self, config: Config) -> Self {
         self.config = config;
         self
     }
 
+    /// Set the capture (near-end / microphone) stream format.
+    ///
+    /// Used as both input and output config for capture processing.
+    pub fn capture_config(mut self, config: StreamConfig) -> Self {
+        self.capture_config = config;
+        self
+    }
+
+    /// Set the render (far-end / playback) stream format.
+    ///
+    /// Used as both input and output config for render processing.
+    pub fn render_config(mut self, config: StreamConfig) -> Self {
+        self.render_config = config;
+        self
+    }
+
     /// Build the [`AudioProcessing`] instance.
     pub fn build(self) -> AudioProcessing {
+        let mut inner = AudioProcessingImpl::with_config(self.config);
+
+        use crate::audio_processing_impl::ProcessingConfig;
+        let processing_config = ProcessingConfig {
+            input_stream: self.capture_config,
+            output_stream: self.capture_config,
+            reverse_input_stream: self.render_config,
+            reverse_output_stream: self.render_config,
+        };
+        inner.initialize_with_config(processing_config);
+
         AudioProcessing {
-            inner: AudioProcessingImpl::with_config(self.config),
+            inner,
+            capture_config: self.capture_config,
+            render_config: self.render_config,
             stream_delay_ms: 0,
             was_stream_delay_set: false,
         }
@@ -319,15 +357,17 @@ impl AudioProcessingBuilder {
 /// 1. Create an instance via [`AudioProcessing::builder()`] or
 ///    [`AudioProcessing::new()`].
 /// 2. For each audio frame (~10 ms):
-///    - Call [`process_reverse_stream_f32()`](AudioProcessing::process_reverse_stream_f32)
+///    - Call [`process_render_f32()`](AudioProcessing::process_render_f32)
 ///      with the far-end (render/playback) audio.
-///    - Call [`process_stream_f32()`](AudioProcessing::process_stream_f32)
+///    - Call [`process_capture_f32()`](AudioProcessing::process_capture_f32)
 ///      with the near-end (capture/microphone) audio.
 /// 3. Apply configuration changes via [`apply_config()`](AudioProcessing::apply_config).
 ///
 /// Both f32 (deinterleaved) and i16 (interleaved) interfaces are provided.
 pub struct AudioProcessing {
-    inner: AudioProcessingImpl,
+    pub(crate) inner: AudioProcessingImpl,
+    pub(crate) capture_config: StreamConfig,
+    pub(crate) render_config: StreamConfig,
     stream_delay_ms: i32,
     was_stream_delay_set: bool,
 }
@@ -335,6 +375,8 @@ pub struct AudioProcessing {
 impl fmt::Debug for AudioProcessing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AudioProcessing")
+            .field("capture_config", &self.capture_config)
+            .field("render_config", &self.render_config)
             .field("stream_delay_ms", &self.stream_delay_ms)
             .field("was_stream_delay_set", &self.was_stream_delay_set)
             .finish_non_exhaustive()
@@ -342,7 +384,7 @@ impl fmt::Debug for AudioProcessing {
 }
 
 impl AudioProcessing {
-    /// Creates a new instance with default configuration.
+    /// Creates a new instance with default configuration (16 kHz mono).
     pub fn new() -> Self {
         Self::builder().build()
     }
@@ -352,31 +394,33 @@ impl AudioProcessing {
         AudioProcessingBuilder::new()
     }
 
-    /// Initializes the processing pipeline with explicit stream configurations
-    /// for all four audio paths.
+    // ─── Stream configuration ────────────────────────────────────
+
+    /// Sets the capture (near-end / microphone) stream format.
     ///
-    /// This sets the expected sample rates and channel counts for capture
-    /// input/output and reverse input/output streams atomically, triggering
-    /// a full reinitialisation of internal buffers and submodules.
-    ///
-    /// Typically called once during setup; afterwards, stream configs are
-    /// inferred lazily from calls to [`process_stream_f32()`](Self::process_stream_f32) etc.
-    pub fn initialize(
-        &mut self,
-        input_config: &StreamConfig,
-        output_config: &StreamConfig,
-        reverse_input_config: &StreamConfig,
-        reverse_output_config: &StreamConfig,
-    ) {
-        use crate::audio_processing_impl::ProcessingConfig;
-        let processing_config = ProcessingConfig {
-            input_stream: *input_config,
-            output_stream: *output_config,
-            reverse_input_stream: *reverse_input_config,
-            reverse_output_stream: *reverse_output_config,
-        };
-        self.inner.initialize_with_config(processing_config);
+    /// Takes effect on the next `process_capture_*` call.
+    pub fn set_capture_config(&mut self, config: StreamConfig) {
+        self.capture_config = config;
     }
+
+    /// Sets the render (far-end / playback) stream format.
+    ///
+    /// Takes effect on the next `process_render_*` call.
+    pub fn set_render_config(&mut self, config: StreamConfig) {
+        self.render_config = config;
+    }
+
+    /// Returns the current capture stream config.
+    pub fn capture_config(&self) -> StreamConfig {
+        self.capture_config
+    }
+
+    /// Returns the current render stream config.
+    pub fn render_config(&self) -> StreamConfig {
+        self.render_config
+    }
+
+    // ─── Processing configuration ────────────────────────────────
 
     /// Applies a new configuration, selectively reinitializing submodules
     /// as needed.
@@ -386,8 +430,7 @@ impl AudioProcessing {
 
     /// Enqueues a runtime setting for the capture path.
     ///
-    /// Runtime settings are applied at the next [`process_stream_f32()`](Self::process_stream_f32)
-    /// or [`process_stream_i16()`](Self::process_stream_i16) call.
+    /// Runtime settings are applied at the next `process_capture_*` call.
     pub fn set_runtime_setting(&mut self, setting: RuntimeSetting) {
         self.inner.set_runtime_setting(setting);
     }
@@ -406,15 +449,15 @@ impl AudioProcessing {
 
     /// Sets the applied input volume (e.g. from the OS mixer).
     ///
-    /// Must be called before [`process_stream_f32()`](Self::process_stream_f32) if the input volume
-    /// controller is enabled. Value must be in range `[0, 255]`.
+    /// Must be called before [`process_capture_f32()`](Self::process_capture_f32) if the input
+    /// volume controller is enabled. Value must be in range `[0, 255]`.
     pub fn set_stream_analog_level(&mut self, level: i32) {
         self.inner.set_applied_input_volume(level);
     }
 
     /// Returns the recommended analog level from AGC.
     ///
-    /// Should be called after [`process_stream_f32()`](Self::process_stream_f32) to obtain the
+    /// Should be called after [`process_capture_f32()`](Self::process_capture_f32) to obtain the
     /// recommended new analog level for the audio HAL.
     pub fn recommended_stream_analog_level(&self) -> i32 {
         /// Default volume when neither recommended nor applied is available.
@@ -469,12 +512,22 @@ impl AudioProcessing {
 
     /// Processes a capture audio frame (float, deinterleaved).
     ///
-    /// Each element of `src` / `dest` points to a channel buffer with
-    /// `input_config.num_frames()` / `output_config.num_frames()` samples.
-    /// Values should be in the range `[-1.0, 1.0]`.
+    /// Uses the stream config set via [`set_capture_config()`](Self::set_capture_config)
+    /// or the builder. Each element of `src` / `dest` is one channel with
+    /// `capture_config().num_frames()` samples. Values in `[-1.0, 1.0]`.
+    pub fn process_capture_f32(
+        &mut self,
+        src: &[&[f32]],
+        dest: &mut [&mut [f32]],
+    ) -> Result<(), Error> {
+        let cfg = self.capture_config;
+        self.process_capture_f32_with_config(src, &cfg, &cfg, dest)
+    }
+
+    /// Processes a capture audio frame with explicit per-call configs.
     ///
-    /// The output must have 1 channel or the same number as the input.
-    pub fn process_stream_f32(
+    /// Use this when input and output formats differ (e.g. resampling).
+    pub fn process_capture_f32_with_config(
         &mut self,
         src: &[&[f32]],
         input_config: &StreamConfig,
@@ -487,10 +540,21 @@ impl AudioProcessing {
         Ok(())
     }
 
-    /// Processes a reverse (render / far-end) audio frame (float, deinterleaved).
+    /// Processes a render (far-end / playback) audio frame (float, deinterleaved).
     ///
-    /// Each element of `src` / `dest` points to a channel buffer.
-    pub fn process_reverse_stream_f32(
+    /// Uses the stream config set via [`set_render_config()`](Self::set_render_config)
+    /// or the builder.
+    pub fn process_render_f32(
+        &mut self,
+        src: &[&[f32]],
+        dest: &mut [&mut [f32]],
+    ) -> Result<(), Error> {
+        let cfg = self.render_config;
+        self.process_render_f32_with_config(src, &cfg, &cfg, dest)
+    }
+
+    /// Processes a render audio frame with explicit per-call configs.
+    pub fn process_render_f32_with_config(
         &mut self,
         src: &[&[f32]],
         input_config: &StreamConfig,
@@ -507,9 +571,15 @@ impl AudioProcessing {
 
     /// Processes a capture audio frame (int16, interleaved).
     ///
-    /// Requires native sample rates (8k, 16k, 32k, 48k) and matching
-    /// input/output rates and channel counts.
-    pub fn process_stream_i16(
+    /// Uses the stream config set via [`set_capture_config()`](Self::set_capture_config)
+    /// or the builder.
+    pub fn process_capture_i16(&mut self, src: &[i16], dest: &mut [i16]) -> Result<(), Error> {
+        let cfg = self.capture_config;
+        self.process_capture_i16_with_config(src, &cfg, &cfg, dest)
+    }
+
+    /// Processes a capture audio frame (int16) with explicit per-call configs.
+    pub fn process_capture_i16_with_config(
         &mut self,
         src: &[i16],
         input_config: &StreamConfig,
@@ -522,11 +592,17 @@ impl AudioProcessing {
         Ok(())
     }
 
-    /// Processes a reverse (render / far-end) audio frame (int16, interleaved).
+    /// Processes a render (far-end / playback) audio frame (int16, interleaved).
     ///
-    /// Requires native sample rates (8k, 16k, 32k, 48k) and matching
-    /// input/output rates and channel counts.
-    pub fn process_reverse_stream_i16(
+    /// Uses the stream config set via [`set_render_config()`](Self::set_render_config)
+    /// or the builder.
+    pub fn process_render_i16(&mut self, src: &[i16], dest: &mut [i16]) -> Result<(), Error> {
+        let cfg = self.render_config;
+        self.process_render_i16_with_config(src, &cfg, &cfg, dest)
+    }
+
+    /// Processes a render audio frame (int16) with explicit per-call configs.
+    pub fn process_render_i16_with_config(
         &mut self,
         src: &[i16],
         input_config: &StreamConfig,
@@ -596,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn process_stream_f32_validates_bad_rate() {
+    fn process_capture_f32_with_config_validates_bad_rate() {
         let mut apm = AudioProcessing::new();
         let input_config = StreamConfig::new(100, 1); // Bad rate
         let output_config = StreamConfig::new(16000, 1);
@@ -604,24 +680,24 @@ mod tests {
         let src: &[&[f32]] = &[&src_data];
         let mut dest_data = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadSampleRate));
     }
 
     #[test]
-    fn process_stream_f32_validates_bad_channels() {
+    fn process_capture_f32_with_config_validates_bad_channels() {
         let mut apm = AudioProcessing::new();
         let input_config = StreamConfig::new(16000, 0); // Bad channels
         let output_config = StreamConfig::new(16000, 1);
         let src: &[&[f32]] = &[];
         let mut dest_data = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadNumberChannels));
     }
 
     #[test]
-    fn process_stream_f32_validates_channel_mismatch() {
+    fn process_capture_f32_with_config_validates_channel_mismatch() {
         let mut apm = AudioProcessing::new();
         let input_config = StreamConfig::new(16000, 2);
         let output_config = StreamConfig::new(16000, 3); // Not 1 and not 2
@@ -631,12 +707,12 @@ mod tests {
         let mut dest1 = [0.0f32; 160];
         let mut dest2 = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest0, &mut dest1, &mut dest2];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadNumberChannels));
     }
 
     #[test]
-    fn process_stream_i16_accepts_non_native_rate() {
+    fn process_capture_i16_with_config_accepts_non_native_rate() {
         // Non-native rates like 44100 Hz are accepted (matching C++ behavior).
         // The AudioBuffer handles internal resampling.
         let mut apm = AudioProcessing::new();
@@ -644,19 +720,20 @@ mod tests {
         let output_config = StreamConfig::new(44100, 1);
         let src = [0i16; 441];
         let mut dest = [0i16; 441];
-        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        let result =
+            apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn process_stream_f32_silence_passthrough() {
+    fn process_capture_f32_with_config_silence_passthrough() {
         let mut apm = AudioProcessing::new();
         let config = StreamConfig::new(16000, 1);
         let src_data = [0.0f32; 160];
         let src: &[&[f32]] = &[&src_data];
         let mut dest_data = [1.0f32; 160]; // Fill with non-zero to verify overwrite
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        let result = apm.process_stream_f32(src, &config, &config, dest);
+        let result = apm.process_capture_f32_with_config(src, &config, &config, dest);
         assert!(result.is_ok());
         // With all defaults (no processing enabled), silence in → silence out.
         for &sample in dest[0].iter() {
@@ -665,12 +742,12 @@ mod tests {
     }
 
     #[test]
-    fn process_stream_i16_silence_passthrough() {
+    fn process_capture_i16_with_config_silence_passthrough() {
         let mut apm = AudioProcessing::new();
         let config = StreamConfig::new(16000, 1);
         let src = [0i16; 160];
         let mut dest = [100i16; 160]; // Fill with non-zero to verify overwrite
-        let result = apm.process_stream_i16(&src, &config, &config, &mut dest);
+        let result = apm.process_capture_i16_with_config(&src, &config, &config, &mut dest);
         assert!(result.is_ok());
         for &sample in dest.iter() {
             assert_eq!(sample, 0, "expected silence");
@@ -678,14 +755,14 @@ mod tests {
     }
 
     #[test]
-    fn process_reverse_stream_f32_passthrough() {
+    fn process_render_f32_with_config_passthrough() {
         let mut apm = AudioProcessing::new();
         let config = StreamConfig::new(16000, 1);
         let src_data = [0.5f32; 160];
         let src: &[&[f32]] = &[&src_data];
         let mut dest_data = [0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        let result = apm.process_reverse_stream_f32(src, &config, &config, dest);
+        let result = apm.process_render_f32_with_config(src, &config, &config, dest);
         assert!(result.is_ok());
     }
 
@@ -714,7 +791,7 @@ mod tests {
         let src: &[&[f32]] = &[&src_data];
         let mut dest_data = [42.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadSampleRate));
         // Output should be filled with silence.
         for &sample in dest[0].iter() {
@@ -736,7 +813,7 @@ mod tests {
         let mut dest0 = [42.0f32; 160];
         let mut dest1 = [42.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest0, &mut dest1];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadNumberChannels));
         // Both output channels should be a copy of input channel 0.
         for (i, (&d0, &d1)) in dest[0].iter().zip(dest[1].iter()).enumerate().take(160) {
@@ -756,7 +833,7 @@ mod tests {
         let src: &[&[f32]] = &[&src_data];
         let mut dest_data = [42.0f32; 79];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        let result = apm.process_stream_f32(src, &input_config, &output_config, dest);
+        let result = apm.process_capture_f32_with_config(src, &input_config, &output_config, dest);
         assert_eq!(result, Err(Error::BadSampleRate));
         for i in 0..79 {
             assert_eq!(dest[0][i], src_data[i], "sample {i} should be exact copy");
@@ -771,7 +848,8 @@ mod tests {
         let output_config = StreamConfig::new(16000, 1);
         let src = [100i16; 79];
         let mut dest = [42i16; 160];
-        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        let result =
+            apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
         assert_eq!(result, Err(Error::BadSampleRate));
         for &sample in dest.iter() {
             assert_eq!(sample, 0, "expected silence");
@@ -793,7 +871,8 @@ mod tests {
             src[i * 3 + 2] = 2000; // ch2
         }
         let mut dest = vec![42i16; 160 * 2];
-        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        let result =
+            apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
         assert_eq!(result, Err(Error::BadNumberChannels));
         // Each output frame should have ch0 value broadcast to both channels.
         for i in 0..160 {
@@ -821,7 +900,8 @@ mod tests {
         let output_config = StreamConfig::new(7900, 1);
         let src: Vec<i16> = (0..79).map(|i| i as i16).collect();
         let mut dest = vec![42i16; 79];
-        let result = apm.process_stream_i16(&src, &input_config, &output_config, &mut dest);
+        let result =
+            apm.process_capture_i16_with_config(&src, &input_config, &output_config, &mut dest);
         assert_eq!(result, Err(Error::BadSampleRate));
         for i in 0..79 {
             assert_eq!(dest[i], src[i], "sample {i} should be exact copy");
@@ -896,7 +976,8 @@ mod tests {
         let mut dest_data = vec![0.0f32; num_frames];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
 
-        apm.process_stream_f32(src, &config, &config, dest).unwrap();
+        apm.process_capture_f32_with_config(src, &config, &config, dest)
+            .unwrap();
 
         for i in 0..num_frames {
             assert_eq!(
@@ -919,7 +1000,7 @@ mod tests {
         let mut dest_data = vec![0.0f32; num_frames];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
 
-        apm.process_reverse_stream_f32(src, &config, &config, dest)
+        apm.process_render_f32_with_config(src, &config, &config, dest)
             .unwrap();
 
         for i in 0..num_frames {
@@ -939,7 +1020,7 @@ mod tests {
                 .collect();
             let mut dest = vec![0i16; num_frames];
 
-            apm.process_stream_i16(&src, &config, &config, &mut dest)
+            apm.process_capture_i16_with_config(&src, &config, &config, &mut dest)
                 .unwrap();
 
             for i in 0..num_frames {
@@ -975,14 +1056,14 @@ mod tests {
             let render_src: &[&[f32]] = &[&render];
             let mut render_dest = vec![0.0f32; num_frames];
             let render_dest: &mut [&mut [f32]] = &mut [&mut render_dest];
-            apm.process_reverse_stream_f32(render_src, &stream, &stream, render_dest)
+            apm.process_render_f32_with_config(render_src, &stream, &stream, render_dest)
                 .unwrap();
 
             let capture = vec![0.05f32; num_frames];
             let capture_src: &[&[f32]] = &[&capture];
             let mut capture_dest = vec![0.0f32; num_frames];
             let capture_dest: &mut [&mut [f32]] = &mut [&mut capture_dest];
-            apm.process_stream_f32(capture_src, &stream, &stream, capture_dest)
+            apm.process_capture_f32_with_config(capture_src, &stream, &stream, capture_dest)
                 .unwrap();
         }
     }
@@ -1006,7 +1087,7 @@ mod tests {
             let src: Vec<&[f32]> = channels.iter().map(|c| c.as_slice()).collect();
             let mut dest_data = vec![0.0f32; num_frames];
             let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-            apm.process_stream_f32(&src, &stream, &stream, dest)
+            apm.process_capture_f32_with_config(&src, &stream, &stream, dest)
                 .unwrap();
         }
     }
@@ -1030,7 +1111,7 @@ mod tests {
             let src: Vec<&[f32]> = channels.iter().map(|c| c.as_slice()).collect();
             let mut dest_data = vec![0.0f32; num_frames];
             let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-            apm.process_stream_f32(&src, &stream, &stream, dest)
+            apm.process_capture_f32_with_config(&src, &stream, &stream, dest)
                 .unwrap();
         }
     }
@@ -1051,7 +1132,7 @@ mod tests {
             let src: Vec<&[f32]> = channels.iter().map(|c| c.as_slice()).collect();
             let mut dest_data = vec![0.0f32; num_frames];
             let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-            apm.process_stream_f32(&src, &stream, &stream, dest)
+            apm.process_capture_f32_with_config(&src, &stream, &stream, dest)
                 .unwrap();
         }
     }
@@ -1079,7 +1160,7 @@ mod tests {
             let render_src: Vec<&[f32]> = render_ch.iter().map(|c| c.as_slice()).collect();
             let mut render_dest = vec![0.0f32; num_frames];
             let render_dest: &mut [&mut [f32]] = &mut [&mut render_dest];
-            apm.process_reverse_stream_f32(&render_src, &stream, &stream, render_dest)
+            apm.process_render_f32_with_config(&render_src, &stream, &stream, render_dest)
                 .unwrap();
 
             // Capture.
@@ -1088,7 +1169,7 @@ mod tests {
             let capture_src: Vec<&[f32]> = capture_ch.iter().map(|c| c.as_slice()).collect();
             let mut capture_dest = vec![0.0f32; num_frames];
             let capture_dest: &mut [&mut [f32]] = &mut [&mut capture_dest];
-            apm.process_stream_f32(&capture_src, &stream, &stream, capture_dest)
+            apm.process_capture_f32_with_config(&capture_src, &stream, &stream, capture_dest)
                 .unwrap();
         }
     }
@@ -1105,7 +1186,8 @@ mod tests {
 
         // Process a few frames with default config.
         for _ in 0..10 {
-            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+            apm.process_capture_f32_with_config(src, &stream, &stream, dest)
+                .unwrap();
         }
 
         // Enable echo canceller mid-stream.
@@ -1117,7 +1199,8 @@ mod tests {
 
         // Process more frames — should not crash.
         for _ in 0..10 {
-            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+            apm.process_capture_f32_with_config(src, &stream, &stream, dest)
+                .unwrap();
         }
 
         // Enable noise suppression mid-stream.
@@ -1126,7 +1209,8 @@ mod tests {
         apm.apply_config(config);
 
         for _ in 0..10 {
-            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+            apm.process_capture_f32_with_config(src, &stream, &stream, dest)
+                .unwrap();
         }
     }
 
@@ -1141,7 +1225,7 @@ mod tests {
         let mut dest_16k = vec![0.0f32; 160];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_16k];
         for _ in 0..5 {
-            apm.process_stream_f32(src, &stream_16k, &stream_16k, dest)
+            apm.process_capture_f32_with_config(src, &stream_16k, &stream_16k, dest)
                 .unwrap();
         }
 
@@ -1152,7 +1236,7 @@ mod tests {
         let mut dest_48k = vec![0.0f32; 480];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_48k];
         for _ in 0..5 {
-            apm.process_stream_f32(src, &stream_48k, &stream_48k, dest)
+            apm.process_capture_f32_with_config(src, &stream_48k, &stream_48k, dest)
                 .unwrap();
         }
     }
@@ -1179,7 +1263,8 @@ mod tests {
             let src: &[&[f32]] = &[&src_data];
             let mut dest_data = vec![0.0f32; num_frames];
             let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+            apm.process_capture_f32_with_config(src, &stream, &stream, dest)
+                .unwrap();
         }
 
         // Process one more frame and check that the output has roughly 2x power.
@@ -1191,7 +1276,8 @@ mod tests {
         let src: &[&[f32]] = &[&src_data];
         let mut dest_data = vec![0.0f32; num_frames];
         let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-        apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+        apm.process_capture_f32_with_config(src, &stream, &stream, dest)
+            .unwrap();
 
         let output_power: f32 = dest[0].iter().map(|&s| s * s).sum::<f32>() / num_frames as f32;
 
@@ -1224,7 +1310,8 @@ mod tests {
             let src: &[&[f32]] = &[&src_data];
             let mut dest_data = vec![0.0f32; num_frames];
             let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
-            apm.process_stream_f32(src, &stream, &stream, dest).unwrap();
+            apm.process_capture_f32_with_config(src, &stream, &stream, dest)
+                .unwrap();
         }
 
         // Verify the config was updated.
@@ -1259,7 +1346,7 @@ mod tests {
             let mut render_dest_l = vec![0.0f32; num_frames];
             let mut render_dest_r = vec![0.0f32; num_frames];
             let render_dest: &mut [&mut [f32]] = &mut [&mut render_dest_l, &mut render_dest_r];
-            apm.process_reverse_stream_f32(render_src, &stream, &stream, render_dest)
+            apm.process_render_f32_with_config(render_src, &stream, &stream, render_dest)
                 .unwrap();
 
             // Capture (stereo).
@@ -1269,7 +1356,7 @@ mod tests {
             let mut capture_dest_l = vec![0.0f32; num_frames];
             let mut capture_dest_r = vec![0.0f32; num_frames];
             let capture_dest: &mut [&mut [f32]] = &mut [&mut capture_dest_l, &mut capture_dest_r];
-            apm.process_stream_f32(capture_src, &stream, &stream, capture_dest)
+            apm.process_capture_f32_with_config(capture_src, &stream, &stream, capture_dest)
                 .unwrap();
         }
     }

@@ -165,7 +165,21 @@ pub unsafe extern "C" fn wap_initialize(
         let out_cfg = output_config.to_rust();
         let rev_in_cfg = reverse_input_config.to_rust();
         let rev_out_cfg = reverse_output_config.to_rust();
-        apm.inner.initialize(&in_cfg, &out_cfg, &rev_in_cfg, &rev_out_cfg);
+        // The C API supports distinct input/output configs per path.
+        // Use set_capture_config with the input config and set_render_config
+        // with the reverse input config, then trigger reinitialization via
+        // a process call with explicit configs. For full flexibility, call
+        // the internal impl directly.
+        use crate::audio_processing_impl::ProcessingConfig;
+        let processing_config = ProcessingConfig {
+            input_stream: in_cfg,
+            output_stream: out_cfg,
+            reverse_input_stream: rev_in_cfg,
+            reverse_output_stream: rev_out_cfg,
+        };
+        apm.inner.capture_config = in_cfg;
+        apm.inner.render_config = rev_in_cfg;
+        apm.inner.inner.initialize_with_config(processing_config);
         WapError::None
     }
 }
@@ -298,7 +312,7 @@ pub unsafe extern "C" fn wap_process_stream_f32(
 
         let apm = unsafe { &mut *apm };
         let dest_refs: &mut [&mut [f32]] = &mut dest_slices;
-        match apm.inner.process_stream_f32(&src_slices, &in_cfg, &out_cfg, dest_refs) {
+        match apm.inner.process_capture_f32_with_config(&src_slices, &in_cfg, &out_cfg, dest_refs) {
             Ok(()) => WapError::None,
             Err(e) => rust_error_to_wap(e),
         }
@@ -345,7 +359,7 @@ pub unsafe extern "C" fn wap_process_reverse_stream_f32(
 
         let apm = unsafe { &mut *apm };
         let dest_refs: &mut [&mut [f32]] = &mut dest_slices;
-        match apm.inner.process_reverse_stream_f32(&src_slices, &in_cfg, &out_cfg, dest_refs) {
+        match apm.inner.process_render_f32_with_config(&src_slices, &in_cfg, &out_cfg, dest_refs) {
             Ok(()) => WapError::None,
             Err(e) => rust_error_to_wap(e),
         }
@@ -395,7 +409,7 @@ pub unsafe extern "C" fn wap_process_stream_i16(
         let dest_slice = unsafe { slice::from_raw_parts_mut(dest, expected_dest_len) };
 
         let apm = unsafe { &mut *apm };
-        match apm.inner.process_stream_i16(src_slice, &in_cfg, &out_cfg, dest_slice) {
+        match apm.inner.process_capture_i16_with_config(src_slice, &in_cfg, &out_cfg, dest_slice) {
             Ok(()) => WapError::None,
             Err(e) => rust_error_to_wap(e),
         }
@@ -437,7 +451,7 @@ pub unsafe extern "C" fn wap_process_reverse_stream_i16(
         let dest_slice = unsafe { slice::from_raw_parts_mut(dest, expected_dest_len) };
 
         let apm = unsafe { &mut *apm };
-        match apm.inner.process_reverse_stream_i16(src_slice, &in_cfg, &out_cfg, dest_slice) {
+        match apm.inner.process_render_i16_with_config(src_slice, &in_cfg, &out_cfg, dest_slice) {
             Ok(()) => WapError::None,
             Err(e) => rust_error_to_wap(e),
         }

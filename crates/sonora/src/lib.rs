@@ -15,14 +15,17 @@
 //!     ..Default::default()
 //! };
 //!
-//! let mut apm = AudioProcessing::builder().config(config).build();
-//! let stream = StreamConfig::new(16000, 1);
+//! let mut apm = AudioProcessing::builder()
+//!     .config(config)
+//!     .capture_config(StreamConfig::new(16000, 1))
+//!     .render_config(StreamConfig::new(16000, 1))
+//!     .build();
 //!
 //! // For each ~10 ms audio frame:
 //! // 1. Feed far-end (render) audio:
-//! // apm.process_reverse_stream_f32(&src, &stream, &stream, &mut dest)?;
+//! // apm.process_render_f32(&src, &mut dest)?;
 //! // 2. Process near-end (capture) audio:
-//! // apm.process_stream_f32(&src, &stream, &stream, &mut dest)?;
+//! // apm.process_capture_f32(&src, &mut dest)?;
 //! ```
 
 pub(crate) mod audio_buffer;
