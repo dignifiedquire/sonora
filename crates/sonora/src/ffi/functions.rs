@@ -755,20 +755,20 @@ mod tests {
         let rust_config = Config::default();
         let roundtrip = c_config.to_rust();
         assert_eq!(
-            rust_config.echo_canceller.enabled,
-            roundtrip.echo_canceller.enabled
+            rust_config.echo_canceller.is_some(),
+            roundtrip.echo_canceller.is_some()
         );
         assert_eq!(
-            rust_config.noise_suppression.enabled,
-            roundtrip.noise_suppression.enabled
+            rust_config.noise_suppression.is_some(),
+            roundtrip.noise_suppression.is_some()
         );
         assert_eq!(
-            rust_config.high_pass_filter.enabled,
-            roundtrip.high_pass_filter.enabled
+            rust_config.high_pass_filter.is_some(),
+            roundtrip.high_pass_filter.is_some()
         );
         assert_eq!(
-            rust_config.gain_controller2.enabled,
-            roundtrip.gain_controller2.enabled
+            rust_config.gain_controller2.is_some(),
+            roundtrip.gain_controller2.is_some()
         );
     }
 

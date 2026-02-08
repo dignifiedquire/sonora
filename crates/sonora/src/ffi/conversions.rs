@@ -2,7 +2,7 @@
 
 use crate::config::{
     AdaptiveDigital, AnalogMicGainEmulation, CaptureLevelAdjustment, Config, DownmixMethod,
-    EchoCanceller, FixedDigital, GainController2, HighPassFilter, InputVolumeControllerConfig,
+    EchoCanceller, FixedDigital, GainController2, HighPassFilter, MaxProcessingRate,
     NoiseSuppression, NoiseSuppressionLevel, Pipeline, PreAmplifier,
 };
 use crate::stats::AudioProcessingStats;
@@ -21,137 +21,265 @@ impl WapConfig {
     pub(crate) fn to_rust(self) -> Config {
         Config {
             pipeline: Pipeline {
-                maximum_internal_processing_rate: self.pipeline_maximum_internal_processing_rate,
+                maximum_internal_processing_rate: if self.pipeline_maximum_internal_processing_rate
+                    == 32000
+                {
+                    MaxProcessingRate::Rate32kHz
+                } else {
+                    MaxProcessingRate::Rate48kHz
+                },
                 multi_channel_render: self.pipeline_multi_channel_render,
                 multi_channel_capture: self.pipeline_multi_channel_capture,
                 capture_downmix_method: self.pipeline_capture_downmix_method.to_rust(),
             },
-            pre_amplifier: PreAmplifier {
-                enabled: self.pre_amplifier_enabled,
-                fixed_gain_factor: self.pre_amplifier_fixed_gain_factor,
+            pre_amplifier: if self.pre_amplifier_enabled {
+                Some(PreAmplifier {
+                    fixed_gain_factor: self.pre_amplifier_fixed_gain_factor,
+                })
+            } else {
+                None
             },
-            capture_level_adjustment: CaptureLevelAdjustment {
-                enabled: self.capture_level_adjustment_enabled,
-                pre_gain_factor: self.capture_level_adjustment_pre_gain_factor,
-                post_gain_factor: self.capture_level_adjustment_post_gain_factor,
-                analog_mic_gain_emulation: AnalogMicGainEmulation {
-                    enabled: self.analog_mic_gain_emulation_enabled,
-                    initial_level: self.analog_mic_gain_emulation_initial_level,
-                },
+            capture_level_adjustment: if self.capture_level_adjustment_enabled {
+                Some(CaptureLevelAdjustment {
+                    pre_gain_factor: self.capture_level_adjustment_pre_gain_factor,
+                    post_gain_factor: self.capture_level_adjustment_post_gain_factor,
+                    analog_mic_gain_emulation: if self.analog_mic_gain_emulation_enabled {
+                        Some(AnalogMicGainEmulation {
+                            initial_level: self
+                                .analog_mic_gain_emulation_initial_level
+                                .clamp(0, 255) as u8,
+                        })
+                    } else {
+                        None
+                    },
+                })
+            } else {
+                None
             },
-            high_pass_filter: HighPassFilter {
-                enabled: self.high_pass_filter_enabled,
-                apply_in_full_band: self.high_pass_filter_apply_in_full_band,
+            high_pass_filter: if self.high_pass_filter_enabled {
+                Some(HighPassFilter {
+                    apply_in_full_band: self.high_pass_filter_apply_in_full_band,
+                })
+            } else {
+                None
             },
-            echo_canceller: EchoCanceller {
-                enabled: self.echo_canceller_enabled,
-                enforce_high_pass_filtering: self.echo_canceller_enforce_high_pass_filtering,
+            echo_canceller: if self.echo_canceller_enabled {
+                Some(EchoCanceller {
+                    enforce_high_pass_filtering: self.echo_canceller_enforce_high_pass_filtering,
+                })
+            } else {
+                None
             },
-            noise_suppression: NoiseSuppression {
-                enabled: self.noise_suppression_enabled,
-                level: self.noise_suppression_level.to_rust(),
-                analyze_linear_aec_output_when_available: self
-                    .noise_suppression_analyze_linear_aec_output_when_available,
+            noise_suppression: if self.noise_suppression_enabled {
+                Some(NoiseSuppression {
+                    level: self.noise_suppression_level.to_rust(),
+                    analyze_linear_aec_output_when_available: self
+                        .noise_suppression_analyze_linear_aec_output_when_available,
+                })
+            } else {
+                None
             },
-            gain_controller2: GainController2 {
-                enabled: self.gain_controller2_enabled,
-                input_volume_controller: InputVolumeControllerConfig {
-                    enabled: self.gain_controller2_input_volume_controller_enabled,
-                },
-                adaptive_digital: AdaptiveDigital {
-                    enabled: self.gain_controller2_adaptive_digital_enabled,
-                    headroom_db: self.gain_controller2_adaptive_digital_headroom_db,
-                    max_gain_db: self.gain_controller2_adaptive_digital_max_gain_db,
-                    initial_gain_db: self.gain_controller2_adaptive_digital_initial_gain_db,
-                    max_gain_change_db_per_second: self
-                        .gain_controller2_adaptive_digital_max_gain_change_db_per_second,
-                    max_output_noise_level_dbfs: self
-                        .gain_controller2_adaptive_digital_max_output_noise_level_dbfs,
-                },
-                fixed_digital: FixedDigital {
-                    gain_db: self.gain_controller2_fixed_digital_gain_db,
-                },
+            gain_controller2: if self.gain_controller2_enabled {
+                Some(GainController2 {
+                    input_volume_controller: self.gain_controller2_input_volume_controller_enabled,
+                    adaptive_digital: if self.gain_controller2_adaptive_digital_enabled {
+                        Some(AdaptiveDigital {
+                            headroom_db: self.gain_controller2_adaptive_digital_headroom_db,
+                            max_gain_db: self.gain_controller2_adaptive_digital_max_gain_db,
+                            initial_gain_db: self.gain_controller2_adaptive_digital_initial_gain_db,
+                            max_gain_change_db_per_second: self
+                                .gain_controller2_adaptive_digital_max_gain_change_db_per_second,
+                            max_output_noise_level_dbfs: self
+                                .gain_controller2_adaptive_digital_max_output_noise_level_dbfs,
+                        })
+                    } else {
+                        None
+                    },
+                    fixed_digital: FixedDigital {
+                        gain_db: self.gain_controller2_fixed_digital_gain_db,
+                    },
+                })
+            } else {
+                None
             },
         }
     }
 
     /// Convert from nested Rust [`Config`] to flat C config.
     pub(crate) fn from_rust(config: &Config) -> Self {
+        let (pre_amplifier_enabled, pre_amplifier_fixed_gain_factor) = match &config.pre_amplifier {
+            Some(pa) => (true, pa.fixed_gain_factor),
+            None => (false, PreAmplifier::default().fixed_gain_factor),
+        };
+
+        let (
+            capture_level_adjustment_enabled,
+            capture_level_adjustment_pre_gain_factor,
+            capture_level_adjustment_post_gain_factor,
+            analog_mic_gain_emulation_enabled,
+            analog_mic_gain_emulation_initial_level,
+        ) = match &config.capture_level_adjustment {
+            Some(cla) => {
+                let (emu_enabled, emu_level) = match &cla.analog_mic_gain_emulation {
+                    Some(amge) => (true, i32::from(amge.initial_level)),
+                    None => (
+                        false,
+                        i32::from(AnalogMicGainEmulation::default().initial_level),
+                    ),
+                };
+                (
+                    true,
+                    cla.pre_gain_factor,
+                    cla.post_gain_factor,
+                    emu_enabled,
+                    emu_level,
+                )
+            }
+            None => {
+                let defaults = CaptureLevelAdjustment::default();
+                (
+                    false,
+                    defaults.pre_gain_factor,
+                    defaults.post_gain_factor,
+                    false,
+                    i32::from(AnalogMicGainEmulation::default().initial_level),
+                )
+            }
+        };
+
+        let (high_pass_filter_enabled, high_pass_filter_apply_in_full_band) =
+            match &config.high_pass_filter {
+                Some(hpf) => (true, hpf.apply_in_full_band),
+                None => (false, HighPassFilter::default().apply_in_full_band),
+            };
+
+        let (echo_canceller_enabled, echo_canceller_enforce_high_pass_filtering) =
+            match &config.echo_canceller {
+                Some(ec) => (true, ec.enforce_high_pass_filtering),
+                None => (false, EchoCanceller::default().enforce_high_pass_filtering),
+            };
+
+        let (
+            noise_suppression_enabled,
+            noise_suppression_level,
+            noise_suppression_analyze_linear_aec_output_when_available,
+        ) = match &config.noise_suppression {
+            Some(ns) => (
+                true,
+                WapNoiseSuppressionLevel::from_rust(ns.level),
+                ns.analyze_linear_aec_output_when_available,
+            ),
+            None => {
+                let defaults = NoiseSuppression::default();
+                (
+                    false,
+                    WapNoiseSuppressionLevel::from_rust(defaults.level),
+                    defaults.analyze_linear_aec_output_when_available,
+                )
+            }
+        };
+
+        let (
+            gain_controller2_enabled,
+            gain_controller2_input_volume_controller_enabled,
+            gain_controller2_adaptive_digital_enabled,
+            gain_controller2_adaptive_digital_headroom_db,
+            gain_controller2_adaptive_digital_max_gain_db,
+            gain_controller2_adaptive_digital_initial_gain_db,
+            gain_controller2_adaptive_digital_max_gain_change_db_per_second,
+            gain_controller2_adaptive_digital_max_output_noise_level_dbfs,
+            gain_controller2_fixed_digital_gain_db,
+        ) = match &config.gain_controller2 {
+            Some(gc2) => {
+                let (ad_enabled, ad_headroom, ad_max_gain, ad_initial, ad_change, ad_noise) =
+                    match &gc2.adaptive_digital {
+                        Some(ad) => (
+                            true,
+                            ad.headroom_db,
+                            ad.max_gain_db,
+                            ad.initial_gain_db,
+                            ad.max_gain_change_db_per_second,
+                            ad.max_output_noise_level_dbfs,
+                        ),
+                        None => {
+                            let defaults = AdaptiveDigital::default();
+                            (
+                                false,
+                                defaults.headroom_db,
+                                defaults.max_gain_db,
+                                defaults.initial_gain_db,
+                                defaults.max_gain_change_db_per_second,
+                                defaults.max_output_noise_level_dbfs,
+                            )
+                        }
+                    };
+                (
+                    true,
+                    gc2.input_volume_controller,
+                    ad_enabled,
+                    ad_headroom,
+                    ad_max_gain,
+                    ad_initial,
+                    ad_change,
+                    ad_noise,
+                    gc2.fixed_digital.gain_db,
+                )
+            }
+            None => {
+                let defaults = AdaptiveDigital::default();
+                (
+                    false,
+                    false,
+                    false,
+                    defaults.headroom_db,
+                    defaults.max_gain_db,
+                    defaults.initial_gain_db,
+                    defaults.max_gain_change_db_per_second,
+                    defaults.max_output_noise_level_dbfs,
+                    FixedDigital::default().gain_db,
+                )
+            }
+        };
+
         Self {
             pipeline_maximum_internal_processing_rate: config
                 .pipeline
-                .maximum_internal_processing_rate,
+                .maximum_internal_processing_rate
+                .as_hz() as i32,
             pipeline_multi_channel_render: config.pipeline.multi_channel_render,
             pipeline_multi_channel_capture: config.pipeline.multi_channel_capture,
             pipeline_capture_downmix_method: WapDownmixMethod::from_rust(
                 config.pipeline.capture_downmix_method,
             ),
 
-            pre_amplifier_enabled: config.pre_amplifier.enabled,
-            pre_amplifier_fixed_gain_factor: config.pre_amplifier.fixed_gain_factor,
+            pre_amplifier_enabled,
+            pre_amplifier_fixed_gain_factor,
 
-            capture_level_adjustment_enabled: config.capture_level_adjustment.enabled,
-            capture_level_adjustment_pre_gain_factor: config
-                .capture_level_adjustment
-                .pre_gain_factor,
-            capture_level_adjustment_post_gain_factor: config
-                .capture_level_adjustment
-                .post_gain_factor,
-            analog_mic_gain_emulation_enabled: config
-                .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .enabled,
-            analog_mic_gain_emulation_initial_level: config
-                .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .initial_level,
+            capture_level_adjustment_enabled,
+            capture_level_adjustment_pre_gain_factor,
+            capture_level_adjustment_post_gain_factor,
+            analog_mic_gain_emulation_enabled,
+            analog_mic_gain_emulation_initial_level,
 
-            high_pass_filter_enabled: config.high_pass_filter.enabled,
-            high_pass_filter_apply_in_full_band: config.high_pass_filter.apply_in_full_band,
+            high_pass_filter_enabled,
+            high_pass_filter_apply_in_full_band,
 
-            echo_canceller_enabled: config.echo_canceller.enabled,
-            echo_canceller_enforce_high_pass_filtering: config
-                .echo_canceller
-                .enforce_high_pass_filtering,
+            echo_canceller_enabled,
+            echo_canceller_enforce_high_pass_filtering,
 
-            noise_suppression_enabled: config.noise_suppression.enabled,
-            noise_suppression_level: WapNoiseSuppressionLevel::from_rust(
-                config.noise_suppression.level,
-            ),
-            noise_suppression_analyze_linear_aec_output_when_available: config
-                .noise_suppression
-                .analyze_linear_aec_output_when_available,
+            noise_suppression_enabled,
+            noise_suppression_level,
+            noise_suppression_analyze_linear_aec_output_when_available,
 
-            gain_controller2_enabled: config.gain_controller2.enabled,
-            gain_controller2_fixed_digital_gain_db: config.gain_controller2.fixed_digital.gain_db,
-            gain_controller2_adaptive_digital_enabled: config
-                .gain_controller2
-                .adaptive_digital
-                .enabled,
-            gain_controller2_adaptive_digital_headroom_db: config
-                .gain_controller2
-                .adaptive_digital
-                .headroom_db,
-            gain_controller2_adaptive_digital_max_gain_db: config
-                .gain_controller2
-                .adaptive_digital
-                .max_gain_db,
-            gain_controller2_adaptive_digital_initial_gain_db: config
-                .gain_controller2
-                .adaptive_digital
-                .initial_gain_db,
-            gain_controller2_adaptive_digital_max_gain_change_db_per_second: config
-                .gain_controller2
-                .adaptive_digital
-                .max_gain_change_db_per_second,
-            gain_controller2_adaptive_digital_max_output_noise_level_dbfs: config
-                .gain_controller2
-                .adaptive_digital
-                .max_output_noise_level_dbfs,
-            gain_controller2_input_volume_controller_enabled: config
-                .gain_controller2
-                .input_volume_controller
-                .enabled,
+            gain_controller2_enabled,
+            gain_controller2_fixed_digital_gain_db,
+            gain_controller2_adaptive_digital_enabled,
+            gain_controller2_adaptive_digital_headroom_db,
+            gain_controller2_adaptive_digital_max_gain_db,
+            gain_controller2_adaptive_digital_initial_gain_db,
+            gain_controller2_adaptive_digital_max_gain_change_db_per_second,
+            gain_controller2_adaptive_digital_max_output_noise_level_dbfs,
+            gain_controller2_input_volume_controller_enabled,
         }
     }
 }
@@ -281,98 +409,85 @@ mod tests {
             rust_config.pipeline.capture_downmix_method,
             roundtrip.pipeline.capture_downmix_method
         );
-        assert_eq!(
-            rust_config.pre_amplifier.enabled,
-            roundtrip.pre_amplifier.enabled
-        );
-        assert_eq!(
-            rust_config.pre_amplifier.fixed_gain_factor,
-            roundtrip.pre_amplifier.fixed_gain_factor
-        );
-        assert_eq!(
-            rust_config.capture_level_adjustment,
-            roundtrip.capture_level_adjustment
-        );
-        assert_eq!(rust_config.high_pass_filter, roundtrip.high_pass_filter);
-        assert_eq!(rust_config.echo_canceller, roundtrip.echo_canceller);
-        assert_eq!(
-            rust_config.noise_suppression.enabled,
-            roundtrip.noise_suppression.enabled
-        );
-        assert_eq!(
-            rust_config.noise_suppression.level,
-            roundtrip.noise_suppression.level
-        );
-        assert_eq!(rust_config.gain_controller2, roundtrip.gain_controller2);
+        assert!(roundtrip.pre_amplifier.is_none());
+        assert!(roundtrip.capture_level_adjustment.is_none());
+        assert!(roundtrip.high_pass_filter.is_none());
+        assert!(roundtrip.echo_canceller.is_none());
+        assert!(roundtrip.noise_suppression.is_none());
+        assert!(roundtrip.gain_controller2.is_none());
     }
 
     #[test]
     fn config_roundtrip_all_enabled() {
-        let mut rust_config = Config::default();
-        rust_config.echo_canceller.enabled = true;
-        rust_config.noise_suppression.enabled = true;
-        rust_config.noise_suppression.level = NoiseSuppressionLevel::VeryHigh;
-        rust_config.high_pass_filter.enabled = true;
-        rust_config.gain_controller2.enabled = true;
-        rust_config.gain_controller2.adaptive_digital.enabled = true;
-        rust_config.gain_controller2.adaptive_digital.headroom_db = 3.0;
-        rust_config.gain_controller2.adaptive_digital.max_gain_db = 40.0;
-        rust_config.gain_controller2.fixed_digital.gain_db = 6.0;
-        rust_config.pre_amplifier.enabled = true;
-        rust_config.pre_amplifier.fixed_gain_factor = 2.5;
-        rust_config.capture_level_adjustment.enabled = true;
-        rust_config.capture_level_adjustment.pre_gain_factor = 1.5;
-        rust_config.capture_level_adjustment.post_gain_factor = 0.8;
-        rust_config
-            .capture_level_adjustment
-            .analog_mic_gain_emulation
-            .enabled = true;
-        rust_config
-            .capture_level_adjustment
-            .analog_mic_gain_emulation
-            .initial_level = 128;
-        rust_config.pipeline.maximum_internal_processing_rate = 48000;
-        rust_config.pipeline.multi_channel_render = true;
-        rust_config.pipeline.multi_channel_capture = true;
-        rust_config.pipeline.capture_downmix_method = DownmixMethod::UseFirstChannel;
+        let rust_config = Config {
+            echo_canceller: Some(EchoCanceller {
+                enforce_high_pass_filtering: true,
+            }),
+            noise_suppression: Some(NoiseSuppression {
+                level: NoiseSuppressionLevel::VeryHigh,
+                ..Default::default()
+            }),
+            high_pass_filter: Some(HighPassFilter {
+                apply_in_full_band: true,
+            }),
+            gain_controller2: Some(GainController2 {
+                adaptive_digital: Some(AdaptiveDigital {
+                    headroom_db: 3.0,
+                    max_gain_db: 40.0,
+                    ..Default::default()
+                }),
+                fixed_digital: FixedDigital { gain_db: 6.0 },
+                ..Default::default()
+            }),
+            pre_amplifier: Some(PreAmplifier {
+                fixed_gain_factor: 2.5,
+            }),
+            capture_level_adjustment: Some(CaptureLevelAdjustment {
+                pre_gain_factor: 1.5,
+                post_gain_factor: 0.8,
+                analog_mic_gain_emulation: Some(AnalogMicGainEmulation { initial_level: 128 }),
+            }),
+            pipeline: Pipeline {
+                maximum_internal_processing_rate: MaxProcessingRate::Rate48kHz,
+                multi_channel_render: true,
+                multi_channel_capture: true,
+                capture_downmix_method: DownmixMethod::UseFirstChannel,
+            },
+        };
 
         let c_config = WapConfig::from_rust(&rust_config);
         let roundtrip = c_config.to_rust();
 
-        assert!(roundtrip.echo_canceller.enabled);
-        assert!(roundtrip.noise_suppression.enabled);
+        assert!(roundtrip.echo_canceller.is_some());
+        let ec = roundtrip.echo_canceller.unwrap();
+        assert!(ec.enforce_high_pass_filtering);
+
+        assert!(roundtrip.noise_suppression.is_some());
+        let ns = roundtrip.noise_suppression.unwrap();
+        assert_eq!(ns.level, NoiseSuppressionLevel::VeryHigh);
+
+        assert!(roundtrip.high_pass_filter.is_some());
+
+        let gc2 = roundtrip.gain_controller2.unwrap();
+        assert!(gc2.adaptive_digital.is_some());
+        let ad = gc2.adaptive_digital.unwrap();
+        assert_eq!(ad.headroom_db, 3.0);
+        assert_eq!(ad.max_gain_db, 40.0);
+        assert_eq!(gc2.fixed_digital.gain_db, 6.0);
+
+        let pa = roundtrip.pre_amplifier.unwrap();
+        assert_eq!(pa.fixed_gain_factor, 2.5);
+
+        let cla = roundtrip.capture_level_adjustment.unwrap();
+        assert_eq!(cla.pre_gain_factor, 1.5);
+        assert_eq!(cla.post_gain_factor, 0.8);
+        let amge = cla.analog_mic_gain_emulation.unwrap();
+        assert_eq!(amge.initial_level, 128);
+
         assert_eq!(
-            roundtrip.noise_suppression.level,
-            NoiseSuppressionLevel::VeryHigh
+            roundtrip.pipeline.maximum_internal_processing_rate,
+            MaxProcessingRate::Rate48kHz
         );
-        assert!(roundtrip.high_pass_filter.enabled);
-        assert!(roundtrip.gain_controller2.enabled);
-        assert!(roundtrip.gain_controller2.adaptive_digital.enabled);
-        assert_eq!(roundtrip.gain_controller2.adaptive_digital.headroom_db, 3.0);
-        assert_eq!(
-            roundtrip.gain_controller2.adaptive_digital.max_gain_db,
-            40.0
-        );
-        assert_eq!(roundtrip.gain_controller2.fixed_digital.gain_db, 6.0);
-        assert!(roundtrip.pre_amplifier.enabled);
-        assert_eq!(roundtrip.pre_amplifier.fixed_gain_factor, 2.5);
-        assert!(roundtrip.capture_level_adjustment.enabled);
-        assert_eq!(roundtrip.capture_level_adjustment.pre_gain_factor, 1.5);
-        assert_eq!(roundtrip.capture_level_adjustment.post_gain_factor, 0.8);
-        assert!(
-            roundtrip
-                .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .enabled
-        );
-        assert_eq!(
-            roundtrip
-                .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .initial_level,
-            128
-        );
-        assert_eq!(roundtrip.pipeline.maximum_internal_processing_rate, 48000);
         assert!(roundtrip.pipeline.multi_channel_render);
         assert!(roundtrip.pipeline.multi_channel_capture);
         assert_eq!(

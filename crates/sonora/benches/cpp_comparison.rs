@@ -11,7 +11,7 @@
 //! ```
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use sonora::config::{EchoCanceller, GainController2, HighPassFilter, NoiseSuppression};
+use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use std::slice;
 
@@ -87,21 +87,20 @@ fn gen_signal(len: usize) -> Vec<f32> {
 
 fn make_rust_apm(cfg: &ComponentConfig, sample_rate: usize, channels: usize) -> AudioProcessing {
     let config = Config {
-        echo_canceller: EchoCanceller {
-            enabled: cfg.ec,
-            ..Default::default()
+        echo_canceller: if cfg.ec {
+            Some(EchoCanceller::default())
+        } else {
+            None
         },
-        noise_suppression: NoiseSuppression {
-            enabled: cfg.ns,
-            ..Default::default()
+        noise_suppression: if cfg.ns {
+            Some(NoiseSuppression::default())
+        } else {
+            None
         },
-        gain_controller2: GainController2 {
-            enabled: cfg.agc2,
-            ..Default::default()
-        },
-        high_pass_filter: HighPassFilter {
-            enabled: false,
-            ..Default::default()
+        gain_controller2: if cfg.agc2 {
+            Some(GainController2::default())
+        } else {
+            None
         },
         ..Default::default()
     };

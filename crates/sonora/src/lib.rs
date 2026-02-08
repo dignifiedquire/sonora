@@ -7,10 +7,13 @@
 //!
 //! ```ignore
 //! use sonora::{AudioProcessing, Config, StreamConfig};
+//! use sonora::config::{EchoCanceller, NoiseSuppression};
 //!
-//! let mut config = Config::default();
-//! config.echo_canceller.enabled = true;
-//! config.noise_suppression.enabled = true;
+//! let config = Config {
+//!     echo_canceller: Some(EchoCanceller::default()),
+//!     noise_suppression: Some(NoiseSuppression::default()),
+//!     ..Default::default()
+//! };
 //!
 //! let mut apm = AudioProcessing::builder().config(config).build();
 //! let stream = StreamConfig::new(16000, 1);

@@ -10,7 +10,7 @@
 use crate::audio_buffer::AudioBuffer;
 use crate::audio_converter::AudioConverter;
 use crate::capture_levels_adjuster::CaptureLevelsAdjuster;
-use crate::config::{self, Config, DownmixMethod, NoiseSuppressionLevel, RuntimeSetting};
+use crate::config::{Config, DownmixMethod, NoiseSuppressionLevel, RuntimeSetting};
 use crate::echo_canceller3::EchoCanceller3;
 use crate::gain_controller2::{
     Agc2AdaptiveDigitalConfig, Agc2Config, Agc2InputVolumeControllerConfig, FixedDigitalConfig,
@@ -214,18 +214,27 @@ impl AudioProcessingImpl {
     /// Applies a new configuration, selectively reinitializing submodules.
     pub(crate) fn apply_config(&mut self, config: Config) {
         let aec_config_changed =
-            self.config.echo_canceller.enabled != config.echo_canceller.enabled;
+            self.config.echo_canceller.is_some() != config.echo_canceller.is_some();
 
         let agc2_config_changed = self.config.gain_controller2 != config.gain_controller2;
 
-        let ns_config_changed = self.config.noise_suppression.enabled
-            != config.noise_suppression.enabled
-            || self.config.noise_suppression.level != config.noise_suppression.level;
+        let ns_config_changed = {
+            let old_enabled = self.config.noise_suppression.is_some();
+            let new_enabled = config.noise_suppression.is_some();
+            let old_level = self.config.noise_suppression.as_ref().map(|ns| ns.level);
+            let new_level = config.noise_suppression.as_ref().map(|ns| ns.level);
+            old_enabled != new_enabled || old_level != new_level
+        };
 
-        let pre_amplifier_config_changed = self.config.pre_amplifier.enabled
-            != config.pre_amplifier.enabled
-            || self.config.pre_amplifier.fixed_gain_factor
-                != config.pre_amplifier.fixed_gain_factor;
+        let pre_amplifier_config_changed = {
+            let old = &self.config.pre_amplifier;
+            let new = &config.pre_amplifier;
+            match (old, new) {
+                (None, None) => false,
+                (Some(_), None) | (None, Some(_)) => true,
+                (Some(a), Some(b)) => a.fixed_gain_factor != b.fixed_gain_factor,
+            }
+        };
 
         let gain_adjustment_config_changed =
             self.config.capture_level_adjustment != config.capture_level_adjustment;
@@ -253,7 +262,7 @@ impl AudioProcessingImpl {
         if agc2_config_changed {
             if !GainController2::validate(&self.agc2_config_from_api()) {
                 tracing::error!("Invalid GainController2 config; using default");
-                self.config.gain_controller2 = config::GainController2::default();
+                self.config.gain_controller2 = None;
             }
             self.initialize_gain_controller2();
         }
@@ -448,7 +457,11 @@ impl AudioProcessingImpl {
         let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
 
         // Phase 1: Full-band high-pass filter (before splitting).
-        if self.config.high_pass_filter.apply_in_full_band
+        if self
+            .config
+            .high_pass_filter
+            .as_ref()
+            .is_some_and(|hpf| hpf.apply_in_full_band)
             && let Some(hpf) = &mut self.submodules.high_pass_filter
         {
             hpf.process(capture_buffer, false);
@@ -456,12 +469,12 @@ impl AudioProcessingImpl {
 
         // Phase 1b: Pre-level adjustment.
         if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
-            if self
+            let emulation_enabled = self
                 .config
                 .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .enabled
-            {
+                .as_ref()
+                .is_some_and(|cla| cla.analog_mic_gain_emulation.is_some());
+            if emulation_enabled {
                 // Feed the emulated analog gain level as the applied input
                 // volume.
                 let level = adjuster.get_analog_mic_gain_level();
@@ -495,7 +508,11 @@ impl AudioProcessingImpl {
 
         // Phase 2c: AGC2 input volume analysis.
         if let Some(gc2) = &mut self.submodules.gain_controller2
-            && self.config.gain_controller2.input_volume_controller.enabled
+            && self
+                .config
+                .gain_controller2
+                .as_ref()
+                .is_some_and(|gc| gc.input_volume_controller)
             && let Some(vol) = self.capture.applied_input_volume
         {
             gc2.analyze(vol, capture_buffer);
@@ -523,7 +540,11 @@ impl AudioProcessingImpl {
         }
 
         // Phase 5: Split-band high-pass filter.
-        if !self.config.high_pass_filter.apply_in_full_band
+        if !self
+            .config
+            .high_pass_filter
+            .as_ref()
+            .is_some_and(|hpf| hpf.apply_in_full_band)
             && let Some(hpf) = &mut self.submodules.high_pass_filter
         {
             let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
@@ -534,7 +555,8 @@ impl AudioProcessingImpl {
         if !self
             .config
             .noise_suppression
-            .analyze_linear_aec_output_when_available
+            .as_ref()
+            .is_some_and(|ns| ns.analyze_linear_aec_output_when_available)
         {
             for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
                 let capture_buffer = self.capture.capture_audio.as_ref().unwrap();
@@ -557,7 +579,8 @@ impl AudioProcessingImpl {
         if self
             .config
             .noise_suppression
-            .analyze_linear_aec_output_when_available
+            .as_ref()
+            .is_some_and(|ns| ns.analyze_linear_aec_output_when_available)
         {
             for (ch, ns) in self.submodules.noise_suppressors.iter_mut().enumerate() {
                 let capture_buffer = self.capture.capture_audio.as_ref().unwrap();
@@ -700,13 +723,12 @@ impl AudioProcessingImpl {
         if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
             adjuster.apply_post_level_adjustment(capture_buffer);
 
-            if self
+            let emulation_enabled = self
                 .config
                 .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .enabled
-                && let Some(vol) = self.capture.recommended_input_volume
-            {
+                .as_ref()
+                .is_some_and(|cla| cla.analog_mic_gain_emulation.is_some());
+            if emulation_enabled && let Some(vol) = self.capture.recommended_input_volume {
                 adjuster.set_analog_mic_gain_level(vol);
             }
         }
@@ -813,21 +835,21 @@ impl AudioProcessingImpl {
         while let Some(setting) = self.capture_runtime_settings.pop_front() {
             match setting {
                 RuntimeSetting::CapturePreGain(value) => {
-                    if self.config.pre_amplifier.enabled
-                        || self.config.capture_level_adjustment.enabled
-                    {
-                        if self.config.pre_amplifier.enabled {
-                            self.config.pre_amplifier.fixed_gain_factor = value;
-                        } else {
-                            self.config.capture_level_adjustment.pre_gain_factor = value;
+                    let has_pre_amp = self.config.pre_amplifier.is_some();
+                    let has_cla = self.config.capture_level_adjustment.is_some();
+                    if has_pre_amp || has_cla {
+                        if let Some(ref mut pre_amp) = self.config.pre_amplifier {
+                            pre_amp.fixed_gain_factor = value;
+                        } else if let Some(ref mut cla) = self.config.capture_level_adjustment {
+                            cla.pre_gain_factor = value;
                         }
 
                         let mut gain = 1.0_f32;
-                        if self.config.pre_amplifier.enabled {
-                            gain *= self.config.pre_amplifier.fixed_gain_factor;
+                        if let Some(ref pre_amp) = self.config.pre_amplifier {
+                            gain *= pre_amp.fixed_gain_factor;
                         }
-                        if self.config.capture_level_adjustment.enabled {
-                            gain *= self.config.capture_level_adjustment.pre_gain_factor;
+                        if let Some(ref cla) = self.config.capture_level_adjustment {
+                            gain *= cla.pre_gain_factor;
                         }
 
                         if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
@@ -836,18 +858,18 @@ impl AudioProcessingImpl {
                     }
                 }
                 RuntimeSetting::CapturePostGain(value) => {
-                    if self.config.capture_level_adjustment.enabled {
-                        self.config.capture_level_adjustment.post_gain_factor = value;
+                    if let Some(ref mut cla) = self.config.capture_level_adjustment {
+                        cla.post_gain_factor = value;
                         if let Some(adjuster) = &mut self.submodules.capture_levels_adjuster {
-                            adjuster.set_post_gain(
-                                self.config.capture_level_adjustment.post_gain_factor,
-                            );
+                            adjuster.set_post_gain(cla.post_gain_factor);
                         }
                     }
                 }
                 RuntimeSetting::CaptureFixedPostGain(value) => {
                     if let Some(gc2) = &mut self.submodules.gain_controller2 {
-                        self.config.gain_controller2.fixed_digital.gain_db = value;
+                        if let Some(ref mut gc2_config) = self.config.gain_controller2 {
+                            gc2_config.fixed_digital.gain_db = value;
+                        }
                         gc2.set_fixed_gain_db(value);
                     }
                 }
@@ -921,7 +943,11 @@ impl AudioProcessingImpl {
         }
 
         if let Some(gc2) = &self.submodules.gain_controller2
-            && self.config.gain_controller2.input_volume_controller.enabled
+            && self
+                .config
+                .gain_controller2
+                .as_ref()
+                .is_some_and(|gc| gc.input_volume_controller)
         {
             self.capture.recommended_input_volume = gc2.recommended_input_volume();
             return;
@@ -1066,11 +1092,11 @@ impl AudioProcessingImpl {
         self.formats.api_format = config;
 
         // Choose maximum processing rate.
-        let max_splitting_rate = if self.config.pipeline.maximum_internal_processing_rate == 32000 {
-            32000
-        } else {
-            48000
-        };
+        let max_splitting_rate = self
+            .config
+            .pipeline
+            .maximum_internal_processing_rate
+            .as_hz();
 
         // Determine capture processing rate.
         let min_capture_rate = self
@@ -1134,23 +1160,30 @@ impl AudioProcessingImpl {
     }
 
     fn update_active_submodule_states(&mut self) -> bool {
-        let need_echo_controller = self.config.echo_canceller.enabled;
+        let need_echo_controller = self.config.echo_canceller.is_some();
         let gain_adjustment =
-            self.config.pre_amplifier.enabled || self.config.capture_level_adjustment.enabled;
+            self.config.pre_amplifier.is_some() || self.config.capture_level_adjustment.is_some();
         self.submodule_states.update(
-            self.config.high_pass_filter.enabled,
+            self.config.high_pass_filter.is_some(),
             self.submodules.noise_suppressors.is_empty().not_(),
-            self.config.gain_controller2.enabled,
+            self.config.gain_controller2.is_some(),
             gain_adjustment,
             need_echo_controller,
         )
     }
 
     fn initialize_high_pass_filter(&mut self, forced_reset: bool) {
-        let hpf_needed_by_aec = self.config.echo_canceller.enabled
-            && self.config.echo_canceller.enforce_high_pass_filtering;
+        let hpf_needed_by_aec = self
+            .config
+            .echo_canceller
+            .as_ref()
+            .is_some_and(|ec| ec.enforce_high_pass_filtering);
         if self.submodule_states.high_pass_filtering_required() || hpf_needed_by_aec {
-            let use_full_band = self.config.high_pass_filter.apply_in_full_band;
+            let use_full_band = self
+                .config
+                .high_pass_filter
+                .as_ref()
+                .is_none_or(|hpf| hpf.apply_in_full_band);
             let rate = if use_full_band {
                 self.proc_fullband_sample_rate_hz() as i32
             } else {
@@ -1182,7 +1215,7 @@ impl AudioProcessingImpl {
     fn initialize_echo_controller(&mut self) {
         self.submodules.echo_controller = None;
 
-        if !self.config.echo_canceller.enabled {
+        if self.config.echo_canceller.is_none() {
             return;
         }
 
@@ -1205,11 +1238,11 @@ impl AudioProcessingImpl {
     fn initialize_noise_suppressor(&mut self) {
         self.submodules.noise_suppressors.clear();
 
-        if !self.config.noise_suppression.enabled {
+        let Some(ns_config) = &self.config.noise_suppression else {
             return;
-        }
+        };
 
-        let level = map_ns_level(self.config.noise_suppression.level);
+        let level = map_ns_level(ns_config.level);
         let num_channels = self.num_proc_channels();
         let num_bands = self.proc_sample_rate_hz() / 16000;
         let ns_config = NsConfig {
@@ -1224,7 +1257,7 @@ impl AudioProcessingImpl {
     }
 
     fn initialize_gain_controller2(&mut self) {
-        if !self.config.gain_controller2.enabled {
+        if self.config.gain_controller2.is_none() {
             self.submodules.gain_controller2 = None;
             return;
         }
@@ -1248,26 +1281,33 @@ impl AudioProcessingImpl {
     }
 
     fn initialize_capture_levels_adjuster(&mut self) {
-        if self.config.pre_amplifier.enabled || self.config.capture_level_adjustment.enabled {
+        if self.config.pre_amplifier.is_some() || self.config.capture_level_adjustment.is_some() {
             let mut pre_gain = 1.0_f32;
-            if self.config.pre_amplifier.enabled {
-                pre_gain *= self.config.pre_amplifier.fixed_gain_factor;
+            if let Some(ref pre_amp) = self.config.pre_amplifier {
+                pre_gain *= pre_amp.fixed_gain_factor;
             }
-            if self.config.capture_level_adjustment.enabled {
-                pre_gain *= self.config.capture_level_adjustment.pre_gain_factor;
+            if let Some(ref cla) = self.config.capture_level_adjustment {
+                pre_gain *= cla.pre_gain_factor;
             }
 
+            let (emulation_enabled, initial_level, post_gain) = if let Some(ref cla) =
+                self.config.capture_level_adjustment
+            {
+                let (emu_enabled, level) = if let Some(ref amge) = cla.analog_mic_gain_emulation {
+                    (true, i32::from(amge.initial_level))
+                } else {
+                    (false, 255)
+                };
+                (emu_enabled, level, cla.post_gain_factor)
+            } else {
+                (false, 255, 1.0)
+            };
+
             self.submodules.capture_levels_adjuster = Some(CaptureLevelsAdjuster::new(
-                self.config
-                    .capture_level_adjustment
-                    .analog_mic_gain_emulation
-                    .enabled,
-                self.config
-                    .capture_level_adjustment
-                    .analog_mic_gain_emulation
-                    .initial_level,
+                emulation_enabled,
+                initial_level,
                 pre_gain,
-                self.config.capture_level_adjustment.post_gain_factor,
+                post_gain,
             ));
         } else {
             self.submodules.capture_levels_adjuster = None;
@@ -1304,22 +1344,30 @@ impl AudioProcessingImpl {
 
     /// Builds an `Agc2Config` from the public API config.
     fn agc2_config_from_api(&self) -> Agc2Config {
-        let gc2 = &self.config.gain_controller2;
-        Agc2Config {
-            fixed_digital: FixedDigitalConfig {
-                gain_db: gc2.fixed_digital.gain_db,
+        match &self.config.gain_controller2 {
+            Some(gc2) => Agc2Config {
+                fixed_digital: FixedDigitalConfig {
+                    gain_db: gc2.fixed_digital.gain_db,
+                },
+                adaptive_digital: match &gc2.adaptive_digital {
+                    Some(ad) => Agc2AdaptiveDigitalConfig {
+                        enabled: true,
+                        headroom_db: ad.headroom_db,
+                        max_gain_db: ad.max_gain_db,
+                        initial_gain_db: ad.initial_gain_db,
+                        max_gain_change_db_per_second: ad.max_gain_change_db_per_second,
+                        max_output_noise_level_dbfs: ad.max_output_noise_level_dbfs,
+                    },
+                    None => Agc2AdaptiveDigitalConfig {
+                        enabled: false,
+                        ..Default::default()
+                    },
+                },
+                input_volume_controller: Agc2InputVolumeControllerConfig {
+                    enabled: gc2.input_volume_controller,
+                },
             },
-            adaptive_digital: Agc2AdaptiveDigitalConfig {
-                enabled: gc2.adaptive_digital.enabled,
-                headroom_db: gc2.adaptive_digital.headroom_db,
-                max_gain_db: gc2.adaptive_digital.max_gain_db,
-                initial_gain_db: gc2.adaptive_digital.initial_gain_db,
-                max_gain_change_db_per_second: gc2.adaptive_digital.max_gain_change_db_per_second,
-                max_output_noise_level_dbfs: gc2.adaptive_digital.max_output_noise_level_dbfs,
-            },
-            input_volume_controller: Agc2InputVolumeControllerConfig {
-                enabled: gc2.input_volume_controller.enabled,
-            },
+            None => Agc2Config::default(),
         }
     }
 }
@@ -1387,6 +1435,7 @@ impl NotEmpty for bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{CaptureLevelAdjustment, EchoCanceller, GainController2, NoiseSuppression};
 
     #[test]
     fn suitable_process_rate_basic() {
@@ -1420,34 +1469,44 @@ mod tests {
 
     #[test]
     fn create_with_echo_canceller() {
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            ..Default::default()
+        };
         let apm = AudioProcessingImpl::with_config(config);
         assert!(apm.submodules.echo_controller.is_some());
     }
 
     #[test]
     fn create_with_noise_suppression() {
-        let mut config = Config::default();
-        config.noise_suppression.enabled = true;
+        let config = Config {
+            noise_suppression: Some(NoiseSuppression::default()),
+            ..Default::default()
+        };
         let apm = AudioProcessingImpl::with_config(config);
         assert_eq!(apm.submodules.noise_suppressors.len(), 1);
     }
 
     #[test]
     fn create_with_gain_controller2() {
-        let mut config = Config::default();
-        config.gain_controller2.enabled = true;
+        let config = Config {
+            gain_controller2: Some(GainController2::default()),
+            ..Default::default()
+        };
         let apm = AudioProcessingImpl::with_config(config);
         assert!(apm.submodules.gain_controller2.is_some());
     }
 
     #[test]
     fn create_with_capture_level_adjustment() {
-        let mut config = Config::default();
-        config.capture_level_adjustment.enabled = true;
-        config.capture_level_adjustment.pre_gain_factor = 2.0;
-        config.capture_level_adjustment.post_gain_factor = 0.5;
+        let config = Config {
+            capture_level_adjustment: Some(CaptureLevelAdjustment {
+                pre_gain_factor: 2.0,
+                post_gain_factor: 0.5,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let apm = AudioProcessingImpl::with_config(config);
         assert!(apm.submodules.capture_levels_adjuster.is_some());
     }
@@ -1457,16 +1516,20 @@ mod tests {
         let mut apm = AudioProcessingImpl::new();
         assert!(apm.submodules.echo_controller.is_none());
 
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            ..Default::default()
+        };
         apm.apply_config(config);
         assert!(apm.submodules.echo_controller.is_some());
     }
 
     #[test]
     fn apply_config_disables_noise_suppression() {
-        let mut config = Config::default();
-        config.noise_suppression.enabled = true;
+        let config = Config {
+            noise_suppression: Some(NoiseSuppression::default()),
+            ..Default::default()
+        };
         let mut apm = AudioProcessingImpl::with_config(config);
         assert!(!apm.submodules.noise_suppressors.is_empty());
 
@@ -1477,10 +1540,13 @@ mod tests {
 
     #[test]
     fn high_pass_filter_enforced_by_aec() {
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
-        config.echo_canceller.enforce_high_pass_filtering = true;
-        config.high_pass_filter.enabled = false;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller {
+                enforce_high_pass_filtering: true,
+            }),
+            // high_pass_filter is None (disabled)
+            ..Default::default()
+        };
         let apm = AudioProcessingImpl::with_config(config);
         assert!(apm.submodules.high_pass_filter.is_some());
     }

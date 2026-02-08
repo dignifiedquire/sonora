@@ -274,10 +274,13 @@ fn handle_unsupported_formats_i16(
 /// # Example
 /// ```ignore
 /// use sonora::{AudioProcessing, Config};
+/// use sonora::config::{EchoCanceller, NoiseSuppression};
 ///
-/// let mut config = Config::default();
-/// config.echo_canceller.enabled = true;
-/// config.noise_suppression.enabled = true;
+/// let config = Config {
+///     echo_canceller: Some(EchoCanceller::default()),
+///     noise_suppression: Some(NoiseSuppression::default()),
+///     ..Default::default()
+/// };
 ///
 /// let apm = AudioProcessing::builder()
 ///     .config(config)
@@ -551,7 +554,10 @@ impl Default for AudioProcessing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::NoiseSuppressionLevel;
+    use crate::config::{
+        AdaptiveDigital, EchoCanceller, GainController2, HighPassFilter, NoiseSuppression,
+        NoiseSuppressionLevel, Pipeline, PreAmplifier,
+    };
 
     #[test]
     fn builder_creates_default_instance() {
@@ -563,9 +569,11 @@ mod tests {
 
     #[test]
     fn builder_with_config() {
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
-        config.noise_suppression.enabled = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            noise_suppression: Some(NoiseSuppression::default()),
+            ..Default::default()
+        };
         let _apm = AudioProcessing::builder().config(config).build();
     }
 
@@ -972,16 +980,18 @@ mod tests {
         // Matches C++ test: AllProcessingDisabledByDefault.
         let apm = AudioProcessing::new();
         let config = apm.get_config();
-        assert!(!config.echo_canceller.enabled);
-        assert!(!config.high_pass_filter.enabled);
-        assert!(!config.noise_suppression.enabled);
-        assert!(!config.gain_controller2.enabled);
+        assert!(config.echo_canceller.is_none());
+        assert!(config.high_pass_filter.is_none());
+        assert!(config.noise_suppression.is_none());
+        assert!(config.gain_controller2.is_none());
     }
 
     #[test]
     fn echo_canceller_processes_multiple_frames() {
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;
@@ -1006,9 +1016,13 @@ mod tests {
 
     #[test]
     fn noise_suppression_processes_multiple_frames() {
-        let mut config = Config::default();
-        config.noise_suppression.enabled = true;
-        config.noise_suppression.level = NoiseSuppressionLevel::High;
+        let config = Config {
+            noise_suppression: Some(NoiseSuppression {
+                level: NoiseSuppressionLevel::High,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;
@@ -1026,9 +1040,13 @@ mod tests {
 
     #[test]
     fn gain_controller2_processes_multiple_frames() {
-        let mut config = Config::default();
-        config.gain_controller2.enabled = true;
-        config.gain_controller2.adaptive_digital.enabled = true;
+        let config = Config {
+            gain_controller2: Some(GainController2 {
+                adaptive_digital: Some(AdaptiveDigital::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;
@@ -1046,8 +1064,10 @@ mod tests {
 
     #[test]
     fn high_pass_filter_processes_multiple_frames() {
-        let mut config = Config::default();
-        config.high_pass_filter.enabled = true;
+        let config = Config {
+            high_pass_filter: Some(HighPassFilter::default()),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;
@@ -1065,12 +1085,16 @@ mod tests {
 
     #[test]
     fn all_components_enabled_processes_multiple_frames() {
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
-        config.noise_suppression.enabled = true;
-        config.high_pass_filter.enabled = true;
-        config.gain_controller2.enabled = true;
-        config.gain_controller2.adaptive_digital.enabled = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            noise_suppression: Some(NoiseSuppression::default()),
+            high_pass_filter: Some(HighPassFilter::default()),
+            gain_controller2: Some(GainController2 {
+                adaptive_digital: Some(AdaptiveDigital::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
         let stream = StreamConfig::new(16000, 1);
         let num_frames = 160;
@@ -1112,8 +1136,10 @@ mod tests {
         }
 
         // Enable echo canceller mid-stream.
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            ..Default::default()
+        };
         apm.apply_config(config);
 
         // Process more frames — should not crash.
@@ -1123,7 +1149,7 @@ mod tests {
 
         // Enable noise suppression mid-stream.
         let mut config = apm.get_config().clone();
-        config.noise_suppression.enabled = true;
+        config.noise_suppression = Some(NoiseSuppression::default());
         apm.apply_config(config);
 
         for _ in 0..10 {
@@ -1161,9 +1187,12 @@ mod tests {
     #[test]
     fn pre_amplifier_applies_gain() {
         // Matches C++ test: PreAmplifier (simplified).
-        let mut config = Config::default();
-        config.pre_amplifier.enabled = true;
-        config.pre_amplifier.fixed_gain_factor = 2.0;
+        let config = Config {
+            pre_amplifier: Some(PreAmplifier {
+                fixed_gain_factor: 2.0,
+            }),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
 
         let stream = StreamConfig::new(16000, 1);
@@ -1202,9 +1231,12 @@ mod tests {
 
     #[test]
     fn runtime_setting_capture_pre_gain() {
-        let mut config = Config::default();
-        config.pre_amplifier.enabled = true;
-        config.pre_amplifier.fixed_gain_factor = 1.0;
+        let config = Config {
+            pre_amplifier: Some(PreAmplifier {
+                fixed_gain_factor: 1.0,
+            }),
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
 
         // Change gain via runtime setting.
@@ -1224,15 +1256,23 @@ mod tests {
 
         // Verify the config was updated.
         let config = apm.get_config();
-        assert_eq!(config.pre_amplifier.fixed_gain_factor, 2.0);
+        assert_eq!(
+            config.pre_amplifier.as_ref().unwrap().fixed_gain_factor,
+            2.0
+        );
     }
 
     #[test]
     fn stereo_processing_does_not_crash() {
-        let mut config = Config::default();
-        config.echo_canceller.enabled = true;
-        config.pipeline.multi_channel_render = true;
-        config.pipeline.multi_channel_capture = true;
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            pipeline: Pipeline {
+                multi_channel_render: true,
+                multi_channel_capture: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut apm = AudioProcessing::builder().config(config).build();
 
         let stream = StreamConfig::new(16000, 2);

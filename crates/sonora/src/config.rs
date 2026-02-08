@@ -9,35 +9,70 @@
 /// submodule resets, affecting audio quality. Use [`RuntimeSetting`] for
 /// runtime configuration changes.
 ///
-/// All components are disabled by default. Enabling a component triggers
-/// memory allocation and initialization to allow it to start processing.
+/// All components are disabled (`None`) by default. Setting a component to
+/// `Some(...)` enables it and triggers memory allocation and initialization.
+///
+/// # Example
+///
+/// ```
+/// use sonora::Config;
+/// use sonora::config::{EchoCanceller, NoiseSuppression, NoiseSuppressionLevel};
+///
+/// let config = Config {
+///     echo_canceller: Some(EchoCanceller::default()),
+///     noise_suppression: Some(NoiseSuppression {
+///         level: NoiseSuppressionLevel::High,
+///         ..Default::default()
+///     }),
+///     ..Default::default()
+/// };
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     /// Pipeline processing properties.
     pub pipeline: Pipeline,
     /// Pre-amplifier settings. Amplifies the capture signal before any other
-    /// processing.
-    pub pre_amplifier: PreAmplifier,
+    /// processing. Set to `Some(...)` to enable.
+    pub pre_amplifier: Option<PreAmplifier>,
     /// Capture-level adjustment settings. Should not be used together with
-    /// [`PreAmplifier`].
-    pub capture_level_adjustment: CaptureLevelAdjustment,
-    /// High-pass filter settings.
-    pub high_pass_filter: HighPassFilter,
-    /// Echo canceller (AEC3) settings.
-    pub echo_canceller: EchoCanceller,
-    /// Noise suppression settings.
-    pub noise_suppression: NoiseSuppression,
+    /// [`PreAmplifier`]. Set to `Some(...)` to enable.
+    pub capture_level_adjustment: Option<CaptureLevelAdjustment>,
+    /// High-pass filter settings. Set to `Some(...)` to enable.
+    pub high_pass_filter: Option<HighPassFilter>,
+    /// Echo canceller (AEC3) settings. Set to `Some(...)` to enable.
+    pub echo_canceller: Option<EchoCanceller>,
+    /// Noise suppression settings. Set to `Some(...)` to enable.
+    pub noise_suppression: Option<NoiseSuppression>,
     /// Automatic Gain Controller 2 (AGC2) settings. Combines input volume
     /// control, adaptive digital gain, fixed digital gain, and a limiter.
-    pub gain_controller2: GainController2,
+    /// Set to `Some(...)` to enable.
+    pub gain_controller2: Option<GainController2>,
+}
+
+/// Maximum internal processing rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaxProcessingRate {
+    /// 32 kHz internal processing rate.
+    Rate32kHz,
+    /// 48 kHz internal processing rate.
+    Rate48kHz,
+}
+
+impl MaxProcessingRate {
+    /// Returns the rate in Hz as a `usize`.
+    pub(crate) fn as_hz(self) -> usize {
+        match self {
+            Self::Rate32kHz => 32000,
+            Self::Rate48kHz => 48000,
+        }
+    }
 }
 
 /// Pipeline processing properties.
 #[derive(Debug, Clone)]
 pub struct Pipeline {
     /// Maximum allowed processing rate used internally.
-    /// May only be set to 32000 or 48000; other values are treated as 48000.
-    pub maximum_internal_processing_rate: i32,
+    pub maximum_internal_processing_rate: MaxProcessingRate,
     /// Allow multi-channel processing of render audio.
     pub multi_channel_render: bool,
     /// Allow multi-channel processing of capture audio when AEC3 is active.
@@ -58,7 +93,7 @@ pub enum DownmixMethod {
 impl Default for Pipeline {
     fn default() -> Self {
         Self {
-            maximum_internal_processing_rate: 32000,
+            maximum_internal_processing_rate: MaxProcessingRate::Rate32kHz,
             multi_channel_render: false,
             multi_channel_capture: false,
             capture_downmix_method: DownmixMethod::AverageChannels,
@@ -70,7 +105,6 @@ impl Default for Pipeline {
 /// processing.
 #[derive(Debug, Clone)]
 pub struct PreAmplifier {
-    pub enabled: bool,
     /// Linear gain factor applied to the capture signal (default: 1.0).
     pub fixed_gain_factor: f32,
 }
@@ -78,7 +112,6 @@ pub struct PreAmplifier {
 impl Default for PreAmplifier {
     fn default() -> Self {
         Self {
-            enabled: false,
             fixed_gain_factor: 1.0,
         }
     }
@@ -88,48 +121,41 @@ impl Default for PreAmplifier {
 /// together with the legacy [`PreAmplifier`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptureLevelAdjustment {
-    pub enabled: bool,
     /// Linear gain factor applied before any processing (default: 1.0).
     pub pre_gain_factor: f32,
     /// Linear gain factor applied after all processing (default: 1.0).
     pub post_gain_factor: f32,
-    /// Analog mic gain emulation settings.
-    pub analog_mic_gain_emulation: AnalogMicGainEmulation,
+    /// Analog mic gain emulation settings. Set to `Some(...)` to enable.
+    pub analog_mic_gain_emulation: Option<AnalogMicGainEmulation>,
 }
 
 impl Default for CaptureLevelAdjustment {
     fn default() -> Self {
         Self {
-            enabled: false,
             pre_gain_factor: 1.0,
             post_gain_factor: 1.0,
-            analog_mic_gain_emulation: AnalogMicGainEmulation::default(),
+            analog_mic_gain_emulation: None,
         }
     }
 }
 
 /// Analog microphone gain emulation settings.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalogMicGainEmulation {
-    pub enabled: bool,
     /// Initial analog gain level to use for the emulated analog gain.
-    /// Must be in the range `0..=255` (default: 255).
-    pub initial_level: i32,
+    /// Range: `0..=255` (default: 255).
+    pub initial_level: u8,
 }
 
 impl Default for AnalogMicGainEmulation {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            initial_level: 255,
-        }
+        Self { initial_level: 255 }
     }
 }
 
 /// High-pass filter settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HighPassFilter {
-    pub enabled: bool,
     /// When true, the filter operates on the full-band signal rather than
     /// only the split band (default: true).
     pub apply_in_full_band: bool,
@@ -138,7 +164,6 @@ pub struct HighPassFilter {
 impl Default for HighPassFilter {
     fn default() -> Self {
         Self {
-            enabled: false,
             apply_in_full_band: true,
         }
     }
@@ -147,7 +172,6 @@ impl Default for HighPassFilter {
 /// Echo canceller (AEC3) settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EchoCanceller {
-    pub enabled: bool,
     /// Enforce the highpass filter to be on (default: true). Has no effect
     /// in mobile mode.
     pub enforce_high_pass_filtering: bool,
@@ -156,7 +180,6 @@ pub struct EchoCanceller {
 impl Default for EchoCanceller {
     fn default() -> Self {
         Self {
-            enabled: false,
             enforce_high_pass_filtering: true,
         }
     }
@@ -165,7 +188,6 @@ impl Default for EchoCanceller {
 /// Background noise suppression settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoiseSuppression {
-    pub enabled: bool,
     /// Aggressiveness level for noise suppression (default: `Moderate`).
     pub level: NoiseSuppressionLevel,
     /// When true and linear AEC output is available, noise suppression
@@ -189,7 +211,6 @@ pub enum NoiseSuppressionLevel {
 impl Default for NoiseSuppression {
     fn default() -> Self {
         Self {
-            enabled: false,
             level: NoiseSuppressionLevel::Moderate,
             analyze_linear_aec_output_when_available: false,
         }
@@ -203,25 +224,16 @@ impl Default for NoiseSuppression {
 /// and a limiter.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GainController2 {
-    pub enabled: bool,
-    /// Adjusts the input volume applied when audio is captured (e.g.,
-    /// microphone volume on a soundcard).
-    pub input_volume_controller: InputVolumeControllerConfig,
+    /// Enable the input volume controller. Adjusts the input volume applied
+    /// when audio is captured (e.g., microphone volume on a soundcard).
+    pub input_volume_controller: bool,
+    /// Adaptive digital controller settings. Set to `Some(...)` to enable.
     /// Adjusts and applies a digital gain after echo cancellation and
     /// noise suppression.
-    pub adaptive_digital: AdaptiveDigital,
+    pub adaptive_digital: Option<AdaptiveDigital>,
     /// Applies a fixed digital gain after the adaptive digital controller
     /// and before the limiter.
     pub fixed_digital: FixedDigital,
-}
-
-/// Input volume controller settings within AGC2.
-///
-/// Adjusts the input volume applied when audio is captured (e.g.,
-/// microphone volume on a soundcard, input volume on HAL).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InputVolumeControllerConfig {
-    pub enabled: bool,
 }
 
 /// Adaptive digital controller settings within AGC2.
@@ -230,7 +242,6 @@ pub struct InputVolumeControllerConfig {
 /// noise suppression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdaptiveDigital {
-    pub enabled: bool,
     /// Headroom in dB (default: 5.0).
     pub headroom_db: f32,
     /// Maximum gain in dB (default: 50.0).
@@ -246,7 +257,6 @@ pub struct AdaptiveDigital {
 impl Default for AdaptiveDigital {
     fn default() -> Self {
         Self {
-            enabled: false,
             headroom_db: 5.0,
             max_gain_db: 50.0,
             initial_gain_db: 15.0,
@@ -303,66 +313,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_matches_upstream() {
+    fn default_config_all_disabled() {
         let config = Config::default();
-        assert_eq!(config.pipeline.maximum_internal_processing_rate, 32000);
+        assert_eq!(
+            config.pipeline.maximum_internal_processing_rate,
+            MaxProcessingRate::Rate32kHz
+        );
         assert!(!config.pipeline.multi_channel_render);
         assert!(!config.pipeline.multi_channel_capture);
         assert_eq!(
             config.pipeline.capture_downmix_method,
             DownmixMethod::AverageChannels
         );
-        assert!(!config.pre_amplifier.enabled);
-        assert_eq!(config.pre_amplifier.fixed_gain_factor, 1.0);
-        assert!(!config.capture_level_adjustment.enabled);
-        assert_eq!(config.capture_level_adjustment.pre_gain_factor, 1.0);
-        assert_eq!(config.capture_level_adjustment.post_gain_factor, 1.0);
-        assert!(
-            !config
-                .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .enabled
-        );
-        assert_eq!(
-            config
-                .capture_level_adjustment
-                .analog_mic_gain_emulation
-                .initial_level,
-            255
-        );
-        assert!(!config.high_pass_filter.enabled);
-        assert!(config.high_pass_filter.apply_in_full_band);
-        assert!(!config.echo_canceller.enabled);
-        assert!(config.echo_canceller.enforce_high_pass_filtering);
-        assert!(!config.noise_suppression.enabled);
-        assert_eq!(
-            config.noise_suppression.level,
-            NoiseSuppressionLevel::Moderate
-        );
-        assert!(!config.gain_controller2.enabled);
-        assert!(!config.gain_controller2.input_volume_controller.enabled);
-        assert!(!config.gain_controller2.adaptive_digital.enabled);
-        assert_eq!(config.gain_controller2.adaptive_digital.headroom_db, 5.0);
-        assert_eq!(config.gain_controller2.adaptive_digital.max_gain_db, 50.0);
-        assert_eq!(
-            config.gain_controller2.adaptive_digital.initial_gain_db,
-            15.0
-        );
-        assert_eq!(
-            config
-                .gain_controller2
-                .adaptive_digital
-                .max_gain_change_db_per_second,
-            6.0
-        );
-        assert_eq!(
-            config
-                .gain_controller2
-                .adaptive_digital
-                .max_output_noise_level_dbfs,
-            -50.0
-        );
-        assert_eq!(config.gain_controller2.fixed_digital.gain_db, 0.0);
+        assert!(config.pre_amplifier.is_none());
+        assert!(config.capture_level_adjustment.is_none());
+        assert!(config.high_pass_filter.is_none());
+        assert!(config.echo_canceller.is_none());
+        assert!(config.noise_suppression.is_none());
+        assert!(config.gain_controller2.is_none());
+    }
+
+    #[test]
+    fn default_sub_configs_match_upstream() {
+        let pre_amp = PreAmplifier::default();
+        assert_eq!(pre_amp.fixed_gain_factor, 1.0);
+
+        let cla = CaptureLevelAdjustment::default();
+        assert_eq!(cla.pre_gain_factor, 1.0);
+        assert_eq!(cla.post_gain_factor, 1.0);
+        assert!(cla.analog_mic_gain_emulation.is_none());
+
+        let amge = AnalogMicGainEmulation::default();
+        assert_eq!(amge.initial_level, 255);
+
+        let hpf = HighPassFilter::default();
+        assert!(hpf.apply_in_full_band);
+
+        let ec = EchoCanceller::default();
+        assert!(ec.enforce_high_pass_filtering);
+
+        let ns = NoiseSuppression::default();
+        assert_eq!(ns.level, NoiseSuppressionLevel::Moderate);
+        assert!(!ns.analyze_linear_aec_output_when_available);
+
+        let gc2 = GainController2::default();
+        assert!(!gc2.input_volume_controller);
+        assert!(gc2.adaptive_digital.is_none());
+        assert_eq!(gc2.fixed_digital.gain_db, 0.0);
+
+        let ad = AdaptiveDigital::default();
+        assert_eq!(ad.headroom_db, 5.0);
+        assert_eq!(ad.max_gain_db, 50.0);
+        assert_eq!(ad.initial_gain_db, 15.0);
+        assert_eq!(ad.max_gain_change_db_per_second, 6.0);
+        assert_eq!(ad.max_output_noise_level_dbfs, -50.0);
     }
 
     #[test]
@@ -372,5 +376,11 @@ mod tests {
         assert_eq!(a, b);
         b.pre_gain_factor = 2.0;
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn max_processing_rate_as_hz() {
+        assert_eq!(MaxProcessingRate::Rate32kHz.as_hz(), 32000);
+        assert_eq!(MaxProcessingRate::Rate48kHz.as_hz(), 48000);
     }
 }
