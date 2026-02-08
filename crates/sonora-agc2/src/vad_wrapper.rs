@@ -17,7 +17,7 @@ const NUM_FRAMES_PER_SECOND: i32 = 100;
 ///
 /// The default implementation uses the RNN VAD. A mock can be injected for
 /// testing.
-pub trait MonoVad {
+pub trait MonoVad: Send {
     /// Returns the sample rate (Hz) required for input frames.
     fn sample_rate_hz(&self) -> i32;
     /// Resets the internal state.
@@ -151,8 +151,8 @@ impl VoiceActivityDetectorWrapper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::Mutex;
+    use std::sync::Arc;
 
     const SAMPLE_RATE_8K_HZ: i32 = 8000;
     const NO_VAD_PERIODIC_RESET: i32 = FRAME_DURATION_MS * (i32::MAX / FRAME_DURATION_MS);
@@ -162,7 +162,7 @@ mod tests {
         sample_rate: i32,
         probabilities: Vec<f32>,
         prob_index: usize,
-        state: Rc<RefCell<MockVadState>>,
+        state: Arc<Mutex<MockVadState>>,
     }
 
     #[derive(Default)]
@@ -175,7 +175,7 @@ mod tests {
         fn new(
             sample_rate: i32,
             probabilities: Vec<f32>,
-            state: Rc<RefCell<MockVadState>>,
+            state: Arc<Mutex<MockVadState>>,
         ) -> Self {
             Self {
                 sample_rate,
@@ -192,11 +192,11 @@ mod tests {
         }
 
         fn reset(&mut self) {
-            self.state.borrow_mut().reset_count += 1;
+            self.state.lock().unwrap().reset_count += 1;
         }
 
         fn analyze(&mut self, frame: &[f32]) -> f32 {
-            self.state.borrow_mut().analyze_frames.push(frame.len());
+            self.state.lock().unwrap().analyze_frames.push(frame.len());
             let p = self.probabilities[self.prob_index % self.probabilities.len()];
             self.prob_index += 1;
             p
@@ -207,7 +207,7 @@ mod tests {
         vad_reset_period_ms: i32,
         sample_rate_hz: i32,
         probabilities: Vec<f32>,
-        state: Rc<RefCell<MockVadState>>,
+        state: Arc<Mutex<MockVadState>>,
     ) -> VoiceActivityDetectorWrapper {
         let vad = MockVad::new(sample_rate_hz, probabilities, state);
         VoiceActivityDetectorWrapper::with_vad(vad_reset_period_ms, Box::new(vad), sample_rate_hz)
@@ -222,12 +222,12 @@ mod tests {
         let probabilities = vec![
             0.709, 0.484, 0.882, 0.167, 0.44, 0.525, 0.858, 0.314, 0.653, 0.965, 0.413, 0.0,
         ];
-        let state = Rc::new(RefCell::new(MockVadState::default()));
+        let state = Arc::new(Mutex::new(MockVadState::default()));
         let mut wrapper = create_mock_vad_wrapper(
             NO_VAD_PERIODIC_RESET,
             SAMPLE_RATE_8K_HZ,
             probabilities.clone(),
-            Rc::clone(&state),
+            Arc::clone(&state),
         );
         let frame = make_frame(SAMPLE_RATE_8K_HZ);
         for (i, &expected) in probabilities.iter().enumerate() {
@@ -242,19 +242,19 @@ mod tests {
     #[test]
     fn vad_no_periodic_reset() {
         let num_frames = 19;
-        let state = Rc::new(RefCell::new(MockVadState::default()));
+        let state = Arc::new(Mutex::new(MockVadState::default()));
         let mut wrapper = create_mock_vad_wrapper(
             NO_VAD_PERIODIC_RESET,
             SAMPLE_RATE_8K_HZ,
             vec![1.0],
-            Rc::clone(&state),
+            Arc::clone(&state),
         );
         let frame = make_frame(SAMPLE_RATE_8K_HZ);
         for _ in 0..num_frames {
             wrapper.analyze(&frame);
         }
         // Only the initial reset from the constructor.
-        assert_eq!(state.borrow().reset_count, 1);
+        assert_eq!(state.lock().unwrap().reset_count, 1);
     }
 
     #[test]
@@ -276,12 +276,12 @@ mod tests {
 
         for (num_frames, vad_reset_period_frames) in test_cases {
             let vad_reset_period_ms = vad_reset_period_frames * FRAME_DURATION_MS;
-            let state = Rc::new(RefCell::new(MockVadState::default()));
+            let state = Arc::new(Mutex::new(MockVadState::default()));
             let mut wrapper = create_mock_vad_wrapper(
                 vad_reset_period_ms,
                 SAMPLE_RATE_8K_HZ,
                 vec![1.0],
-                Rc::clone(&state),
+                Arc::clone(&state),
             );
             let frame = make_frame(SAMPLE_RATE_8K_HZ);
             for _ in 0..num_frames {
@@ -289,7 +289,7 @@ mod tests {
             }
             let expected_resets = 1 + num_frames / vad_reset_period_frames;
             assert_eq!(
-                state.borrow().reset_count,
+                state.lock().unwrap().reset_count,
                 expected_resets as usize,
                 "num_frames={num_frames}, period={vad_reset_period_frames}"
             );
@@ -303,8 +303,8 @@ mod tests {
 
         for &input_rate in &input_rates {
             for &vad_rate in &vad_rates {
-                let state = Rc::new(RefCell::new(MockVadState::default()));
-                let vad = MockVad::new(vad_rate, vec![1.0], Rc::clone(&state));
+                let state = Arc::new(Mutex::new(MockVadState::default()));
+                let vad = MockVad::new(vad_rate, vec![1.0], Arc::clone(&state));
                 let mut wrapper = VoiceActivityDetectorWrapper::with_vad(
                     NO_VAD_PERIODIC_RESET,
                     Box::new(vad),
@@ -315,7 +315,7 @@ mod tests {
 
                 let expected_frame_size = (vad_rate / NUM_FRAMES_PER_SECOND) as usize;
                 assert_eq!(
-                    state.borrow().analyze_frames[0],
+                    state.lock().unwrap().analyze_frames[0],
                     expected_frame_size,
                     "input_rate={input_rate}, vad_rate={vad_rate}"
                 );
