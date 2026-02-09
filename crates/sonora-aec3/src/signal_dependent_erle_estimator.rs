@@ -28,6 +28,7 @@ const BAND_BOUNDARIES: [usize; SUBBANDS + 1] = [1, 8, 16, 24, 32, 48, FFT_LENGTH
 fn form_subband_map() -> [usize; FFT_LENGTH_BY_2_PLUS_1] {
     let mut map = [0usize; FFT_LENGTH_BY_2_PLUS_1];
     let mut subband = 1;
+    #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
         debug_assert!(subband < BAND_BOUNDARIES.len());
         if k >= BAND_BOUNDARIES[subband] {
@@ -60,8 +61,8 @@ fn define_filter_section_sizes(
     }
 
     let last_groups_size = remaining_blocks / remaining_sections;
-    for i in idx..num_sections {
-        section_sizes[i] = last_groups_size;
+    for ss in &mut section_sizes[idx..num_sections] {
+        *ss = last_groups_size;
     }
     section_sizes[num_sections - 1] += remaining_blocks - last_groups_size * remaining_sections;
     section_sizes
@@ -107,12 +108,8 @@ fn set_max_erle_subbands(
     limit_subband_l: usize,
 ) -> [f32; SUBBANDS] {
     let mut max_erle = [0.0f32; SUBBANDS];
-    for i in 0..limit_subband_l {
-        max_erle[i] = max_erle_l;
-    }
-    for i in limit_subband_l..SUBBANDS {
-        max_erle[i] = max_erle_h;
-    }
+    max_erle[..limit_subband_l].fill(max_erle_l);
+    max_erle[limit_subband_l..].fill(max_erle_h);
     max_erle
 }
 
@@ -213,16 +210,20 @@ impl SignalDependentErleEstimator {
         self.update_correction_factors(ctx.x2, ctx.y2, ctx.e2, ctx.converged_filters);
 
         for ch in 0..self.erle.len() {
-            for k in 0..FFT_LENGTH_BY_2 {
-                debug_assert!(self.n_active_sections[ch][k] < self.correction_factors[ch].len());
-                let correction_factor = self.correction_factors[ch][self.n_active_sections[ch][k]]
-                    [self.band_to_subband[k]];
-                self.erle[ch][k] = (ctx.average_erle[ch][k] * correction_factor)
-                    .clamp(self.min_erle, self.max_erle[self.band_to_subband[k]]);
+            for (k, ((&nas_k, &bts_k), &avg_k)) in self.n_active_sections[ch][..FFT_LENGTH_BY_2]
+                .iter()
+                .zip(self.band_to_subband[..FFT_LENGTH_BY_2].iter())
+                .zip(ctx.average_erle[ch][..FFT_LENGTH_BY_2].iter())
+                .enumerate()
+            {
+                debug_assert!(nas_k < self.correction_factors[ch].len());
+                let correction_factor = self.correction_factors[ch][nas_k][bts_k];
+                self.erle[ch][k] =
+                    (avg_k * correction_factor).clamp(self.min_erle, self.max_erle[bts_k]);
                 if self.use_onset_detection {
                     self.erle_onset_compensated[ch][k] =
                         (ctx.average_erle_onset_compensated[ch][k] * correction_factor)
-                            .clamp(self.min_erle, self.max_erle[self.band_to_subband[k]]);
+                            .clamp(self.min_erle, self.max_erle[bts_k]);
                 }
             }
         }
@@ -336,7 +337,6 @@ impl SignalDependentErleEstimator {
     ) {
         let spectrum_buffer = render_buffer.get_spectrum_buffer();
         let num_render_channels = spectrum_buffer.buffer[0].len();
-        let num_capture_channels = self.s2_section_accum.len();
         let one_by_num_render_channels = 1.0 / num_render_channels as f32;
 
         debug_assert_eq!(
@@ -344,45 +344,56 @@ impl SignalDependentErleEstimator {
             filter_frequency_responses.len()
         );
 
-        for capture_ch in 0..num_capture_channels {
-            debug_assert_eq!(
-                self.s2_section_accum[capture_ch].len() + 1,
-                self.section_boundaries_blocks.len()
-            );
+        for (s2_accum_ch, ffr_ch) in self
+            .s2_section_accum
+            .iter_mut()
+            .zip(filter_frequency_responses.iter())
+        {
+            debug_assert_eq!(s2_accum_ch.len() + 1, self.section_boundaries_blocks.len());
             let mut idx_render = render_buffer.position();
             idx_render = spectrum_buffer
                 .index
                 .offset_index(idx_render, self.section_boundaries_blocks[0] as i32);
 
-            for section in 0..self.num_sections {
+            for (section, s2_section) in s2_accum_ch.iter_mut().enumerate().take(self.num_sections)
+            {
                 let mut x2_section = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
                 let mut h2_section = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
 
-                let block_limit = self.section_boundaries_blocks[section + 1]
-                    .min(filter_frequency_responses[capture_ch].len());
-                for block in self.section_boundaries_blocks[section]..block_limit {
+                let block_limit = self.section_boundaries_blocks[section + 1].min(ffr_ch.len());
+                let ffr_slice = &ffr_ch[self.section_boundaries_blocks[section]..block_limit];
+                for ffr_block in ffr_slice {
                     for render_ch in 0..spectrum_buffer.buffer[idx_render].len() {
-                        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                            x2_section[k] += spectrum_buffer.buffer[idx_render][render_ch][k]
-                                * one_by_num_render_channels;
+                        for (x2_k, &sb_k) in x2_section
+                            .iter_mut()
+                            .zip(spectrum_buffer.buffer[idx_render][render_ch].iter())
+                        {
+                            *x2_k += sb_k * one_by_num_render_channels;
                         }
                     }
-                    for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                        h2_section[k] += filter_frequency_responses[capture_ch][block][k];
+                    for (h2_k, &fr_k) in h2_section.iter_mut().zip(ffr_block.iter()) {
+                        *h2_k += fr_k;
                     }
                     idx_render = spectrum_buffer.index.inc_index(idx_render);
                 }
 
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    self.s2_section_accum[capture_ch][section][k] = x2_section[k] * h2_section[k];
+                for ((s2_k, &x2_k), &h2_k) in s2_section
+                    .iter_mut()
+                    .zip(x2_section.iter())
+                    .zip(h2_section.iter())
+                {
+                    *s2_k = x2_k * h2_k;
                 }
             }
 
             // Accumulate sections.
             for section in 1..self.num_sections {
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    let prev = self.s2_section_accum[capture_ch][section - 1][k];
-                    self.s2_section_accum[capture_ch][section][k] += prev;
+                let (prev_sections, cur_sections) = s2_accum_ch.split_at_mut(section);
+                for (cur_k, &prev_k) in cur_sections[0]
+                    .iter_mut()
+                    .zip(prev_sections[section - 1].iter())
+                {
+                    *cur_k += prev_k;
                 }
             }
         }

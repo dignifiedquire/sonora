@@ -29,12 +29,8 @@ fn identify_small_narrow_band_regions(
             }
         }
     }
-    for k in 0..FFT_LENGTH_BY_2 - 1 {
-        narrow_band_counters[k] = if channel_counters[k] > 0 {
-            narrow_band_counters[k] + 1
-        } else {
-            0
-        };
+    for (nbc, &cc) in narrow_band_counters.iter_mut().zip(channel_counters.iter()) {
+        *nbc = if cc > 0 { *nbc + 1 } else { 0 };
     }
 }
 
@@ -70,13 +66,13 @@ fn identify_strong_narrow_band_component(
         let mut non_peak_power = 0.0f32;
         let start_low = peak_bin.saturating_sub(14);
         let end_low = peak_bin.saturating_sub(4);
-        for k in start_low..end_low {
-            non_peak_power = non_peak_power.max(x2_latest[k]);
+        for &val in &x2_latest[start_low..end_low] {
+            non_peak_power = non_peak_power.max(val);
         }
-        let start_high = peak_bin + 5;
+        let start_high = (peak_bin + 5).min(FFT_LENGTH_BY_2_PLUS_1);
         let end_high = (peak_bin + 15).min(FFT_LENGTH_BY_2_PLUS_1);
-        for k in start_high..end_high {
-            non_peak_power = non_peak_power.max(x2_latest[k]);
+        for &val in &x2_latest[start_high..end_high] {
+            non_peak_power = non_peak_power.max(val);
         }
 
         // Assess the render signal strength.
@@ -159,6 +155,7 @@ impl RenderSignalAnalyzer {
             v[1] = 0.0;
             v[0] = 0.0;
         }
+        #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
         for k in 2..FFT_LENGTH_BY_2 - 1 {
             if self.narrow_band_counters[k - 1] > COUNTER_THRESHOLD {
                 v[k - 2] = 0.0;

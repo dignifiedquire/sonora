@@ -451,7 +451,7 @@ fn hmm_transparent_mode_matches_cpp() {
         sonora_sys::process_stream_f32(cpp_apm.pin_mut(), &src, sr, 1, sr, 1, &mut cpp_dst);
 
         if frame_idx >= WARMUP_FRAMES {
-            let result = compare_f32(&dst_slices[0], &cpp_dst, 0.0);
+            let result = compare_f32(dst_slices[0], &cpp_dst, 0.0);
             if result.max_abs_diff > worst.max_abs_diff {
                 worst = result;
             }

@@ -40,27 +40,26 @@ impl FrameBlocker {
     ) {
         debug_assert_eq!(self.num_bands, block.num_bands());
         debug_assert_eq!(self.num_bands, sub_frame.len());
-        for band in 0..self.num_bands {
+        for (band, (buf_band, sf_band)) in self.buffer.iter_mut().zip(sub_frame.iter()).enumerate()
+        {
             debug_assert_eq!(self.num_channels, block.num_channels());
-            debug_assert_eq!(self.num_channels, sub_frame[band].len());
-            for channel in 0..self.num_channels {
-                debug_assert!(self.buffer[band][channel].len() <= BLOCK_SIZE - 16);
-                debug_assert_eq!(SUB_FRAME_LENGTH, sub_frame[band][channel].len());
+            debug_assert_eq!(self.num_channels, sf_band.len());
+            for (channel, (buf_ch, sf_ch)) in buf_band.iter_mut().zip(sf_band.iter()).enumerate() {
+                debug_assert!(buf_ch.len() <= BLOCK_SIZE - 16);
+                debug_assert_eq!(SUB_FRAME_LENGTH, sf_ch.len());
 
-                let buf = &self.buffer[band][channel];
-                let buf_len = buf.len();
+                let buf_len = buf_ch.len();
                 let samples_to_block = BLOCK_SIZE - buf_len;
                 let out = block.view_mut(band, channel);
 
                 // Copy buffered samples first.
-                out[..buf_len].copy_from_slice(buf);
+                out[..buf_len].copy_from_slice(buf_ch);
                 // Fill the rest from the sub-frame.
-                out[buf_len..].copy_from_slice(&sub_frame[band][channel][..samples_to_block]);
+                out[buf_len..].copy_from_slice(&sf_ch[..samples_to_block]);
 
                 // Store remainder in buffer.
-                self.buffer[band][channel].clear();
-                self.buffer[band][channel]
-                    .extend_from_slice(&sub_frame[band][channel][samples_to_block..]);
+                buf_ch.clear();
+                buf_ch.extend_from_slice(&sf_ch[samples_to_block..]);
             }
         }
     }
@@ -138,7 +137,7 @@ mod tests {
         for band in 0..block.num_bands() {
             for channel in 0..block.num_channels() {
                 let view = block.view(band, channel);
-                for sample in 0..BLOCK_SIZE {
+                for (sample, &val) in view.iter().enumerate() {
                     let expected = compute_sample_value(
                         block_counter,
                         BLOCK_SIZE,
@@ -147,7 +146,7 @@ mod tests {
                         sample,
                         offset,
                     );
-                    if expected != view[sample] {
+                    if expected != val {
                         return false;
                     }
                 }

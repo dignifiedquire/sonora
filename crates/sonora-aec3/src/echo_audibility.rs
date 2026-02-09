@@ -3,7 +3,7 @@
 //! Ported from `modules/audio_processing/aec3/echo_audibility.h/cc`.
 
 use crate::block_buffer::BlockBuffer;
-use crate::common::{BLOCK_SIZE, FFT_LENGTH_BY_2_PLUS_1};
+use crate::common::FFT_LENGTH_BY_2_PLUS_1;
 use crate::render_buffer::RenderBuffer;
 use crate::spectrum_buffer::SpectrumBuffer;
 use crate::stationarity_estimator::StationarityEstimator;
@@ -60,13 +60,13 @@ impl EchoAudibility {
         filter_has_had_time_to_converge: bool,
         residual_scaling: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
     ) {
-        for band in 0..residual_scaling.len() {
+        for (band, scaling) in residual_scaling.iter_mut().enumerate() {
             if self.render_stationarity.is_band_stationary(band)
                 && (filter_has_had_time_to_converge || self.use_render_stationarity_at_init)
             {
-                residual_scaling[band] = 0.0;
+                *scaling = 0.0;
             } else {
-                residual_scaling[band] = 1.0;
+                *scaling = 1.0;
             }
         }
     }
@@ -150,9 +150,9 @@ impl EchoAudibility {
                     let block = block_buffer.buffer[idx].view(0, ch);
                     let mut min_val = f32::MAX;
                     let mut max_val = f32::MIN;
-                    for k in 0..BLOCK_SIZE {
-                        min_val = min_val.min(block[k]);
-                        max_val = max_val.max(block[k]);
+                    for &sample in block.iter() {
+                        min_val = min_val.min(sample);
+                        max_val = max_val.max(sample);
                     }
                     let max_abs_channel = min_val.abs().max(max_val.abs());
                     max_abs_over_channels = max_abs_over_channels.max(max_abs_channel);

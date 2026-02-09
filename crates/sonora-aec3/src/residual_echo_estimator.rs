@@ -29,10 +29,10 @@ fn linear_estimate(
 ) {
     debug_assert_eq!(s2_linear.len(), erle.len());
     debug_assert_eq!(s2_linear.len(), r2.len());
-    for ch in 0..r2.len() {
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            debug_assert!(erle[ch][k] > 0.0);
-            r2[ch][k] = s2_linear[ch][k] / erle[ch][k];
+    for ((r2_ch, s2_ch), erle_ch) in r2.iter_mut().zip(s2_linear.iter()).zip(erle.iter()) {
+        for ((r2_k, &s2_k), &erle_k) in r2_ch.iter_mut().zip(s2_ch.iter()).zip(erle_ch.iter()) {
+            debug_assert!(erle_k > 0.0);
+            *r2_k = s2_k / erle_k;
         }
     }
 }
@@ -43,18 +43,18 @@ fn non_linear_estimate(
     x2: &[f32; FFT_LENGTH_BY_2_PLUS_1],
     r2: &mut [[f32; FFT_LENGTH_BY_2_PLUS_1]],
 ) {
-    for ch in 0..r2.len() {
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            r2[ch][k] = x2[k] * echo_path_gain;
+    for r2_ch in r2.iter_mut() {
+        for (r2_k, &x2_k) in r2_ch.iter_mut().zip(x2.iter()) {
+            *r2_k = x2_k * echo_path_gain;
         }
     }
 }
 
 /// Applies a soft noise gate to the echo generating power.
 fn apply_noise_gate(config: &EchoModel, x2: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
-    for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-        if config.noise_gate_power > x2[k] {
-            x2[k] = (x2[k] - config.noise_gate_slope * (config.noise_gate_power - x2[k])).max(0.0);
+    for x2_k in x2.iter_mut() {
+        if config.noise_gate_power > *x2_k {
+            *x2_k = (*x2_k - config.noise_gate_slope * (config.noise_gate_power - *x2_k)).max(0.0);
         }
     }
 }
@@ -92,8 +92,8 @@ fn echo_generating_power(
     if num_render_channels == 1 {
         let mut k = idx_start;
         while k != idx_stop {
-            for j in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                x2[j] = x2[j].max(spectrum_buffer.buffer[k][0][j]);
+            for (x2_j, &buf_j) in x2.iter_mut().zip(spectrum_buffer.buffer[k][0].iter()) {
+                *x2_j = x2_j.max(buf_j);
             }
             k = spectrum_buffer.index.inc_index(k);
         }
@@ -103,12 +103,12 @@ fn echo_generating_power(
             let mut render_power = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             for ch in 0..num_render_channels {
                 let channel_power = &spectrum_buffer.buffer[k][ch];
-                for j in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    render_power[j] += channel_power[j];
+                for (rp_j, &cp_j) in render_power.iter_mut().zip(channel_power.iter()) {
+                    *rp_j += cp_j;
                 }
             }
-            for j in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                x2[j] = x2[j].max(render_power[j]);
+            for (x2_j, &rp_j) in x2.iter_mut().zip(render_power.iter()) {
+                *x2_j = x2_j.max(rp_j);
             }
             k = spectrum_buffer.index.inc_index(k);
         }
@@ -231,9 +231,9 @@ impl ResidualEchoEstimator {
                 }
 
                 // Subtract the stationary noise power.
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    x2[k] -= self.config.echo_model.stationary_gate_slope * self.x2_noise_floor[k];
-                    x2[k] = x2[k].max(0.0);
+                for (x2_k, &nf_k) in x2.iter_mut().zip(self.x2_noise_floor.iter()) {
+                    *x2_k -= self.config.echo_model.stationary_gate_slope * nf_k;
+                    *x2_k = x2_k.max(0.0);
                 }
 
                 non_linear_estimate(echo_path_gain, &x2, r2);
@@ -259,10 +259,14 @@ impl ResidualEchoEstimator {
             input
                 .aec_state
                 .get_residual_echo_scaling(&mut residual_scaling);
-            for ch in 0..num_capture_channels {
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    r2[ch][k] *= residual_scaling[k];
-                    r2_unbounded[ch][k] *= residual_scaling[k];
+            for (r2_ch, r2u_ch) in r2.iter_mut().zip(r2_unbounded.iter_mut()) {
+                for ((r2_k, r2u_k), &rs_k) in r2_ch
+                    .iter_mut()
+                    .zip(r2u_ch.iter_mut())
+                    .zip(residual_scaling.iter())
+                {
+                    *r2_k *= rs_k;
+                    *r2u_k *= rs_k;
                 }
             }
         }
@@ -283,10 +287,9 @@ impl ResidualEchoEstimator {
 
         if self.num_render_channels > 1 {
             let mut power_data = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-            for ch in 0..self.num_render_channels {
-                let channel_power = &x2[ch];
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    power_data[k] += channel_power[k];
+            for channel_power in &x2[..self.num_render_channels] {
+                for (pd_k, &cp_k) in power_data.iter_mut().zip(channel_power.iter()) {
+                    *pd_k += cp_k;
                 }
             }
             render_power = power_data.to_vec();
@@ -296,19 +299,21 @@ impl ResidualEchoEstimator {
         }
 
         // Estimate the stationary noise power in a minimum statistics manner.
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            if render_power_ref[k] < self.x2_noise_floor[k] {
+        for ((&rp_k, nf_k), nfc_k) in render_power_ref
+            .iter()
+            .zip(self.x2_noise_floor.iter_mut())
+            .zip(self.x2_noise_floor_counter.iter_mut())
+        {
+            if rp_k < *nf_k {
                 // Decrease rapidly.
-                self.x2_noise_floor[k] = render_power_ref[k];
-                self.x2_noise_floor_counter[k] = 0;
+                *nf_k = rp_k;
+                *nfc_k = 0;
             } else {
                 // Increase in a delayed, leaky manner.
-                if self.x2_noise_floor_counter[k] >= self.config.echo_model.noise_floor_hold as i32
-                {
-                    self.x2_noise_floor[k] = (self.x2_noise_floor[k] * 1.1)
-                        .max(self.config.echo_model.min_noise_floor_power);
+                if *nfc_k >= self.config.echo_model.noise_floor_hold as i32 {
+                    *nf_k = (*nf_k * 1.1).max(self.config.echo_model.min_noise_floor_power);
                 } else {
-                    self.x2_noise_floor_counter[k] += 1;
+                    *nfc_k += 1;
                 }
             }
         }
@@ -334,10 +339,9 @@ impl ResidualEchoEstimator {
 
         if self.num_render_channels > 1 {
             let mut power_data = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-            for ch in 0..self.num_render_channels {
-                let channel_power = &x2[ch];
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    power_data[k] += channel_power[k];
+            for channel_power in &x2[..self.num_render_channels] {
+                for (pd_k, &cp_k) in power_data.iter_mut().zip(channel_power.iter()) {
+                    *pd_k += cp_k;
                 }
             }
             render_power = power_data;
@@ -369,9 +373,9 @@ impl ResidualEchoEstimator {
 
     fn add_reverb(&self, r2: &mut [[f32; FFT_LENGTH_BY_2_PLUS_1]]) {
         let reverb_power = self.echo_reverb.reverb();
-        for ch in 0..r2.len() {
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                r2[ch][k] += reverb_power[k];
+        for r2_ch in r2.iter_mut() {
+            for (r2_k, &rp_k) in r2_ch.iter_mut().zip(reverb_power.iter()) {
+                *r2_k += rp_k;
             }
         }
     }

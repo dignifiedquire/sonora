@@ -15,12 +15,8 @@ const POINTS_TO_ACCUMULATE: i32 = 6;
 
 fn set_max_erle_bands(max_erle_l: f32, max_erle_h: f32) -> [f32; FFT_LENGTH_BY_2_PLUS_1] {
     let mut max_erle = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-    for k in 0..FFT_LENGTH_BY_2 / 2 {
-        max_erle[k] = max_erle_l;
-    }
-    for k in FFT_LENGTH_BY_2 / 2..FFT_LENGTH_BY_2_PLUS_1 {
-        max_erle[k] = max_erle_h;
-    }
+    max_erle[..FFT_LENGTH_BY_2 / 2].fill(max_erle_l);
+    max_erle[FFT_LENGTH_BY_2 / 2..].fill(max_erle_h);
     max_erle
 }
 
@@ -140,8 +136,12 @@ impl SubbandErleEstimator {
 
     fn update_bands(&mut self, converged_filters: &[bool]) {
         let num_capture_channels = self.accum_spectra.y2.len();
-        for ch in 0..num_capture_channels {
-            if !converged_filters[ch] {
+        for (ch, &converged) in converged_filters
+            .iter()
+            .enumerate()
+            .take(num_capture_channels)
+        {
+            if !converged {
                 continue;
             }
 
@@ -263,11 +263,19 @@ impl SubbandErleEstimator {
                 self.accum_spectra.low_render_energy[ch].fill(false);
             }
 
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                self.accum_spectra.y2[ch][k] += y2[ch][k];
-                self.accum_spectra.e2[ch][k] += e2[ch][k];
-                self.accum_spectra.low_render_energy[ch][k] =
-                    self.accum_spectra.low_render_energy[ch][k] || x2[k] < X2_BAND_ENERGY_THRESHOLD;
+            for (((ay2_k, &y2_k), (ae2_k, &e2_k)), (lre_k, &x2_k)) in self.accum_spectra.y2[ch]
+                .iter_mut()
+                .zip(y2[ch].iter())
+                .zip(self.accum_spectra.e2[ch].iter_mut().zip(e2[ch].iter()))
+                .zip(
+                    self.accum_spectra.low_render_energy[ch]
+                        .iter_mut()
+                        .zip(x2.iter()),
+                )
+            {
+                *ay2_k += y2_k;
+                *ae2_k += e2_k;
+                *lre_k = *lre_k || x2_k < X2_BAND_ENERGY_THRESHOLD;
             }
 
             self.accum_spectra.num_points[ch] += 1;
@@ -320,9 +328,9 @@ mod tests {
         let erle_target = 10.0f32;
         let mut y2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
         let mut e2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            y2[0][k] = x2[k] * 9.0;
-            e2[0][k] = y2[0][k] / erle_target;
+        for ((&x2_k, y2_k), e2_k) in x2.iter().zip(y2[0].iter_mut()).zip(e2[0].iter_mut()) {
+            *y2_k = x2_k * 9.0;
+            *e2_k = *y2_k / erle_target;
         }
         let converged = vec![true];
 
@@ -331,11 +339,12 @@ mod tests {
         }
 
         let erle = est.erle(false);
-        for k in 1..FFT_LENGTH_BY_2 {
+        for (k, &erle_k) in erle[0][1..FFT_LENGTH_BY_2].iter().enumerate() {
+            let k = k + 1;
             assert!(
-                erle[0][k] > config.erle.min + 0.1,
+                erle_k > config.erle.min + 0.1,
                 "ERLE at bin {k} = {} should be above {}",
-                erle[0][k],
+                erle_k,
                 config.erle.min
             );
         }
@@ -350,9 +359,9 @@ mod tests {
         x2.fill(500.0 * 1000.0 * 1000.0);
         let mut y2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
         let mut e2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            y2[0][k] = x2[k] * 100.0;
-            e2[0][k] = 1.0;
+        for ((&x2_k, y2_k), e2_k) in x2.iter().zip(y2[0].iter_mut()).zip(e2[0].iter_mut()) {
+            *y2_k = x2_k * 100.0;
+            *e2_k = 1.0;
         }
         let converged = vec![true];
 
@@ -362,12 +371,12 @@ mod tests {
 
         let erle = est.erle(false);
         let max_erle = set_max_erle_bands(config.erle.max_l, config.erle.max_h);
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
+        for (k, (&erle_k, &max_k)) in erle[0].iter().zip(max_erle.iter()).enumerate() {
             assert!(
-                erle[0][k] <= max_erle[k] + 0.001,
+                erle_k <= max_k + 0.001,
                 "ERLE at bin {k} = {} exceeds max {}",
-                erle[0][k],
-                max_erle[k]
+                erle_k,
+                max_k
             );
         }
     }
@@ -381,9 +390,9 @@ mod tests {
         x2.fill(500.0 * 1000.0 * 1000.0);
         let mut y2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
         let mut e2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            y2[0][k] = x2[k] * 9.0;
-            e2[0][k] = y2[0][k] / 10.0;
+        for ((&x2_k, y2_k), e2_k) in x2.iter().zip(y2[0].iter_mut()).zip(e2[0].iter_mut()) {
+            *y2_k = x2_k * 9.0;
+            *e2_k = *y2_k / 10.0;
         }
         let converged = vec![true];
 

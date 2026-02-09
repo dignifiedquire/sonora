@@ -106,14 +106,23 @@ impl RefinedFilterUpdateGain {
                 .mask_regions_around_narrow_bands(&mut mu);
 
             // H_error -= 0.5 * mu * X2 * H_error.
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                self.h_error[k] -= 0.5 * mu[k] * ctx.render_power[k] * self.h_error[k];
+            for ((h_err, &mu_k), &rp_k) in self
+                .h_error
+                .iter_mut()
+                .zip(mu.iter())
+                .zip(ctx.render_power.iter())
+            {
+                *h_err -= 0.5 * mu_k * rp_k * *h_err;
             }
 
             // G = mu * E.
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                gain_fft.re[k] = mu[k] * e_refined.re[k];
-                gain_fft.im[k] = mu[k] * e_refined.im[k];
+            for ((&mu_k, (&e_re, &e_im)), (g_re, g_im)) in mu
+                .iter()
+                .zip(e_refined.re.iter().zip(e_refined.im.iter()))
+                .zip(gain_fft.re.iter_mut().zip(gain_fft.im.iter_mut()))
+            {
+                *g_re = mu_k * e_re;
+                *g_im = mu_k * e_im;
             }
         }
 

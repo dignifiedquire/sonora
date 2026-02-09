@@ -21,10 +21,13 @@ fn find_peak_index(
 ) -> usize {
     let mut peak_index_out = peak_index_in;
     let mut max_h2 = filter_time_domain[peak_index_out] * filter_time_domain[peak_index_out];
-    for k in start_sample..=end_sample {
-        let tmp = filter_time_domain[k] * filter_time_domain[k];
+    for (k, &val) in filter_time_domain[start_sample..=end_sample]
+        .iter()
+        .enumerate()
+    {
+        let tmp = val * val;
         if tmp > max_h2 {
-            peak_index_out = k;
+            peak_index_out = k + start_sample;
             max_h2 = tmp;
         }
     }
@@ -102,16 +105,22 @@ impl ConsistentFilterDetector {
         let mut filter_floor_accum = self.filter_floor_accum;
         let mut filter_secondary_peak = self.filter_secondary_peak;
 
-        for k in region.start_sample..(region.end_sample + 1).min(self.filter_floor_low_limit) {
-            let abs_h = filter_to_analyze[k].abs();
-            filter_floor_accum += abs_h;
-            filter_secondary_peak = filter_secondary_peak.max(abs_h);
+        let upper = (region.end_sample + 1).min(self.filter_floor_low_limit);
+        if region.start_sample < upper {
+            for &val in &filter_to_analyze[region.start_sample..upper] {
+                let abs_h = val.abs();
+                filter_floor_accum += abs_h;
+                filter_secondary_peak = filter_secondary_peak.max(abs_h);
+            }
         }
 
-        for k in self.filter_floor_high_limit.max(region.start_sample)..=region.end_sample {
-            let abs_h = filter_to_analyze[k].abs();
-            filter_floor_accum += abs_h;
-            filter_secondary_peak = filter_secondary_peak.max(abs_h);
+        let lower = self.filter_floor_high_limit.max(region.start_sample);
+        if lower <= region.end_sample {
+            for &val in &filter_to_analyze[lower..=region.end_sample] {
+                let abs_h = val.abs();
+                filter_floor_accum += abs_h;
+                filter_secondary_peak = filter_secondary_peak.max(abs_h);
+            }
         }
 
         self.filter_floor_accum = filter_floor_accum;
@@ -297,39 +306,36 @@ impl FilterAnalyzer {
         self.pre_process_filters(filters_time_domain);
 
         let one_by_block_size: f32 = 1.0 / BLOCK_SIZE as f32;
-        for ch in 0..filters_time_domain.len() {
-            debug_assert!(self.region.start_sample < filters_time_domain[ch].len());
-            debug_assert!(self.region.end_sample < filters_time_domain[ch].len());
-            debug_assert_eq!(self.h_highpass[ch].len(), filters_time_domain[ch].len());
-            debug_assert!(!self.h_highpass[ch].is_empty());
+        for (ch, (ftd_ch, h_hp_ch)) in filters_time_domain
+            .iter()
+            .zip(self.h_highpass.iter())
+            .enumerate()
+        {
+            debug_assert!(self.region.start_sample < ftd_ch.len());
+            debug_assert!(self.region.end_sample < ftd_ch.len());
+            debug_assert_eq!(h_hp_ch.len(), ftd_ch.len());
+            debug_assert!(!h_hp_ch.is_empty());
 
             let st_ch = &mut self.filter_analysis_states[ch];
-            st_ch.peak_index = st_ch.peak_index.min(self.h_highpass[ch].len() - 1);
+            st_ch.peak_index = st_ch.peak_index.min(h_hp_ch.len() - 1);
 
             st_ch.peak_index = find_peak_index(
-                &self.h_highpass[ch],
+                h_hp_ch,
                 st_ch.peak_index,
                 self.region.start_sample,
                 self.region.end_sample,
             );
             self.filter_delays_blocks[ch] = (st_ch.peak_index >> BLOCK_SIZE_LOG2) as i32;
 
-            let h_highpass_ch = &self.h_highpass[ch];
             let delay_blocks = self.filter_delays_blocks[ch];
-            Self::update_filter_gain(
-                h_highpass_ch,
-                st_ch,
-                self.blocks_since_reset,
-                self.bounded_erl,
-            );
+            Self::update_filter_gain(h_hp_ch, st_ch, self.blocks_since_reset, self.bounded_erl);
 
-            st_ch.filter_length_blocks =
-                (filters_time_domain[ch].len() as f32 * one_by_block_size) as usize;
+            st_ch.filter_length_blocks = (ftd_ch.len() as f32 * one_by_block_size) as usize;
 
             let region = self.region;
             let x_block = render_buffer.get_block(-delay_blocks);
             st_ch.consistent_estimate = st_ch.consistent_filter_detector.detect(
-                h_highpass_ch,
+                h_hp_ch,
                 &region,
                 x_block,
                 st_ch.peak_index,
@@ -364,23 +370,24 @@ impl FilterAnalyzer {
         // Minimum phase high-pass filter with cutoff frequency at about 600 Hz.
         const H: [f32; 3] = [0.792_974_2, -0.360_721_28, -0.470_477_66];
 
-        for ch in 0..filters_time_domain.len() {
-            debug_assert!(self.region.start_sample < filters_time_domain[ch].len());
-            debug_assert!(self.region.end_sample < filters_time_domain[ch].len());
+        for (ch, ftd_ch) in filters_time_domain.iter().enumerate() {
+            debug_assert!(self.region.start_sample < ftd_ch.len());
+            debug_assert!(self.region.end_sample < ftd_ch.len());
 
-            self.h_highpass[ch].resize(filters_time_domain[ch].len(), 0.0);
+            self.h_highpass[ch].resize(ftd_ch.len(), 0.0);
 
             // Clear the region first.
-            for k in self.region.start_sample..=self.region.end_sample {
-                self.h_highpass[ch][k] = 0.0;
+            for val in &mut self.h_highpass[ch][self.region.start_sample..=self.region.end_sample] {
+                *val = 0.0;
             }
 
             let region_end = self.region.end_sample;
             let start = (H.len() - 1).max(self.region.start_sample);
+            #[allow(clippy::needless_range_loop, reason = "DSP index arithmetic")]
             for k in start..=region_end {
                 let mut tmp = self.h_highpass[ch][k];
                 for (j, &h_coeff) in H.iter().enumerate() {
-                    tmp += filters_time_domain[ch][k - j] * h_coeff;
+                    tmp += ftd_ch[k - j] * h_coeff;
                 }
                 self.h_highpass[ch][k] = tmp;
             }

@@ -49,9 +49,9 @@ fn prediction_error(
 fn scale_filter_output(y: &[f32], factor: f32, e: &mut [f32], s: &mut [f32]) {
     debug_assert_eq!(y.len(), e.len());
     debug_assert_eq!(y.len(), s.len());
-    for k in 0..y.len() {
-        s[k] *= factor;
-        e[k] = y[k] - s[k];
+    for ((&y_k, e_k), s_k) in y.iter().zip(e.iter_mut()).zip(s.iter_mut()) {
+        *s_k *= factor;
+        *e_k = y_k - *s_k;
     }
 }
 
@@ -256,8 +256,11 @@ impl Subtractor {
         };
 
         // Process all capture channels.
-        for ch in 0..self.num_capture_channels {
-            let output = &mut outputs[ch];
+        for (ch, output) in outputs
+            .iter_mut()
+            .enumerate()
+            .take(self.num_capture_channels)
+        {
             let y = capture.view(0, ch);
 
             let mut s = FftData::default();

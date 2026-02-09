@@ -59,7 +59,16 @@ fn generate_comfort_noise(
 
     const INDEX_MASK: u32 = 32 - 1;
 
-    for k in 1..FFT_LENGTH_BY_2 {
+    for (((lb_re, lb_im), (ub_re, ub_im)), &n_k) in lower_band_noise.re[1..FFT_LENGTH_BY_2]
+        .iter_mut()
+        .zip(lower_band_noise.im[1..FFT_LENGTH_BY_2].iter_mut())
+        .zip(
+            upper_band_noise.re[1..FFT_LENGTH_BY_2]
+                .iter_mut()
+                .zip(upper_band_noise.im[1..FFT_LENGTH_BY_2].iter_mut()),
+        )
+        .zip(n[1..FFT_LENGTH_BY_2].iter())
+    {
         // Generate a random 31-bit integer.
         *seed = seed.wrapping_mul(69069).wrapping_add(1) & (0x8000_0000 - 1);
         // Convert to a 5-bit index.
@@ -71,12 +80,12 @@ fn generate_comfort_noise(
         let y = K_SQRT2_SIN[(i + 8) & INDEX_MASK as usize];
 
         // Form low-frequency noise via spectral shaping.
-        lower_band_noise.re[k] = n[k] * x;
-        lower_band_noise.im[k] = n[k] * y;
+        *lb_re = n_k * x;
+        *lb_im = n_k * y;
 
         // Form the high-frequency noise via simple levelling.
-        upper_band_noise.re[k] = high_band_noise_level * x;
-        upper_band_noise.im[k] = high_band_noise_level * y;
+        *ub_re = high_band_noise_level * x;
+        *ub_im = high_band_noise_level * y;
     }
 }
 
@@ -120,19 +129,19 @@ impl ComfortNoiseGenerator {
 
         if !saturated_capture {
             // Smooth Y2.
-            for ch in 0..self.num_capture_channels {
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    self.y2_smoothed[ch][k] += 0.1 * (y2[ch][k] - self.y2_smoothed[ch][k]);
+            for (y2s_ch, y2_ch) in self.y2_smoothed.iter_mut().zip(y2.iter()) {
+                for (y2s_val, &y2_val) in y2s_ch.iter_mut().zip(y2_ch.iter()) {
+                    *y2s_val += 0.1 * (y2_val - *y2s_val);
                 }
             }
 
             if self.n2_counter > 50 {
                 // Update N2 from Y2_smoothed.
-                for ch in 0..self.num_capture_channels {
-                    for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                        let a = self.n2[ch][k];
-                        let b = self.y2_smoothed[ch][k];
-                        self.n2[ch][k] = if b < a {
+                for (n2_ch, y2s_ch) in self.n2.iter_mut().zip(self.y2_smoothed.iter()) {
+                    for (n2_val, &y2s_val) in n2_ch.iter_mut().zip(y2s_ch.iter()) {
+                        let a = *n2_val;
+                        let b = y2s_val;
+                        *n2_val = if b < a {
                             (0.9 * b + 0.1 * a) * 1.0002
                         } else {
                             a * 1.0002
@@ -147,11 +156,11 @@ impl ComfortNoiseGenerator {
                     self.n2_initial = None;
                 } else {
                     // Compute the N2_initial from N2.
-                    for ch in 0..self.num_capture_channels {
-                        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                            let a = self.n2[ch][k];
-                            let b = n2_initial[ch][k];
-                            n2_initial[ch][k] = if a > b { b + 0.001 * (a - b) } else { a };
+                    for (n2i_ch, n2_ch) in n2_initial.iter_mut().zip(self.n2.iter()) {
+                        for (n2i_val, &n2_val) in n2i_ch.iter_mut().zip(n2_ch.iter()) {
+                            let a = n2_val;
+                            let b = *n2i_val;
+                            *n2i_val = if a > b { b + 0.001 * (a - b) } else { a };
                         }
                     }
                 }
@@ -170,19 +179,17 @@ impl ComfortNoiseGenerator {
         }
 
         // Choose N2 estimate to use.
-        for ch in 0..self.num_capture_channels {
+        for (ch, (lb, ub)) in lower_band_noise
+            .iter_mut()
+            .zip(upper_band_noise.iter_mut())
+            .enumerate()
+        {
             let n2_ch = if let Some(ref n2_initial) = self.n2_initial {
                 &n2_initial[ch]
             } else {
                 &self.n2[ch]
             };
-            generate_comfort_noise(
-                n2_ch,
-                &mut self.seed,
-                &mut lower_band_noise[ch],
-                &mut upper_band_noise[ch],
-                &self.vector_math,
-            );
+            generate_comfort_noise(n2_ch, &mut self.seed, lb, ub, &self.vector_math);
         }
     }
 
@@ -212,34 +219,39 @@ mod tests {
         let mut n_lower = vec![FftData::default(); NUM_CHANNELS];
         let mut n_upper = vec![FftData::default(); NUM_CHANNELS];
 
-        for ch in 0..NUM_CHANNELS {
-            n2[ch].fill(1000.0 * 1000.0 / (ch + 1) as f32);
+        for (ch, n2_ch) in n2.iter_mut().enumerate() {
+            n2_ch.fill(1000.0 * 1000.0 / (ch + 1) as f32);
         }
 
         // Ensure instantaneous update to nonzero noise.
         cng.compute(false, &n2, &mut n_lower, &mut n_upper);
 
-        for ch in 0..NUM_CHANNELS {
-            assert!(power(&n_lower[ch]) > 0.0);
-            assert!(power(&n_upper[ch]) > 0.0);
+        for (nl, nu) in n_lower.iter().zip(n_upper.iter()) {
+            assert!(power(nl) > 0.0);
+            assert!(power(nu) > 0.0);
         }
 
         for _ in 0..10000 {
             cng.compute(false, &n2, &mut n_lower, &mut n_upper);
         }
 
-        for ch in 0..NUM_CHANNELS {
-            let expected = 2.0 * n2[ch][0];
-            let tolerance = n2[ch][0] / 10.0;
+        for (ch, ((n2_ch, nl), nu)) in n2
+            .iter()
+            .zip(n_lower.iter())
+            .zip(n_upper.iter())
+            .enumerate()
+        {
+            let expected = 2.0 * n2_ch[0];
+            let tolerance = n2_ch[0] / 10.0;
             assert!(
-                (expected - power(&n_lower[ch])).abs() < tolerance,
+                (expected - power(nl)).abs() < tolerance,
                 "ch {ch}: lower power {} not near expected {expected}",
-                power(&n_lower[ch])
+                power(nl)
             );
             assert!(
-                (expected - power(&n_upper[ch])).abs() < tolerance,
+                (expected - power(nu)).abs() < tolerance,
                 "ch {ch}: upper power {} not near expected {expected}",
-                power(&n_upper[ch])
+                power(nu)
             );
         }
     }

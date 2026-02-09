@@ -71,13 +71,17 @@ impl ReverbFrequencyResponse {
         let smoothing = 0.2 * linear_filter_quality;
         self.average_decay += smoothing * (average_decay - self.average_decay);
 
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            self.tail_response[k] = freq_resp_direct_path[k] * self.average_decay;
+        for (tr_k, &dp_k) in self
+            .tail_response
+            .iter_mut()
+            .zip(freq_resp_direct_path.iter())
+        {
+            *tr_k = dp_k * self.average_decay;
         }
 
         if self.use_conservative_tail_frequency_response {
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                self.tail_response[k] = self.tail_response[k].max(freq_resp_tail[k]);
+            for (tr_k, &ft_k) in self.tail_response.iter_mut().zip(freq_resp_tail.iter()) {
+                *tr_k = tr_k.max(ft_k);
             }
         }
 

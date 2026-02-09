@@ -184,8 +184,8 @@ impl SuppressionFilter {
 
         // Comfort noise gain is sqrt(1-g^2), where g is the suppression gain.
         let mut noise_gain = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        for i in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            noise_gain[i] = 1.0 - suppression_gain[i] * suppression_gain[i];
+        for (ng_i, &sg_i) in noise_gain.iter_mut().zip(suppression_gain.iter()) {
+            *ng_i = 1.0 - sg_i * sg_i;
         }
         self.vector_math.sqrt(&mut noise_gain);
 
@@ -197,14 +197,20 @@ impl SuppressionFilter {
             // Analysis filterbank.
             e_freq.assign(&e_lowest_band[ch]);
 
-            for i in 0..FFT_LENGTH_BY_2_PLUS_1 {
+            for (((e_re, e_im), (&sg_i, &ng_i)), (&cn_re, &cn_im)) in e_freq
+                .re
+                .iter_mut()
+                .zip(e_freq.im.iter_mut())
+                .zip(suppression_gain.iter().zip(noise_gain.iter()))
+                .zip(comfort_noise[ch].re.iter().zip(comfort_noise[ch].im.iter()))
+            {
                 // Apply suppression gains.
-                let e_real = e_freq.re[i] * suppression_gain[i];
-                let e_imag = e_freq.im[i] * suppression_gain[i];
+                let e_real = *e_re * sg_i;
+                let e_imag = *e_im * sg_i;
 
                 // Scale and add the comfort noise.
-                e_freq.re[i] = e_real + noise_gain[i] * comfort_noise[ch].re[i];
-                e_freq.im[i] = e_imag + noise_gain[i] * comfort_noise[ch].im[i];
+                *e_re = e_real + ng_i * cn_re;
+                *e_im = e_imag + ng_i * cn_im;
             }
 
             // Synthesis filterbank.
@@ -216,6 +222,7 @@ impl SuppressionFilter {
 
             // Window and add the first half of e_extended with the second half
             // of e_extended from the previous block.
+            #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
             for i in 0..FFT_LENGTH_BY_2 {
                 let e0_i = self.e_output_old[0][ch][i] * K_SQRT_HANNING[FFT_LENGTH_BY_2 + i]
                     + e_extended[i] * K_SQRT_HANNING[i];
@@ -228,8 +235,8 @@ impl SuppressionFilter {
             // Apply suppression gain to upper bands.
             for b in 1..e.num_bands() {
                 let e_band = e.view_mut(b, ch);
-                for i in 0..FFT_LENGTH_BY_2 {
-                    e_band[i] *= high_bands_gain;
+                for sample in &mut e_band[..FFT_LENGTH_BY_2] {
+                    *sample *= high_bands_gain;
                 }
             }
 
@@ -242,24 +249,30 @@ impl SuppressionFilter {
 
                 let e1 = e.view_mut(1, ch);
                 let gain = high_bands_noise_scaling * K_IFFT_NORMALIZATION;
-                for i in 0..FFT_LENGTH_BY_2 {
-                    e1[i] += time_domain_high_band_noise[i] * gain;
+                for (e1_sample, &noise) in e1[..FFT_LENGTH_BY_2]
+                    .iter_mut()
+                    .zip(time_domain_high_band_noise[..FFT_LENGTH_BY_2].iter())
+                {
+                    *e1_sample += noise * gain;
                 }
             }
 
             // Delay upper bands to match the delay of the filter bank.
             for b in 1..e.num_bands() {
                 let e_band = e.view_mut(b, ch);
-                for i in 0..FFT_LENGTH_BY_2 {
-                    swap(&mut e_band[i], &mut self.e_output_old[b][ch][i]);
+                for (e_sample, old_sample) in e_band[..FFT_LENGTH_BY_2]
+                    .iter_mut()
+                    .zip(self.e_output_old[b][ch][..FFT_LENGTH_BY_2].iter_mut())
+                {
+                    swap(e_sample, old_sample);
                 }
             }
 
             // Clamp output of all bands.
             for b in 0..e.num_bands() {
                 let e_band = e.view_mut(b, ch);
-                for i in 0..FFT_LENGTH_BY_2 {
-                    e_band[i] = e_band[i].clamp(-32768.0, 32767.0);
+                for sample in &mut e_band[..FFT_LENGTH_BY_2] {
+                    *sample = sample.clamp(-32768.0, 32767.0);
                 }
             }
         }
@@ -443,6 +456,7 @@ mod tests {
             for band in 0..num_bands {
                 for channel in 0..num_channels {
                     let e_view = e.view_mut(band, channel);
+                    #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
                     for sample in 0..BLOCK_SIZE {
                         e_view[sample] = (k * BLOCK_SIZE + sample + channel) as f32;
                     }
@@ -458,6 +472,7 @@ mod tests {
                 for band in 0..num_bands {
                     for channel in 0..num_channels {
                         let e_view = e.view(band, channel);
+                        #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
                         for sample in 0..BLOCK_SIZE {
                             let expected = (k * BLOCK_SIZE + sample - BLOCK_SIZE + channel) as f32;
                             assert!(

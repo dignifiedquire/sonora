@@ -46,26 +46,25 @@ impl NoiseSpectrum {
         } else {
             let mut data = spectrum[0];
             let one_by_num_channels = 1.0 / num_render_channels as f32;
-            for ch in 1..num_render_channels {
-                for k in 1..FFT_LENGTH_BY_2_PLUS_1 {
-                    data[k] += spectrum[ch][k];
+            for spec_ch in &spectrum[1..num_render_channels] {
+                for (d_k, &s_k) in data[1..].iter_mut().zip(spec_ch[1..].iter()) {
+                    *d_k += s_k;
                 }
             }
-            for k in 1..FFT_LENGTH_BY_2_PLUS_1 {
-                data[k] *= one_by_num_channels;
+            for d_k in data[1..].iter_mut() {
+                *d_k *= one_by_num_channels;
             }
             data
         };
 
         self.block_counter += 1;
         let alpha = self.get_alpha();
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            if self.block_counter <= N_BLOCKS_AVERAGE_INIT_PHASE {
-                self.noise_spectrum[k] +=
-                    (1.0 / N_BLOCKS_AVERAGE_INIT_PHASE as f32) * avg_spectrum[k];
+        let block_counter = self.block_counter;
+        for (ns_k, &avg_k) in self.noise_spectrum.iter_mut().zip(avg_spectrum.iter()) {
+            if block_counter <= N_BLOCKS_AVERAGE_INIT_PHASE {
+                *ns_k += (1.0 / N_BLOCKS_AVERAGE_INIT_PHASE as f32) * avg_k;
             } else {
-                self.noise_spectrum[k] =
-                    self.update_band_by_smoothing(avg_spectrum[k], self.noise_spectrum[k], alpha);
+                *ns_k = Self::update_band_by_smoothing(block_counter, avg_k, *ns_k, alpha);
             }
         }
     }
@@ -88,12 +87,17 @@ impl NoiseSpectrum {
         }
     }
 
-    fn update_band_by_smoothing(&self, power_band: f32, power_band_noise: f32, alpha: f32) -> f32 {
+    fn update_band_by_smoothing(
+        block_counter: usize,
+        power_band: f32,
+        power_band_noise: f32,
+        alpha: f32,
+    ) -> f32 {
         let mut power_band_noise_updated = power_band_noise;
         if power_band_noise < power_band {
             debug_assert!(power_band > 0.0);
             let mut alpha_inc = alpha * (power_band_noise / power_band);
-            if self.block_counter > N_BLOCKS_INITIAL_PHASE && 10.0 * power_band_noise < power_band {
+            if block_counter > N_BLOCKS_INITIAL_PHASE && 10.0 * power_band_noise < power_band {
                 alpha_inc *= 0.1;
             }
             power_band_noise_updated += alpha_inc * (power_band - power_band_noise);
@@ -228,10 +232,11 @@ impl StationarityEstimator {
 
     fn smooth_stationary_per_freq(&mut self) {
         let mut smoothed = [false; FFT_LENGTH_BY_2_PLUS_1];
-        for k in 1..FFT_LENGTH_BY_2_PLUS_1 - 1 {
-            smoothed[k] = self.stationarity_flags[k - 1]
-                && self.stationarity_flags[k]
-                && self.stationarity_flags[k + 1];
+        for (sm_k, window) in smoothed[1..FFT_LENGTH_BY_2_PLUS_1 - 1]
+            .iter_mut()
+            .zip(self.stationarity_flags.windows(3))
+        {
+            *sm_k = window[0] && window[1] && window[2];
         }
         smoothed[0] = smoothed[1];
         smoothed[FFT_LENGTH_BY_2_PLUS_1 - 1] = smoothed[FFT_LENGTH_BY_2_PLUS_1 - 2];

@@ -39,8 +39,8 @@ fn limit_high_frequency_gains(config: &Suppressor, gain: &mut [f32; FFT_LENGTH_B
     if bands_in_limiting_gain > 0 {
         debug_assert!(limiting_gain_band + bands_in_limiting_gain <= gain.len());
         let mut min_upper_gain = 1.0f32;
-        for band in limiting_gain_band..limiting_gain_band + bands_in_limiting_gain {
-            min_upper_gain = min_upper_gain.min(gain[band]);
+        for &g in &gain[limiting_gain_band..limiting_gain_band + bands_in_limiting_gain] {
+            min_upper_gain = min_upper_gain.min(g);
         }
         for g in &mut gain[limiting_gain_band + 1..] {
             *g = (*g).min(min_upper_gain);
@@ -75,12 +75,15 @@ fn weight_echo_for_audibility(
                  end: usize,
                  echo: &[f32],
                  weighted_echo: &mut [f32]| {
-        for k in begin..end {
-            if echo[k] < threshold {
-                let tmp = (threshold - echo[k]) * normalizer;
-                weighted_echo[k] = echo[k] * (1.0 - tmp * tmp).max(0.0);
+        for (we_k, &e_k) in weighted_echo[begin..end]
+            .iter_mut()
+            .zip(echo[begin..end].iter())
+        {
+            if e_k < threshold {
+                let tmp = (threshold - e_k) * normalizer;
+                *we_k = e_k * (1.0 - tmp * tmp).max(0.0);
             } else {
-                weighted_echo[k] = echo[k];
+                *we_k = e_k;
             }
         }
     };
@@ -489,8 +492,8 @@ impl SuppressionGain {
             self.normal_params.max_inc_factor
         };
         let floor = self.config.suppressor.floor_first_increase;
-        for k in 0..max_gain.len() {
-            max_gain[k] = (self.last_gain[k] * inc).max(floor).min(1.0);
+        for (mg_k, &lg_k) in max_gain.iter_mut().zip(self.last_gain.iter()) {
+            *mg_k = (lg_k * inc).max(floor).min(1.0);
         }
     }
 
@@ -536,9 +539,13 @@ impl SuppressionGain {
             );
 
             // Clamp gains.
-            for k in 0..gain.len() {
-                g[k] = g[k].min(max_gain[k]).max(min_gain[k]);
-                gain[k] = gain[k].min(g[k]);
+            for ((g_k, gain_k), (&max_k, &min_k)) in g
+                .iter_mut()
+                .zip(gain.iter_mut())
+                .zip(max_gain.iter().zip(min_gain.iter()))
+            {
+                *g_k = g_k.min(max_k).max(min_k);
+                *gain_k = gain_k.min(*g_k);
             }
 
             // Store data required for the gain computation of the next block.

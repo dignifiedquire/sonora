@@ -51,29 +51,32 @@ fn compute_avg_render_reverb(
     if num_render_channels > 1 {
         let mut x2_past = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         let normalizer = 1.0 / num_render_channels as f32;
-        for ch in 0..num_render_channels {
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                x2_past[k] += spectrum_buffer.buffer[idx_past][ch][k];
+        for ch_buf in &spectrum_buffer.buffer[idx_past][..num_render_channels] {
+            for (x2_val, &buf_val) in x2_past.iter_mut().zip(ch_buf.iter()) {
+                *x2_val += buf_val;
             }
         }
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            x2_past[k] *= normalizer;
+        for x2_val in &mut x2_past {
+            *x2_val *= normalizer;
         }
         reverb_model.update_reverb_no_freq_shaping(&x2_past, 1.0, reverb_decay);
 
         let mut x2_at_delay = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        for ch in 0..num_render_channels {
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                x2_at_delay[k] += spectrum_buffer.buffer[idx_at_delay][ch][k];
+        for ch_buf in &spectrum_buffer.buffer[idx_at_delay][..num_render_channels] {
+            for (x2_val, &buf_val) in x2_at_delay.iter_mut().zip(ch_buf.iter()) {
+                *x2_val += buf_val;
             }
         }
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            x2_at_delay[k] *= normalizer;
+        for x2_val in &mut x2_at_delay {
+            *x2_val *= normalizer;
         }
 
         let reverb_power = reverb_model.reverb();
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            reverb_power_spectrum[k] = x2_at_delay[k] + reverb_power[k];
+        for (rps, (x2_val, &rev_val)) in reverb_power_spectrum
+            .iter_mut()
+            .zip(x2_at_delay.iter().zip(reverb_power.iter()))
+        {
+            *rps = *x2_val + rev_val;
         }
     } else {
         reverb_model.update_reverb_no_freq_shaping(
@@ -83,8 +86,12 @@ fn compute_avg_render_reverb(
         );
 
         let reverb_power = reverb_model.reverb();
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            reverb_power_spectrum[k] = spectrum_buffer.buffer[idx_at_delay][0][k] + reverb_power[k];
+        for (rps, (&spec_val, &rev_val)) in reverb_power_spectrum.iter_mut().zip(
+            spectrum_buffer.buffer[idx_at_delay][0]
+                .iter()
+                .zip(reverb_power.iter()),
+        ) {
+            *rps = spec_val + rev_val;
         }
     }
 }

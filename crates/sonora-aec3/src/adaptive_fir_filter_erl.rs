@@ -62,13 +62,13 @@ mod tests {
     #[test]
     fn erl_single_partition() {
         let mut h2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            h2[0][k] = k as f32;
+        for (k, h2_val) in h2[0].iter_mut().enumerate() {
+            *h2_val = k as f32;
         }
         let mut erl = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         compute_erl(SimdBackend::Scalar, &h2, &mut erl);
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            assert!((erl[k] - k as f32).abs() < 1e-6);
+        for (k, erl_val) in erl.iter().enumerate() {
+            assert!((erl_val - k as f32).abs() < 1e-6);
         }
     }
 
@@ -77,8 +77,8 @@ mod tests {
         let num_partitions = 6;
         let mut h2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_partitions];
         for (p, h2_p) in h2.iter_mut().enumerate() {
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                h2_p[k] = ((p * 7 + k * 13) as f32 * 0.0037).sin().abs();
+            for (k, h2_val) in h2_p.iter_mut().enumerate() {
+                *h2_val = ((p * 7 + k * 13) as f32 * 0.0037).sin().abs();
             }
         }
 

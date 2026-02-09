@@ -71,8 +71,11 @@ impl ErlEstimator {
                 if !converged_filters[ch] {
                     continue;
                 }
-                for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                    max_capture_spectrum[k] = max_capture_spectrum[k].max(capture_spectra[ch][k]);
+                for (max_k, &cap_k) in max_capture_spectrum
+                    .iter_mut()
+                    .zip(capture_spectra[ch].iter())
+                {
+                    *max_k = (*max_k).max(cap_k);
                 }
             }
         }
@@ -80,9 +83,9 @@ impl ErlEstimator {
         let num_render_channels = render_spectra.len();
         let mut max_render_spectrum = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         max_render_spectrum.copy_from_slice(&render_spectra[0]);
-        for ch in 1..num_render_channels {
-            for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                max_render_spectrum[k] = max_render_spectrum[k].max(render_spectra[ch][k]);
+        for rend_ch in &render_spectra[1..num_render_channels] {
+            for (max_k, &rend_k) in max_render_spectrum.iter_mut().zip(rend_ch.iter()) {
+                *max_k = (*max_k).max(rend_k);
             }
         }
 

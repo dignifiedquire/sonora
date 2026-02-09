@@ -76,9 +76,9 @@ impl CoarseFilterUpdateGain {
 
         // Compute mu.
         let mut mu = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            if render_power[k] > self.current_config.noise_gate {
-                mu[k] = self.current_config.rate / render_power[k];
+        for (mu_k, &rp_k) in mu.iter_mut().zip(render_power.iter()) {
+            if rp_k > self.current_config.noise_gate {
+                *mu_k = self.current_config.rate / rp_k;
             }
         }
 
@@ -86,9 +86,13 @@ impl CoarseFilterUpdateGain {
         render_signal_analyzer.mask_regions_around_narrow_bands(&mut mu);
 
         // G = mu * E.
-        for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            g.re[k] = mu[k] * e_coarse.re[k];
-            g.im[k] = mu[k] * e_coarse.im[k];
+        for ((g_re, g_im), (&mu_k, (&e_re, &e_im))) in
+            g.re.iter_mut()
+                .zip(g.im.iter_mut())
+                .zip(mu.iter().zip(e_coarse.re.iter().zip(e_coarse.im.iter())))
+        {
+            *g_re = mu_k * e_re;
+            *g_im = mu_k * e_im;
         }
     }
 

@@ -12,8 +12,8 @@ fn has_stereo_content(frame: &[Vec<Vec<f32>>], detection_threshold: f32) -> bool
         return false;
     }
     for band in frame {
-        for k in 0..band[0].len() {
-            if (band[0][k] - band[1][k]).abs() > detection_threshold {
+        for (&s0, &s1) in band[0].iter().zip(band[1].iter()) {
+            if (s0 - s1).abs() > detection_threshold {
                 return true;
             }
         }

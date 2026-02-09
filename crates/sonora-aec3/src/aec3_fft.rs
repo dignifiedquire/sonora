@@ -456,8 +456,8 @@ mod tests {
         let mut x_old = [0.0f32; FFT_LENGTH_BY_2];
         for _ in 0..20 {
             let mut x_in = [0.0f32; FFT_LENGTH_BY_2];
-            for j in 0..FFT_LENGTH_BY_2 {
-                x_in[j] = v as f32;
+            for x_in_val in &mut x_in {
+                *x_in_val = v as f32;
                 v += 1;
             }
 

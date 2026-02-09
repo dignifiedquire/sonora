@@ -76,6 +76,7 @@ fn filter_core(
     let f3 = filter[3];
 
     // Part 1: samples that depend entirely on state (0..in_shift, at most 3 iterations).
+    #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in 0..in_shift {
         let j = MEMORY_SIZE + k - in_shift;
         output[k] = f0.mul_add(
@@ -89,6 +90,7 @@ fn filter_core(
 
     // Part 2: transition samples (partially from input, partially from state).
     // Matches C++ loop structure with loop_limit = min(kFilterSize, 1 + (shift >> kStrideLog2)).
+    #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in in_shift..(FILTER_SIZE * STRIDE) {
         let shift = k - in_shift;
         let loop_limit = (1 + (shift >> STRIDE_LOG2)).min(FILTER_SIZE);
@@ -107,6 +109,7 @@ fn filter_core(
 
     // Part 3: samples fully within input (hottest path — 144 of 160 iterations).
     // All 4 taps read from input at fixed offsets.
+    #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
         let base = k - in_shift;
         output[k] = f0.mul_add(

@@ -75,6 +75,7 @@ pub(crate) fn matched_filter_core(
         let mut x_index = x_start_index;
 
         if compute_accumulated_error {
+            #[allow(clippy::needless_range_loop, reason = "DSP index arithmetic")]
             for k in 0..h_size {
                 x2_sum += x[x_index] * x[x_index];
                 s += h[k] * x[x_index];
@@ -87,9 +88,9 @@ pub(crate) fn matched_filter_core(
                 }
             }
         } else {
-            for k in 0..h_size {
+            for &h_k in h.iter() {
                 x2_sum += x[x_index] * x[x_index];
-                s += h[k] * x[x_index];
+                s += h_k * x[x_index];
                 x_index = if x_index < x_size - 1 { x_index + 1 } else { 0 };
             }
         }
@@ -106,8 +107,8 @@ pub(crate) fn matched_filter_core(
 
             // filter = filter + smoothing * (y - filter * x) * x / (x * x)
             let mut x_index2 = x_start_index;
-            for k in 0..h_size {
-                h[k] += alpha * x[x_index2];
+            for h_k in h.iter_mut() {
+                *h_k += alpha * x[x_index2];
                 x_index2 = if x_index2 < x_size - 1 {
                     x_index2 + 1
                 } else {

@@ -54,27 +54,29 @@ impl BlockFramer {
         debug_assert_eq!(self.num_bands, block.num_bands());
         debug_assert_eq!(self.num_channels, block.num_channels());
         debug_assert_eq!(self.num_bands, sub_frame.len());
-        for band in 0..self.num_bands {
-            debug_assert_eq!(self.num_channels, sub_frame[band].len());
-            for channel in 0..self.num_channels {
-                let buf_len = self.buffer[band][channel].len();
+        for (band, (buf_band, sf_band)) in
+            self.buffer.iter_mut().zip(sub_frame.iter_mut()).enumerate()
+        {
+            debug_assert_eq!(self.num_channels, sf_band.len());
+            for (channel, (buf_ch, sf_ch)) in
+                buf_band.iter_mut().zip(sf_band.iter_mut()).enumerate()
+            {
+                let buf_len = buf_ch.len();
                 debug_assert!(SUB_FRAME_LENGTH <= buf_len + BLOCK_SIZE);
                 debug_assert!(buf_len <= BLOCK_SIZE);
-                debug_assert_eq!(SUB_FRAME_LENGTH, sub_frame[band][channel].len());
+                debug_assert_eq!(SUB_FRAME_LENGTH, sf_ch.len());
 
                 let samples_to_frame = SUB_FRAME_LENGTH - buf_len;
-                let out = &mut sub_frame[band][channel];
 
                 // Copy buffered samples first.
-                out[..buf_len].copy_from_slice(&self.buffer[band][channel]);
+                sf_ch[..buf_len].copy_from_slice(buf_ch);
                 // Fill the rest from the block.
-                out[buf_len..SUB_FRAME_LENGTH]
+                sf_ch[buf_len..SUB_FRAME_LENGTH]
                     .copy_from_slice(&block.view(band, channel)[..samples_to_frame]);
 
                 // Store remainder in buffer.
-                self.buffer[band][channel].clear();
-                self.buffer[band][channel]
-                    .extend_from_slice(&block.view(band, channel)[samples_to_frame..]);
+                buf_ch.clear();
+                buf_ch.extend_from_slice(&block.view(band, channel)[samples_to_frame..]);
             }
         }
     }

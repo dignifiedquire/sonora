@@ -31,20 +31,20 @@ pub(crate) fn compute_frequency_response(
     let num_render_channels = h[0].len();
     let mut power = [0.0f32; FFT_LENGTH_BY_2];
     let mut maxed = [0.0f32; FFT_LENGTH_BY_2];
-    for p in 0..num_partitions {
-        for ch in 0..num_render_channels {
+    for (h_p, h2_p) in h[..num_partitions].iter().zip(h2.iter_mut()) {
+        for h_p_ch in &h_p[..num_render_channels] {
             // Vectorized: power spectrum + elementwise max for bins [0..64]
             backend.power_spectrum(
-                &h[p][ch].re[..FFT_LENGTH_BY_2],
-                &h[p][ch].im[..FFT_LENGTH_BY_2],
+                &h_p_ch.re[..FFT_LENGTH_BY_2],
+                &h_p_ch.im[..FFT_LENGTH_BY_2],
                 &mut power,
             );
-            backend.elementwise_max(&h2[p][..FFT_LENGTH_BY_2], &power, &mut maxed);
-            h2[p][..FFT_LENGTH_BY_2].copy_from_slice(&maxed);
+            backend.elementwise_max(&h2_p[..FFT_LENGTH_BY_2], &power, &mut maxed);
+            h2_p[..FFT_LENGTH_BY_2].copy_from_slice(&maxed);
             // Scalar tail: bin 64 (Nyquist)
-            let t = h[p][ch].re[FFT_LENGTH_BY_2] * h[p][ch].re[FFT_LENGTH_BY_2]
-                + h[p][ch].im[FFT_LENGTH_BY_2] * h[p][ch].im[FFT_LENGTH_BY_2];
-            h2[p][FFT_LENGTH_BY_2] = h2[p][FFT_LENGTH_BY_2].max(t);
+            let t = h_p_ch.re[FFT_LENGTH_BY_2] * h_p_ch.re[FFT_LENGTH_BY_2]
+                + h_p_ch.im[FFT_LENGTH_BY_2] * h_p_ch.im[FFT_LENGTH_BY_2];
+            h2_p[FFT_LENGTH_BY_2] = h2_p[FFT_LENGTH_BY_2].max(t);
         }
     }
 }
@@ -60,10 +60,11 @@ pub(crate) fn adapt_partitions(
     let render_buffer_data = render_buffer.get_fft_buffer();
     let mut index = render_buffer.position();
     let num_render_channels = render_buffer_data[index].len();
-    for p in 0..num_partitions {
-        for ch in 0..num_render_channels {
-            let x_p_ch = &render_buffer_data[index][ch];
-            let h_p_ch = &mut h[p][ch];
+    for h_p in h[..num_partitions].iter_mut() {
+        for (h_p_ch, x_p_ch) in h_p[..num_render_channels]
+            .iter_mut()
+            .zip(render_buffer_data[index].iter())
+        {
             // Vectorized: conjugate complex multiply-accumulate for bins [0..64]
             backend.complex_multiply_accumulate(
                 &x_p_ch.re[..FFT_LENGTH_BY_2],
@@ -99,10 +100,11 @@ pub(crate) fn apply_filter(
     let render_buffer_data = render_buffer.get_fft_buffer();
     let mut index = render_buffer.position();
     let num_render_channels = render_buffer_data[index].len();
-    for p in 0..num_partitions {
-        for ch in 0..num_render_channels {
-            let x_p_ch = &render_buffer_data[index][ch];
-            let h_p_ch = &h[p][ch];
+    for h_p in h[..num_partitions].iter() {
+        for (h_p_ch, x_p_ch) in h_p[..num_render_channels]
+            .iter()
+            .zip(render_buffer_data[index].iter())
+        {
             // Vectorized: standard complex multiply-accumulate for bins [0..64]
             backend.complex_multiply_accumulate_standard(
                 &x_p_ch.re[..FFT_LENGTH_BY_2],
@@ -131,8 +133,8 @@ pub(crate) fn apply_filter(
 
 /// Clears filter partitions in range [old_size, new_size).
 fn zero_filter(old_size: usize, new_size: usize, h: &mut [Vec<FftData>]) {
-    for p in old_size..new_size {
-        for ch_data in &mut h[p] {
+    for h_p in &mut h[old_size..new_size] {
+        for ch_data in h_p {
             ch_data.clear();
         }
     }
@@ -282,10 +284,16 @@ impl AdaptiveFirFilter {
     /// Sets the filter coefficients.
     pub(crate) fn set_filter(&mut self, num_partitions: usize, h: &[Vec<FftData>]) {
         let min_num_partitions = self.current_size_partitions.min(num_partitions);
-        for p in 0..min_num_partitions {
-            debug_assert_eq!(self.h[p].len(), h[p].len());
-            for ch in 0..self.num_render_channels {
-                self.h[p][ch].assign(&h[p][ch]);
+        for (self_h_p, h_p) in self.h[..min_num_partitions]
+            .iter_mut()
+            .zip(h[..min_num_partitions].iter())
+        {
+            debug_assert_eq!(self_h_p.len(), h_p.len());
+            for (self_h_p_ch, h_p_ch) in self_h_p[..self.num_render_channels]
+                .iter_mut()
+                .zip(h_p.iter())
+            {
+                self_h_p_ch.assign(h_p_ch);
             }
         }
     }

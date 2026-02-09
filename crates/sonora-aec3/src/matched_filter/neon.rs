@@ -40,7 +40,7 @@ pub(super) unsafe fn matched_filter_core(
         let x_size = x.len() as i32;
         debug_assert_eq!(0, h_size % 4);
 
-        for i in 0..y.len() {
+        for &y_i in y {
             debug_assert!((x_start_index as i32) < x_size);
             let mut x_p = x.as_ptr().add(x_start_index);
             let mut h_p = h.as_ptr();
@@ -76,8 +76,8 @@ pub(super) unsafe fn matched_filter_core(
             s += sum_all_elements(s_128);
             x2_sum += sum_all_elements(x2_sum_128);
 
-            let e = y[i] - s;
-            let saturation = y[i] >= 32000.0 || y[i] <= -32000.0;
+            let e = y_i - s;
+            let saturation = y_i >= 32000.0 || y_i <= -32000.0;
             *error_sum += e * e;
 
             if x2_sum > x2_sum_threshold && !saturation {
@@ -147,7 +147,7 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
 
         accumulated_error.iter_mut().for_each(|v| *v = 0.0);
 
-        for i in 0..y.len() {
+        for &y_i in y {
             debug_assert!((x_start_index as i32) < x_size);
 
             let chunk1 = h_size.min(x_size - x_start_index as i32);
@@ -180,7 +180,7 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
 
                 let hk_xk = vmulq_f32(h_k, x_k);
                 s += sum_all_elements(hk_xk);
-                let e = s - y[i];
+                let e = s - y_i;
                 *a_p += e * e;
 
                 h_cp = h_cp.add(4);
@@ -190,8 +190,8 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
 
             x2_sum += sum_all_elements(x2_sum_128);
 
-            let e = y[i] - s;
-            let saturation = y[i] >= 32000.0 || y[i] <= -32000.0;
+            let e = y_i - s;
+            let saturation = y_i >= 32000.0 || y_i <= -32000.0;
             *error_sum += e * e;
 
             if x2_sum > x2_sum_threshold && !saturation {

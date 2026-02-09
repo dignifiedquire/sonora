@@ -35,9 +35,13 @@ pub(crate) struct EchoRemoverMetricsOutput {
 
 /// Computes the linear echo power: S2 = |Y - E|^2.
 fn linear_echo_power(e: &FftData, y: &FftData, s2: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
-    for k in 0..e.re.len() {
-        s2[k] =
-            (y.re[k] - e.re[k]) * (y.re[k] - e.re[k]) + (y.im[k] - e.im[k]) * (y.im[k] - e.im[k]);
+    for (s2_k, (((y_re, e_re), y_im), e_im)) in s2.iter_mut().zip(
+        y.re.iter()
+            .zip(e.re.iter())
+            .zip(y.im.iter())
+            .zip(e.im.iter()),
+    ) {
+        *s2_k = (y_re - e_re) * (y_re - e_re) + (y_im - e_im) * (y_im - e_im);
     }
 }
 
@@ -249,8 +253,8 @@ impl EchoRemover {
         if let Some(linear_out) = linear_output {
             debug_assert!(linear_out.num_bands() <= 1);
             debug_assert_eq!(num_capture_channels, linear_out.num_channels());
-            for ch in 0..num_capture_channels {
-                linear_out.view_mut(0, ch).copy_from_slice(&e[ch]);
+            for (ch, e_ch) in e.iter().enumerate().take(num_capture_channels) {
+                linear_out.view_mut(0, ch).copy_from_slice(e_ch);
             }
         }
 
@@ -291,8 +295,8 @@ impl EchoRemover {
             // Suppressor nearend estimate: E2 is bound by Y2.
             if self.aec_state.usable_linear_estimate() {
                 for ch in 0..num_capture_channels {
-                    for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                        e2[ch][k] = e2[ch][k].min(y2[ch][k]);
+                    for (e2_k, &y2_k) in e2[ch].iter_mut().zip(y2[ch].iter()) {
+                        *e2_k = (*e2_k).min(y2_k);
                     }
                 }
             }

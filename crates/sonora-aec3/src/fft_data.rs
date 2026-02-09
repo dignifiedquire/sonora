@@ -133,8 +133,12 @@ mod tests {
             x.re[FFT_LENGTH_BY_2] * x.re[FFT_LENGTH_BY_2]
         );
         // Middle bins
-        for k in 1..FFT_LENGTH_BY_2 {
-            assert_eq!(spectrum[k], x.re[k] * x.re[k] + x.im[k] * x.im[k]);
+        for ((&spec_k, &re_k), &im_k) in spectrum[1..FFT_LENGTH_BY_2]
+            .iter()
+            .zip(x.re[1..FFT_LENGTH_BY_2].iter())
+            .zip(x.im[1..FFT_LENGTH_BY_2].iter())
+        {
+            assert_eq!(spec_k, re_k * re_k + im_k * im_k);
         }
     }
 
