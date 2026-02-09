@@ -110,13 +110,13 @@ rm -rf cpp/builddir cpp/install
 '''
 
 [tasks.cpp-build]
-description = "Build C++ reference library (release)"
+description = "Build C++ reference library (release, native CPU)"
 script = '''
 cd cpp
 if [ -d builddir ]; then
-  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --libdir=lib --reconfigure
+  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --libdir=lib -Dc_args=-march=native -Dcpp_args=-march=native --reconfigure
 else
-  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --libdir=lib
+  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --libdir=lib -Dc_args=-march=native -Dcpp_args=-march=native
 fi
 ninja -C builddir install
 '''
@@ -126,8 +126,8 @@ description = "Build C++ with tests enabled and Rust backend"
 script = '''
 cargo build --release -p sonora-ffi
 cd cpp
-meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib --reconfigure || \
-meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib
+meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib -Dc_args=-march=native -Dcpp_args=-march=native --reconfigure || \
+meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib -Dc_args=-march=native -Dcpp_args=-march=native
 ninja -C builddir
 '''
 

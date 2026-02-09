@@ -1,10 +1,29 @@
 # Benchmarks
 
-Full pipeline processing a 10 ms frame with AEC3 + noise suppression + AGC2 enabled.
+Full pipeline processing a 10 ms frame with various component configurations.
 
-Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C target-cpu=native`.
+All times are per 10 ms audio frame. Ratio < 1.0 means Rust is faster.
 
 ## Rust vs C++ Comparison
+
+### AMD Ryzen 9 5950X (x86_64), GCC 13.3, Rust 1.85, `-march=native` / `-C target-cpu=native`
+
+| Benchmark | Rust | C++ | Ratio |
+|-----------|------|-----|-------|
+| 16 kHz mono (AGC2 only) | 496 ns | 836 ns | 0.59x |
+| 16 kHz mono (NS only) | 4.9 us | 6.8 us | 0.72x |
+| 16 kHz mono (EC only) | 1.8 us | 1.5 us | 1.19x |
+| 16 kHz mono (all) | 5.7 us | 7.5 us | 0.76x |
+| 48 kHz mono (AGC2 only) | 1.1 us | 2.0 us | 0.56x |
+| 48 kHz mono (NS only) | 16.5 us | 16.8 us | 0.98x |
+| 48 kHz mono (EC only) | 13.3 us | 10.9 us | 1.22x |
+| 48 kHz mono (all) | 17.8 us | 17.4 us | 1.02x |
+| 48 kHz stereo (AGC2 only) | 1.5 us | 2.6 us | 0.56x |
+| 48 kHz stereo (NS only) | 32.4 us | 32.4 us | 1.00x |
+| 48 kHz stereo (EC only) | 17.9 us | 17.1 us | 1.05x |
+| 48 kHz stereo (all) | 22.3 us | 23.5 us | 0.95x |
+
+### Apple M4 Max (NEON), Rust 1.85, `-C target-cpu=native`
 
 | Benchmark | Rust | C++ | Ratio |
 |-----------|------|-----|-------|
@@ -14,7 +33,7 @@ Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C target-cpu=native`.
 | 16 kHz mono (AGC2 only) | 418 ns | 475 ns | 0.88x |
 | 48 kHz mono (all) | 13.3 us | 10.8 us | 1.24x |
 
-## Profiling Breakdown (48 kHz mono, all components)
+## Profiling Breakdown (48 kHz mono, all components, M4 Max)
 
 | Component | Rust self% | C++ self% | Notes |
 |-----------|-----------|-----------|-------|
@@ -26,7 +45,7 @@ Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C target-cpu=native`.
 | Pipeline orchestration | 3.8% | ~0% | Rust Option unwrap overhead |
 | Sinc resampler scaffolding | 8.6% | 5.9% | Loop/callback overhead |
 
-## Component Benchmarks (Rust)
+## Component Benchmarks (Rust, M4 Max)
 
 | Benchmark | Time |
 |-----------|------|
@@ -67,7 +86,8 @@ Requires building the C++ reference library first (needs meson, ninja, and absei
 ```bash
 # Build and install the C++ library (release mode for fair comparison)
 cd cpp
-meson setup builddir --buildtype=release -Dtests=disabled -Dprefix=$(pwd)/install
+meson setup builddir --buildtype=release -Dtests=disabled -Dprefix=$(pwd)/install \
+  -Dc_args=-march=native -Dcpp_args=-march=native
 ninja -C builddir install
 cd ..
 
