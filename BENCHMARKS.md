@@ -42,13 +42,25 @@ All times are per 10 ms frame.
 
 ## Running Benchmarks
 
-### Rust pipeline benchmarks
+### Using cargo-make
+
+```bash
+cargo install cargo-make
+
+cargo make bench          # Rust pipeline benchmarks
+cargo make setup          # Install system deps + build C++ library
+cargo make cpp-bench      # Rust vs C++ comparison benchmarks
+```
+
+### Manual commands
+
+#### Rust pipeline benchmarks
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo bench -p sonora --bench pipeline
 ```
 
-### C++ comparison
+#### C++ comparison
 
 Requires building the C++ reference library first (needs meson, ninja, and abseil):
 

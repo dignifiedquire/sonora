@@ -84,6 +84,30 @@ Measured on Apple M4 Max (NEON backend), Rust 1.85, `-C target-cpu=native`:
 
 See [BENCHMARKS.md](BENCHMARKS.md) for per-component comparisons, profiling breakdown, and instructions for reproducing.
 
+## Development
+
+This project uses [cargo-make](https://github.com/sagiegurari/cargo-make) for task automation.
+
+```bash
+cargo install cargo-make
+```
+
+### Quick start
+
+    cargo make ci              # Format, lint, test, docs
+    cargo make bench           # Rust pipeline benchmarks
+    cargo make check           # Type-check all crates (including excluded)
+    cargo make clippy          # Lint all crates (including excluded)
+
+### C++ comparison (optional)
+
+    cargo make setup           # Install system deps + build C++ library
+    cargo make cpp-bench       # Run Rust vs C++ comparison benchmarks
+    cargo make cpp-test        # Run comparison tests
+    cargo make cpp-validate    # Run 2400+ C++ test suite with Rust backend
+
+See `Makefile.toml` for the full list of tasks.
+
 ## Minimum Supported Rust Version
 
 The minimum supported Rust version is **1.91**.
