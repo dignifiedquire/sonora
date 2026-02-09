@@ -300,7 +300,7 @@ fn handle_unsupported_formats_i16(
 /// Builder for constructing an [`AudioProcessing`] instance.
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use sonora::{AudioProcessing, Config, StreamConfig};
 /// use sonora::config::{EchoCanceller, NoiseSuppression};
 ///

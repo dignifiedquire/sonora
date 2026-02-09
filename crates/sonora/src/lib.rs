@@ -5,7 +5,7 @@
 //!
 //! # Quick Start
 //!
-//! ```ignore
+//! ```
 //! use sonora::{AudioProcessing, Config, StreamConfig};
 //! use sonora::config::{EchoCanceller, NoiseSuppression};
 //!
@@ -27,6 +27,8 @@
 //! // 2. Process near-end (capture) audio:
 //! // apm.process_capture_f32(&src, &mut dest)?;
 //! ```
+
+#![doc = include_str!("../README.md")]
 
 pub(crate) mod audio_buffer;
 pub(crate) mod audio_converter;
