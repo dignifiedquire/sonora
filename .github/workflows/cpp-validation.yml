@@ -1,45 +1,59 @@
 name: C++ Validation
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  schedule:
-    - cron: "0 6 * * 1" # Weekly on Monday
-  workflow_dispatch:
+    push:
+        branches: [main]
+    pull_request:
+    schedule:
+        - cron: "0 6 * * 1" # Weekly on Monday
+    workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  validate:
-    name: C++ Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
+    # Run the C++ test suite with the Rust backend replacing the C++ pipeline.
+    validate:
+        name: C++ Test Suite (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: true
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+            - uses: davidB/rust-cargo-make@v1
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build libabsl-dev libprotobuf-dev protobuf-compiler pkg-config
+            - name: Install system dependencies
+              run: cargo make cpp-deps
 
-      - name: Build Rust library
-        run: cargo build --release -p sonora
+            - name: Run C++ test suite with Rust backend
+              run: cargo make cpp-validate
 
-      - name: Build C++ with Rust backend
-        working-directory: cpp
-        run: |
-          meson setup builddir \
-            -Dtests=enabled \
-            -Drust-backend=true \
-            -Dprefix=${{ github.workspace }}/install
-          ninja -C builddir
+    # Run the Rust vs C++ comparison tests (sonora-bench).
+    compare:
+        name: Rust/C++ Comparison (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: true
 
-      - name: Run C++ tests
-        working-directory: cpp
-        run: meson test -C builddir -v --print-errorlogs
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+            - uses: davidB/rust-cargo-make@v1
+
+            - name: Install system dependencies
+              run: cargo make cpp-deps
+
+            - name: Run Rust vs C++ comparison tests
+              run: cargo make cpp-test

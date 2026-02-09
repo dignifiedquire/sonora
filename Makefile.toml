@@ -3,8 +3,9 @@
 default_to_workspace = false
 
 [env]
-# PKG_CONFIG_PATH for excluded crates that depend on the C++ library
-CPP_PKG_CONFIG = "${CARGO_MAKE_WORKING_DIRECTORY}/cpp/install/lib/pkgconfig"
+# Paths for excluded crates that depend on the C++ library
+CPP_LIB_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/cpp/install/lib"
+CPP_PKG_CONFIG = "${CPP_LIB_DIR}/pkgconfig"
 # Full RUSTFLAGS for benchmarks (includes fp-contract from .cargo/config.toml + target-cpu)
 BENCH_RUSTFLAGS = "-C llvm-args=-fp-contract=fast -C target-cpu=native"
 
@@ -113,9 +114,9 @@ description = "Build C++ reference library (release)"
 script = '''
 cd cpp
 if [ -d builddir ]; then
-  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --reconfigure
+  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --libdir=lib --reconfigure
 else
-  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install"
+  meson setup builddir --buildtype=release -Dtests=disabled -Dprefix="$(pwd)/install" --libdir=lib
 fi
 ninja -C builddir install
 '''
@@ -125,8 +126,8 @@ description = "Build C++ with tests enabled and Rust backend"
 script = '''
 cargo build --release -p sonora-ffi
 cd cpp
-meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --reconfigure || \
-meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install"
+meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib --reconfigure || \
+meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib
 ninja -C builddir
 '''
 
@@ -135,14 +136,14 @@ ninja -C builddir
 [tasks.cpp-test]
 description = "Run Rust vs C++ comparison tests"
 dependencies = ["cpp-build"]
-env = { "PKG_CONFIG_PATH" = "${CPP_PKG_CONFIG}" }
+env = { "PKG_CONFIG_PATH" = "${CPP_PKG_CONFIG}", "LD_LIBRARY_PATH" = "${CPP_LIB_DIR}" }
 command = "cargo"
 args = ["test", "--manifest-path", "crates/sonora-bench/Cargo.toml", "${@}"]
 
 [tasks.cpp-bench]
 description = "Run Rust vs C++ comparison benchmarks"
 dependencies = ["cpp-build"]
-env = { "PKG_CONFIG_PATH" = "${CPP_PKG_CONFIG}", "RUSTFLAGS" = "${BENCH_RUSTFLAGS}" }
+env = { "PKG_CONFIG_PATH" = "${CPP_PKG_CONFIG}", "LD_LIBRARY_PATH" = "${CPP_LIB_DIR}", "RUSTFLAGS" = "${BENCH_RUSTFLAGS}" }
 command = "cargo"
 args = ["bench", "--manifest-path", "crates/sonora-bench/Cargo.toml", "--bench", "cpp_comparison", "${@}"]
 

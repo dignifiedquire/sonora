@@ -17,6 +17,14 @@ fn main() {
     // Add include paths from pkg-config
     for path in &lib.include_paths {
         build.include(path);
+        // On Linux, abseil may be installed as a meson subproject alongside
+        // the webrtc library. The pkg-config Cflags only list the
+        // webrtc-audio-processing-3 subdirectory, but headers like
+        // `absl/base/nullability.h` live one level up. Add the parent
+        // include directory so they resolve.
+        if let Some(parent) = path.parent() {
+            build.include(parent);
+        }
     }
 
     // Also include our own cpp/ directory (shim headers)

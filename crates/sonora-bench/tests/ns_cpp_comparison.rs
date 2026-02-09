@@ -1,13 +1,16 @@
 //! Per-component comparison tests for the Noise Suppressor.
 //!
-//! Verifies that the Rust NoiseSuppressor produces identical output
-//! to the C++ reference implementation.
-//!
-//! Requires the `cpp-comparison` feature and a pre-built C++ library.
+//! Verifies that the Rust NoiseSuppressor produces output closely matching
+//! the C++ reference implementation. See `cpp_comparison.rs` for notes on
+//! cross-platform FMA divergence.
 
 use sonora_bench::comparison::compare_f32;
 use sonora_ns::config::{NS_FRAME_SIZE, NsConfig, SuppressionLevel};
 use sonora_ns::noise_suppressor::NoiseSuppressor;
+
+/// Tolerance for per-sample differences caused by FMA contraction divergence
+/// between LLVM (Rust) and GCC (C++) on x86. See `cpp_comparison.rs`.
+const COMPONENT_TOL: f32 = 5e-5;
 
 fn gen_signal(len: usize) -> Vec<f32> {
     (0..len).map(|i| (i as f32 * 0.01).sin() * 0.1).collect()
@@ -38,7 +41,7 @@ fn ns_analyze_process_matches_cpp() {
         let mut cpp_frame = input.clone();
         sonora_sys::ns_process(cpp_ns.pin_mut(), &mut cpp_frame);
 
-        let result = compare_f32(&rust_frame, &cpp_frame, 0.0);
+        let result = compare_f32(&rust_frame, &cpp_frame, COMPONENT_TOL);
         if result.mismatches > 0 {
             eprintln!("ns frame {frame_idx}: {result}");
         }
@@ -77,16 +80,16 @@ fn ns_all_levels_match_cpp() {
             let mut cpp_frame = input.clone();
             sonora_sys::ns_process(cpp_ns.pin_mut(), &mut cpp_frame);
 
-            let result = compare_f32(&rust_frame, &cpp_frame, 0.0);
+            let result = compare_f32(&rust_frame, &cpp_frame, COMPONENT_TOL);
             worst_diff = worst_diff.max(result.max_abs_diff);
         }
 
-        if worst_diff > 0.0 {
+        if worst_diff > COMPONENT_TOL {
             eprintln!("ns level {:?}: worst_diff={worst_diff:.6e}", rust_level);
         }
         assert!(
-            worst_diff == 0.0,
-            "ns level {:?}: worst_diff={worst_diff:.6e} (expected bit-identical)",
+            worst_diff <= COMPONENT_TOL,
+            "ns level {:?}: worst_diff={worst_diff:.6e} (exceeds tolerance {COMPONENT_TOL:.6e})",
             rust_level,
         );
     }
