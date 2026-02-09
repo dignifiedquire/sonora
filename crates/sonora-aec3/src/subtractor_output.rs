@@ -49,22 +49,6 @@ impl Default for SubtractorOutput {
 }
 
 impl SubtractorOutput {
-    /// Resets all fields to zero.
-    pub(crate) fn reset(&mut self) {
-        self.s_refined.fill(0.0);
-        self.s_coarse.fill(0.0);
-        self.e_refined.fill(0.0);
-        self.e_coarse.fill(0.0);
-        self.e_refined_fft.clear();
-        self.e2_refined.fill(0.0);
-        self.e2_coarse.fill(0.0);
-        self.e2_refined_sum = 0.0;
-        self.e2_coarse_sum = 0.0;
-        self.s2_refined = 0.0;
-        self.s2_coarse = 0.0;
-        self.y2 = 0.0;
-    }
-
     /// Updates the power metrics from the signal data.
     pub(crate) fn compute_metrics(&mut self, y: &[f32]) {
         self.y2 = y.iter().map(|&v| v * v).sum();
@@ -88,18 +72,6 @@ impl SubtractorOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn reset_clears_everything() {
-        let mut out = SubtractorOutput::default();
-        out.s_refined.fill(1.0);
-        out.e_refined.fill(2.0);
-        out.y2 = 42.0;
-        out.reset();
-        assert_eq!(out.y2, 0.0);
-        assert!(out.s_refined.iter().all(|&v| v == 0.0));
-        assert!(out.e_refined.iter().all(|&v| v == 0.0));
-    }
 
     #[test]
     fn compute_metrics_sums_of_squares() {

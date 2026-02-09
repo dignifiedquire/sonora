@@ -34,13 +34,6 @@ impl DbMetric {
         }
     }
 
-    /// Updates the metric with a new accumulated value.
-    pub(crate) fn update(&mut self, value: f32) {
-        self.sum_value += value;
-        self.floor_value = self.floor_value.min(value);
-        self.ceil_value = self.ceil_value.max(value);
-    }
-
     /// Updates the metric with an instantaneous value.
     pub(crate) fn update_instant(&mut self, value: f32) {
         self.sum_value = value;
@@ -112,11 +105,6 @@ impl EchoRemoverMetrics {
         }
     }
 
-    /// Returns true if the metrics have just been reported.
-    pub(crate) fn metrics_reported(&self) -> bool {
-        self.metrics_reported
-    }
-
     fn reset_metrics(&mut self) {
         self.erl_time_domain = DbMetric::new(0.0, 10000.0, 0.0);
         self.erle_time_domain = DbMetric::new(0.0, 0.0, 1000.0);
@@ -124,45 +112,9 @@ impl EchoRemoverMetrics {
     }
 }
 
-/// Updates a banded metric of type DbMetric with the values in the supplied
-/// array.
-pub(crate) fn update_db_metric(
-    value: &[f32; FFT_LENGTH_BY_2_PLUS_1],
-    statistic: &mut [DbMetric; 2],
-) {
-    const NUM_BANDS: usize = 2;
-    const BAND_WIDTH: usize = 65 / NUM_BANDS;
-    const ONE_BY_BAND_WIDTH: f32 = 1.0 / BAND_WIDTH as f32;
-
-    for k in 0..NUM_BANDS {
-        let start = BAND_WIDTH * k;
-        let end = BAND_WIDTH * (k + 1);
-        let average_band: f32 = value[start..end].iter().sum::<f32>() * ONE_BY_BAND_WIDTH;
-        statistic[k].update(average_band);
-    }
-}
-
-/// Transforms a DbMetric from the linear domain into the logarithmic domain.
-pub(crate) fn transform_db_metric_for_reporting(
-    negate: bool,
-    min_value: f32,
-    max_value: f32,
-    offset: f32,
-    scaling: f32,
-    value: f32,
-) -> i32 {
-    let mut new_value = 10.0 * (value * scaling + 1e-10).log10() + offset;
-    if negate {
-        new_value = -new_value;
-    }
-    new_value.clamp(min_value, max_value) as i32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::EchoCanceller3Config;
-
     #[test]
     fn db_metric_default() {
         let metric = DbMetric::default();
@@ -180,19 +132,6 @@ mod tests {
     }
 
     #[test]
-    fn db_metric_update() {
-        let mut metric = DbMetric::new(0.0, 20.0, -20.0);
-        let num_values = 100;
-        let value = 10.0f32;
-        for _ in 0..num_values {
-            metric.update(value);
-        }
-        assert!((metric.sum_value - value * num_values as f32).abs() < 1e-4);
-        assert!((metric.ceil_value - value).abs() < 1e-4);
-        assert!((metric.floor_value - value).abs() < 1e-4);
-    }
-
-    #[test]
     fn db_metric_update_instant() {
         let mut metric = DbMetric::new(0.0, 20.0, -20.0);
         let min_value = -77.0f32;
@@ -207,76 +146,5 @@ mod tests {
         assert!((metric.sum_value - last_value).abs() < 1e-4);
         assert!((metric.ceil_value - max_value).abs() < 1e-4);
         assert!((metric.floor_value - min_value).abs() < 1e-4);
-    }
-
-    #[test]
-    fn update_db_metric_two_bands() {
-        let mut value = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let mut statistic = [
-            DbMetric::new(0.0, 100.0, -100.0),
-            DbMetric::new(0.0, 100.0, -100.0),
-        ];
-        let k_value0 = 10.0f32;
-        let k_value1 = 20.0f32;
-        value[..32].fill(k_value0);
-        value[32..64].fill(k_value1);
-
-        update_db_metric(&value, &mut statistic);
-        assert!((statistic[0].sum_value - k_value0).abs() < 1e-4);
-        assert!((statistic[0].ceil_value - k_value0).abs() < 1e-4);
-        assert!((statistic[0].floor_value - k_value0).abs() < 1e-4);
-        assert!((statistic[1].sum_value - k_value1).abs() < 1e-4);
-        assert!((statistic[1].ceil_value - k_value1).abs() < 1e-4);
-        assert!((statistic[1].floor_value - k_value1).abs() < 1e-4);
-
-        update_db_metric(&value, &mut statistic);
-        assert!((statistic[0].sum_value - 2.0 * k_value0).abs() < 1e-4);
-        assert!((statistic[0].ceil_value - k_value0).abs() < 1e-4);
-        assert!((statistic[0].floor_value - k_value0).abs() < 1e-4);
-        assert!((statistic[1].sum_value - 2.0 * k_value1).abs() < 1e-4);
-        assert!((statistic[1].ceil_value - k_value1).abs() < 1e-4);
-        assert!((statistic[1].floor_value - k_value1).abs() < 1e-4);
-    }
-
-    #[test]
-    fn transform_db_metric_limits() {
-        assert_eq!(
-            transform_db_metric_for_reporting(false, 0.0, 10.0, 0.0, 1.0, 0.001),
-            0
-        );
-        assert_eq!(
-            transform_db_metric_for_reporting(false, 0.0, 10.0, 0.0, 1.0, 100.0),
-            10
-        );
-    }
-
-    #[test]
-    fn transform_db_metric_negate() {
-        assert_eq!(
-            transform_db_metric_for_reporting(true, -20.0, 20.0, 0.0, 1.0, 0.1),
-            10
-        );
-        assert_eq!(
-            transform_db_metric_for_reporting(true, -20.0, 20.0, 0.0, 1.0, 10.0),
-            -10
-        );
-    }
-
-    #[test]
-    fn echo_remover_metrics_normal_usage() {
-        let mut metrics = EchoRemoverMetrics::new();
-        let config = EchoCanceller3Config::default();
-        let aec_state = AecState::new(&config, 1);
-        let comfort_noise_spectrum = [10.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let suppressor_gain = [1.0f32; FFT_LENGTH_BY_2_PLUS_1];
-
-        for _ in 0..3 {
-            for _ in 0..METRICS_REPORTING_INTERVAL_BLOCKS - 1 {
-                metrics.update(&aec_state, &comfort_noise_spectrum, &suppressor_gain);
-                assert!(!metrics.metrics_reported());
-            }
-            metrics.update(&aec_state, &comfort_noise_spectrum, &suppressor_gain);
-            assert!(metrics.metrics_reported());
-        }
     }
 }

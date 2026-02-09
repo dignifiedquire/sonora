@@ -54,11 +54,6 @@ impl BlockProcessorMetrics {
         }
     }
 
-    /// Returns true if the metrics have just been reported.
-    pub(crate) fn metrics_reported(&self) -> bool {
-        self.metrics_reported
-    }
-
     fn reset_metrics(&mut self) {
         self.render_buffer_underruns = 0;
         self.render_buffer_overruns = 0;
@@ -79,10 +74,10 @@ mod tests {
                 metrics.update_render(false);
                 metrics.update_render(false);
                 metrics.update_capture(false);
-                assert!(!metrics.metrics_reported());
+                assert!(!metrics.metrics_reported);
             }
             metrics.update_capture(false);
-            assert!(metrics.metrics_reported());
+            assert!(metrics.metrics_reported);
         }
     }
 }

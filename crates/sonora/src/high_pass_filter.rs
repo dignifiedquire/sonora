@@ -118,35 +118,10 @@ impl HighPassFilter {
         }
     }
 
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn reset(&mut self) {
-        for filter in &mut self.filters {
-            filter.reset();
-        }
-    }
-
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn reset_with_channels(&mut self, num_channels: usize) {
-        let old_num_channels = self.filters.len();
-        self.filters.resize_with(num_channels, || {
-            CascadedBiQuadFilter::new(choose_coefficients(self.sample_rate_hz))
-        });
-        if num_channels < old_num_channels {
-            self.reset();
-        } else {
-            for filter in self.filters[..old_num_channels].iter_mut() {
-                filter.reset();
-            }
-            // New filters are already freshly initialized.
-        }
-    }
-
-    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn sample_rate_hz(&self) -> i32 {
         self.sample_rate_hz
     }
 
-    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn num_channels(&self) -> usize {
         self.filters.len()
     }
@@ -250,40 +225,6 @@ mod tests {
                 (o - r).abs(),
             );
         }
-    }
-
-    #[test]
-    fn reset_with_audio_buffer_interface() {
-        let stream_config_mono = StreamConfig::new(16000, 1);
-        let stream_config_stereo = StreamConfig::new(16000, 2);
-        let x_mono = vec![1.0f32; 160];
-        let x_stereo = vec![1.0f32; 320];
-        let mut hpf = HighPassFilter::new(16000, 1);
-
-        let _ = process_one_frame_as_audio_buffer(&x_mono, &stream_config_mono, &mut hpf);
-        hpf.reset_with_channels(2);
-        let _ = process_one_frame_as_audio_buffer(&x_stereo, &stream_config_stereo, &mut hpf);
-        hpf.reset_with_channels(1);
-        let _ = process_one_frame_as_audio_buffer(&x_mono, &stream_config_mono, &mut hpf);
-        hpf.reset();
-        let _ = process_one_frame_as_audio_buffer(&x_mono, &stream_config_mono, &mut hpf);
-    }
-
-    #[test]
-    fn reset_with_vector_interface() {
-        let stream_config_mono = StreamConfig::new(16000, 1);
-        let stream_config_stereo = StreamConfig::new(16000, 2);
-        let x_mono = vec![1.0f32; 160];
-        let x_stereo = vec![1.0f32; 320];
-        let mut hpf = HighPassFilter::new(16000, 1);
-
-        let _ = process_one_frame_as_vector(&x_mono, &stream_config_mono, &mut hpf);
-        hpf.reset_with_channels(2);
-        let _ = process_one_frame_as_vector(&x_stereo, &stream_config_stereo, &mut hpf);
-        hpf.reset_with_channels(1);
-        let _ = process_one_frame_as_vector(&x_mono, &stream_config_mono, &mut hpf);
-        hpf.reset();
-        let _ = process_one_frame_as_vector(&x_mono, &stream_config_mono, &mut hpf);
     }
 
     #[test]

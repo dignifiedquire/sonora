@@ -252,7 +252,6 @@ mod tests {
         estimator: SpeechLevelEstimator,
         initial_speech_level_dbfs: f32,
         level_rms_dbfs: f32,
-        #[allow(dead_code, reason = "matches C++ test struct")]
         level_peak_dbfs: f32,
     }
 

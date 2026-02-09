@@ -10,6 +10,7 @@
 #include "webrtc/api/array_view.h"
 #include "webrtc/api/audio/builtin_audio_processing_builder.h"
 #include "webrtc/api/environment/environment_factory.h"
+#include "webrtc/api/field_trials.h"
 #include "webrtc/modules/audio_processing/ns/ns_config.h"
 
 namespace webrtc_shim {
@@ -17,6 +18,21 @@ namespace webrtc_shim {
 std::unique_ptr<ApmHandle> create_apm() {
     webrtc::AudioProcessing::Config config;
     webrtc::Environment env = webrtc::CreateEnvironment();
+    auto apm = webrtc::BuiltinAudioProcessingBuilder(config).Build(env);
+    if (!apm) {
+        return nullptr;
+    }
+    auto handle = std::make_unique<ApmHandle>();
+    handle->apm = std::move(apm);
+    return handle;
+}
+
+std::unique_ptr<ApmHandle> create_apm_with_field_trials(rust::Str field_trials) {
+    std::string ft_str(field_trials.data(), field_trials.size());
+    auto ft = std::make_unique<webrtc::FieldTrials>(ft_str);
+    webrtc::Environment env = webrtc::CreateEnvironment(std::move(ft));
+
+    webrtc::AudioProcessing::Config config;
     auto apm = webrtc::BuiltinAudioProcessingBuilder(config).Build(env);
     if (!apm) {
         return nullptr;

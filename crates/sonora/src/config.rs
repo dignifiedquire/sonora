@@ -176,15 +176,24 @@ pub struct EchoCanceller {
     /// Enforce the highpass filter to be on (default: true). Has no effect
     /// in mobile mode.
     pub enforce_high_pass_filtering: bool,
+    /// Which transparent mode algorithm to use (default: `Legacy`).
+    ///
+    /// Transparent mode detects when no echo is present (e.g. headset use)
+    /// and reduces suppression. The HMM variant uses Bayesian inference and
+    /// is generally more responsive than the counter-based Legacy mode.
+    pub transparent_mode: TransparentModeType,
 }
 
 impl Default for EchoCanceller {
     fn default() -> Self {
         Self {
             enforce_high_pass_filtering: true,
+            transparent_mode: TransparentModeType::default(),
         }
     }
 }
+
+pub use sonora_aec3::config::TransparentModeType;
 
 /// Background noise suppression settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,11 +303,9 @@ pub(crate) enum RuntimeSetting {
     /// Playout (render) volume change. The value is the unnormalized volume.
     PlayoutVolumeChange(i32),
     /// Notifies that the playout (render) audio device has changed.
-    /// Currently a no-op in the Rust port (no render pre-processor).
-    PlayoutAudioDeviceChange(
-        #[allow(dead_code, reason = "no render pre-processor in Rust port yet")]
-        PlayoutAudioDeviceInfo,
-    ),
+    /// Currently a no-op (no render pre-processor), but the data is
+    /// preserved for future use.
+    PlayoutAudioDeviceChange(PlayoutAudioDeviceInfo),
     /// Whether the capture output is used. When false, some components may
     /// optimize by skipping work.
     CaptureOutputUsed(bool),

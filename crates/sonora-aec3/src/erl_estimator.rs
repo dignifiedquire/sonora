@@ -131,11 +131,6 @@ impl ErlEstimator {
         }
     }
 
-    /// Returns the most recent ERL estimate.
-    pub(crate) fn erl(&self) -> &[f32; FFT_LENGTH_BY_2_PLUS_1] {
-        &self.erl
-    }
-
     /// Returns the time-domain ERL estimate.
     pub(crate) fn erl_time_domain(&self) -> f32 {
         self.erl_time_domain
@@ -179,7 +174,7 @@ mod tests {
                 for _ in 0..200 {
                     estimator.update(&converged_filters, &x2, &y2);
                 }
-                verify_erl(estimator.erl(), estimator.erl_time_domain(), 10.0);
+                verify_erl(&estimator.erl, estimator.erl_time_domain(), 10.0);
 
                 // Verifies that the ERL is not immediately increased when the ERL in
                 // the data increases.
@@ -187,18 +182,18 @@ mod tests {
                 for _ in 0..998 {
                     estimator.update(&converged_filters, &x2, &y2);
                 }
-                verify_erl(estimator.erl(), estimator.erl_time_domain(), 10.0);
+                verify_erl(&estimator.erl, estimator.erl_time_domain(), 10.0);
 
                 // Verifies that the rate of increase is 3 dB.
                 estimator.update(&converged_filters, &x2, &y2);
-                verify_erl(estimator.erl(), estimator.erl_time_domain(), 20.0);
+                verify_erl(&estimator.erl, estimator.erl_time_domain(), 20.0);
 
                 // Verifies that the maximum ERL is achieved when there are no low ERL
                 // estimates.
                 for _ in 0..1000 {
                     estimator.update(&converged_filters, &x2, &y2);
                 }
-                verify_erl(estimator.erl(), estimator.erl_time_domain(), 1000.0);
+                verify_erl(&estimator.erl, estimator.erl_time_domain(), 1000.0);
 
                 // Verifies that the ERL estimate is not updated for low-level signals.
                 for x2_ch in &mut x2 {
@@ -208,7 +203,7 @@ mod tests {
                 for _ in 0..200 {
                     estimator.update(&converged_filters, &x2, &y2);
                 }
-                verify_erl(estimator.erl(), estimator.erl_time_domain(), 1000.0);
+                verify_erl(&estimator.erl, estimator.erl_time_domain(), 1000.0);
             }
         }
     }

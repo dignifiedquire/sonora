@@ -273,8 +273,6 @@ fn fill_sub_frame_from_render_frame(
 
 /// Top-level echo canceller coordinating render/capture processing.
 pub(crate) struct EchoCanceller3 {
-    #[allow(dead_code, reason = "API completeness")]
-    config: EchoCanceller3Config,
     sample_rate_hz: usize,
     num_bands: usize,
     num_render_input_channels: usize,
@@ -401,7 +399,6 @@ impl EchoCanceller3 {
             vec![vec![vec![0.0_f32; SUB_FRAME_LENGTH]; num_capture_channels]; num_bands];
 
         Self {
-            config: config.clone(),
             sample_rate_hz,
             num_bands,
             num_render_input_channels: num_render_channels,
@@ -704,7 +701,6 @@ impl EchoCanceller3 {
     }
 
     /// Provides an optional external estimate of the audio buffer delay.
-    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn set_audio_buffer_delay(&mut self, delay_ms: i32) {
         self.block_processor.set_audio_buffer_delay(delay_ms);
     }
@@ -720,25 +716,11 @@ impl EchoCanceller3 {
         true
     }
 
-    /// Signals whether an external detector has detected echo leakage.
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn update_echo_leakage_status(&mut self, leakage_detected: bool) {
-        self.block_processor
-            .update_echo_leakage_status(leakage_detected);
-    }
-
     /// Returns whether stereo render processing is active (for testing).
     #[cfg(test)]
     fn stereo_render_processing_active_for_testing(&self) -> bool {
         self.multichannel_content_detector
             .is_proper_multi_channel_content_detected()
-    }
-
-    /// Returns the active config (for testing).
-    #[cfg(test)]
-    #[allow(dead_code, reason = "test utility")]
-    fn active_config_for_testing(&self) -> &EchoCanceller3Config {
-        self.config_selector.active_config()
     }
 }
 

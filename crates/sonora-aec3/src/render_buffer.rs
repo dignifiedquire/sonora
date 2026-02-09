@@ -124,11 +124,6 @@ impl<'a> RenderBuffer<'a> {
         }
     }
 
-    /// Gets the recent activity seen in the render signal.
-    pub(crate) fn get_render_activity(&self) -> bool {
-        self.render_activity
-    }
-
     /// Specifies the recent activity seen in the render signal.
     pub(crate) fn set_render_activity(&mut self, activity: bool) {
         self.render_activity = activity;

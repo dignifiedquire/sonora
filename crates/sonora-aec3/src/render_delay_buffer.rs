@@ -27,7 +27,6 @@ pub(crate) enum BufferingEvent {
     None,
     RenderUnderrun,
     RenderOverrun,
-    ApiCallSkew,
 }
 
 /// Buffers incoming render blocks such that these may be extracted with a
@@ -36,7 +35,6 @@ pub(crate) enum BufferingEvent {
 pub(crate) struct RenderDelayBuffer {
     config: EchoCanceller3Config,
     render_linear_amplitude_gain: f32,
-    down_sampling_factor: usize,
     sub_block_size: usize,
     blocks: BlockBuffer,
     spectra: SpectrumBuffer,
@@ -98,7 +96,6 @@ impl RenderDelayBuffer {
         let mut rdb = Self {
             config: config.clone(),
             render_linear_amplitude_gain,
-            down_sampling_factor,
             sub_block_size,
             blocks,
             spectra,
@@ -314,13 +311,6 @@ impl RenderDelayBuffer {
     /// Returns a reference to the downsampled render buffer.
     pub(crate) fn get_downsampled_render_buffer(&self) -> &DownsampledRenderBuffer {
         &self.low_rate
-    }
-
-    /// Computes the delay estimator offset for the given config.
-    pub(crate) fn delay_estimator_offset(config: &EchoCanceller3Config) -> i32 {
-        let delay_headroom_blocks = config.delay.delay_headroom_samples as i32 / BLOCK_SIZE as i32;
-        let hysteresis = config.delay.hysteresis_limit_blocks as i32;
-        delay_headroom_blocks + hysteresis
     }
 
     /// Provides an optional external estimate of the audio buffer delay.

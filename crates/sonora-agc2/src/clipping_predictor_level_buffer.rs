@@ -4,11 +4,11 @@
 
 /// Recommended maximum capacity. It is possible to create a buffer with a
 /// larger capacity, but the implementation is not optimized for large values.
-pub(crate) const MAX_CAPACITY: usize = 100;
+pub const MAX_CAPACITY: usize = 100;
 
 /// Frame-wise level metrics: average (mean squared) and max (peak).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Level {
+pub struct Level {
     pub average: f32,
     pub max: f32,
 }
@@ -23,7 +23,7 @@ impl PartialEq for Level {
 /// A circular buffer to store frame-wise [`Level`] items for clipping prediction.
 /// The current implementation is not optimized for large buffer lengths.
 #[derive(Debug)]
-pub(crate) struct ClippingPredictorLevelBuffer {
+pub struct ClippingPredictorLevelBuffer {
     tail: isize,
     size: usize,
     data: Vec<Level>,
@@ -32,7 +32,7 @@ pub(crate) struct ClippingPredictorLevelBuffer {
 impl ClippingPredictorLevelBuffer {
     /// Creates a new buffer with the given capacity (minimum 1).
     /// Logs a warning if capacity exceeds [`MAX_CAPACITY`].
-    pub(crate) fn new(capacity: i32) -> Self {
+    pub fn new(capacity: i32) -> Self {
         let capacity = capacity.max(1) as usize;
         if capacity > MAX_CAPACITY {
             tracing::warn!(
@@ -54,24 +54,24 @@ impl ClippingPredictorLevelBuffer {
     }
 
     /// Resets the buffer, discarding all stored items.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.tail = -1;
         self.size = 0;
     }
 
-    /// Returns the current number of items stored in the buffer.
-    pub(crate) fn size(&self) -> usize {
+    /// Returns the number of items currently in the buffer.
+    pub fn size(&self) -> usize {
         self.size
     }
 
     /// Returns the capacity of the buffer.
-    pub(crate) fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.data.len()
     }
 
     /// Pushes a [`Level`] item into the circular buffer. If the buffer is full,
     /// the oldest item is replaced.
-    pub(crate) fn push(&mut self, level: Level) {
+    pub fn push(&mut self, level: Level) {
         self.tail += 1;
         if self.tail as usize == self.capacity() {
             self.tail = 0;
@@ -85,7 +85,7 @@ impl ClippingPredictorLevelBuffer {
     /// If at least `num_items + delay` items have been pushed, returns the
     /// average and maximum value for the `num_items` most recently pushed items
     /// starting from `delay` positions back (delay=0 is the most recent item).
-    pub(crate) fn compute_partial_metrics(&self, delay: usize, num_items: usize) -> Option<Level> {
+    pub fn compute_partial_metrics(&self, delay: usize, num_items: usize) -> Option<Level> {
         debug_assert!(delay < self.capacity());
         debug_assert!(num_items > 0);
         debug_assert!(num_items <= self.capacity());

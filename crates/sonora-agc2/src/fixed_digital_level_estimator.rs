@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/fixed_digital_level_estimator.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::SUB_FRAMES_IN_FRAME;
 
 /// Initial filter state level.
@@ -21,7 +19,7 @@ const DECAY_FILTER_CONSTANT: f32 = 0.9971259;
 /// Produces a smooth signal level estimate from an input audio stream.
 /// The estimate smoothing is done through exponential filtering.
 #[derive(Debug)]
-pub(crate) struct FixedDigitalLevelEstimator {
+pub struct FixedDigitalLevelEstimator {
     filter_state_level: f32,
     samples_in_frame: i32,
     samples_in_sub_frame: i32,
@@ -31,7 +29,7 @@ impl FixedDigitalLevelEstimator {
     /// Creates a new estimator.
     ///
     /// `samples_per_channel` must be divisible by `SUB_FRAMES_IN_FRAME`.
-    pub(crate) fn new(samples_per_channel: usize) -> Self {
+    pub fn new(samples_per_channel: usize) -> Self {
         let mut est = Self {
             filter_state_level: INITIAL_FILTER_STATE_LEVEL,
             samples_in_frame: 0,
@@ -46,10 +44,7 @@ impl FixedDigitalLevelEstimator {
     ///
     /// The input is assumed to be in FloatS16 format. Returns `SUB_FRAMES_IN_FRAME`
     /// level estimates, one per sub-frame.
-    pub(crate) fn compute_level(
-        &mut self,
-        frame: &[&[f32]],
-    ) -> [f32; SUB_FRAMES_IN_FRAME as usize] {
+    pub fn compute_level(&mut self, frame: &[&[f32]]) -> [f32; SUB_FRAMES_IN_FRAME as usize] {
         let num_channels = frame.len();
         debug_assert!(num_channels > 0);
         debug_assert_eq!(frame[0].len(), self.samples_in_frame as usize);
@@ -93,19 +88,19 @@ impl FixedDigitalLevelEstimator {
     }
 
     /// Changes the sample rate (samples per channel for a 10ms frame).
-    pub(crate) fn set_samples_per_channel(&mut self, samples_per_channel: usize) {
+    pub fn set_samples_per_channel(&mut self, samples_per_channel: usize) {
         self.samples_in_frame = samples_per_channel as i32;
         self.samples_in_sub_frame = self.samples_in_frame / SUB_FRAMES_IN_FRAME;
         self.check_parameter_combination();
     }
 
     /// Resets the level estimator internal state.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.filter_state_level = INITIAL_FILTER_STATE_LEVEL;
     }
 
     /// Returns the last computed audio level.
-    pub(crate) fn last_audio_level(&self) -> f32 {
+    pub fn last_audio_level(&self) -> f32 {
         self.filter_state_level
     }
 

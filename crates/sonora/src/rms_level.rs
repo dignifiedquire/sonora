@@ -2,23 +2,19 @@
 //!
 //! Ported from `modules/audio_processing/rms_level.h/cc`.
 
-#[allow(
-    dead_code,
-    reason = "API completeness - will be used when full pipeline is wired"
-)]
+// Constants and computation functions used by test-only methods
+// (average, average_and_peak). Production code only uses
+// analyze_float + reset.
+#[cfg(test)]
 const MAX_SQUARED_LEVEL: f32 = 32768.0 * 32768.0;
-/// kMinLevel is 10^(-127/10).
-#[allow(dead_code, reason = "API completeness")]
+#[cfg(test)]
 const MIN_LEVEL: f32 = 1.995_262_3e-13;
+#[cfg(test)]
+const MIN_LEVEL_DB: i32 = 127;
+#[cfg(test)]
+const INAUDIBLE_BUT_NOT_MUTED: i32 = 126;
 
-/// Minimum RMS level in dBFS (digital silence).
-#[allow(dead_code, reason = "API completeness")]
-pub(crate) const MIN_LEVEL_DB: i32 = 127;
-/// Level representing inaudible but not muted audio.
-#[allow(dead_code, reason = "API completeness")]
-pub(crate) const INAUDIBLE_BUT_NOT_MUTED: i32 = 126;
-
-#[allow(dead_code, reason = "API completeness")]
+#[cfg(test)]
 fn compute_rms(mean_square: f32) -> i32 {
     if mean_square <= MIN_LEVEL * MAX_SQUARED_LEVEL {
         return MIN_LEVEL_DB;
@@ -31,15 +27,14 @@ fn compute_rms(mean_square: f32) -> i32 {
 }
 
 /// Average and peak RMS levels.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code, reason = "API completeness")]
 pub(crate) struct Levels {
     pub(crate) average: i32,
     pub(crate) peak: i32,
 }
 
 /// Computes RMS level in dBFS following RFC 6465.
-#[allow(dead_code, reason = "API completeness")]
 pub(crate) struct RmsLevel {
     sum_square: f32,
     sample_count: usize,
@@ -47,7 +42,6 @@ pub(crate) struct RmsLevel {
     block_size: Option<usize>,
 }
 
-#[allow(dead_code, reason = "API completeness")]
 impl RmsLevel {
     pub(crate) fn new() -> Self {
         Self {
@@ -66,6 +60,7 @@ impl RmsLevel {
     }
 
     /// Analyze a block of i16 samples.
+    #[cfg(test)]
     pub(crate) fn analyze_i16(&mut self, data: &[i16]) {
         if data.is_empty() {
             return;
@@ -98,12 +93,14 @@ impl RmsLevel {
     }
 
     /// Record muted samples (all zeros).
+    #[cfg(test)]
     pub(crate) fn analyze_muted(&mut self, length: usize) {
         self.check_block_size(length);
         self.sample_count += length;
     }
 
     /// Compute average RMS and reset.
+    #[cfg(test)]
     pub(crate) fn average(&mut self) -> i32 {
         let have_samples = self.sample_count != 0;
         let mut rms = if have_samples {
@@ -121,6 +118,7 @@ impl RmsLevel {
     }
 
     /// Compute average and peak RMS levels and reset.
+    #[cfg(test)]
     pub(crate) fn average_and_peak(&mut self) -> Levels {
         let levels = if self.sample_count == 0 {
             Levels {

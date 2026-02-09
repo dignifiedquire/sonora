@@ -2,19 +2,14 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/interpolated_gain_curve.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{INTERPOLATED_GAIN_CURVE_KNEE_POINTS, INTERPOLATED_GAIN_CURVE_TOTAL_POINTS};
 
 /// Defined as `DbfsToLinear(kLimiterMaxInputLevelDbFs)`.
 const MAX_INPUT_LEVEL_LINEAR: f32 = 36_766.3;
 
-/// Input level scaling factor (32768.0).
-pub(crate) const INPUT_LEVEL_SCALING_FACTOR: f32 = 32768.0;
-
 /// Region of the gain curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GainCurveRegion {
+pub enum GainCurveRegion {
     Identity = 0,
     Knee = 1,
     Limiter = 2,
@@ -23,7 +18,7 @@ pub(crate) enum GainCurveRegion {
 
 /// Statistics tracking for gain curve lookups.
 #[derive(Debug, Clone)]
-pub(crate) struct Stats {
+pub struct Stats {
     pub look_ups_identity_region: usize,
     pub look_ups_knee_region: usize,
     pub look_ups_limiter_region: usize,
@@ -50,8 +45,8 @@ impl Default for Stats {
 /// Interpolated gain curve using piecewise-linear under-approximation to avoid
 /// saturation.
 #[derive(Debug, Default)]
-pub(crate) struct InterpolatedGainCurve {
-    stats: Stats,
+pub struct InterpolatedGainCurve {
+    pub stats: Stats,
 }
 
 // Pre-computed approximation parameters (x boundaries, slopes m, intercepts q).
@@ -134,14 +129,15 @@ const APPROXIMATION_PARAMS_Q: [f32; INTERPOLATED_GAIN_CURVE_TOTAL_POINTS] = [
 ];
 
 impl InterpolatedGainCurve {
-    pub(crate) fn get_stats(&self) -> &Stats {
+    /// Returns the statistics for gain curve region lookups.
+    pub fn get_stats(&self) -> &Stats {
         &self.stats
     }
 
     /// Given a non-negative input level (linear scale), returns a scalar gain
     /// factor to apply. Levels above `kLimiterMaxInputLevelDbFs` will be
     /// reduced to 0 dBFS after applying this gain.
-    pub(crate) fn look_up_gain_to_apply(&mut self, input_level: f32) -> f32 {
+    pub fn look_up_gain_to_apply(&mut self, input_level: f32) -> f32 {
         self.update_stats(input_level);
 
         if input_level <= APPROXIMATION_PARAMS_X[0] {
@@ -297,7 +293,7 @@ mod tests {
         igc.look_up_gain_to_apply((limiter.limiter_start_linear() + LEVEL_EPSILON) as f32);
         igc.look_up_gain_to_apply((limiter.max_input_level_linear() + LEVEL_EPSILON) as f32);
 
-        let stats = igc.get_stats();
+        let stats = &igc.stats;
         assert_eq!(1, stats.look_ups_identity_region);
         assert_eq!(1, stats.look_ups_knee_region);
         assert_eq!(1, stats.look_ups_limiter_region);
@@ -314,7 +310,7 @@ mod tests {
             assert_eq!(1.0, igc.look_up_gain_to_apply(*level as f32));
         }
 
-        let stats = igc.get_stats();
+        let stats = &igc.stats;
         assert_eq!(NUM_STEPS - 1, stats.look_ups_identity_region);
         assert_eq!(1, stats.look_ups_knee_region);
         assert_eq!(0, stats.look_ups_limiter_region);
@@ -339,7 +335,7 @@ mod tests {
             );
         }
 
-        let stats = igc.get_stats();
+        let stats = &igc.stats;
         assert_eq!(0, stats.look_ups_identity_region);
         assert_eq!(NUM_STEPS - 1, stats.look_ups_knee_region);
         assert_eq!(1, stats.look_ups_limiter_region);
@@ -364,7 +360,7 @@ mod tests {
             );
         }
 
-        let stats = igc.get_stats();
+        let stats = &igc.stats;
         assert_eq!(0, stats.look_ups_identity_region);
         assert_eq!(0, stats.look_ups_knee_region);
         assert_eq!(NUM_STEPS, stats.look_ups_limiter_region);
@@ -388,7 +384,7 @@ mod tests {
             );
         }
 
-        let stats = igc.get_stats();
+        let stats = &igc.stats;
         assert_eq!(0, stats.look_ups_identity_region);
         assert_eq!(0, stats.look_ups_knee_region);
         assert_eq!(0, stats.look_ups_limiter_region);

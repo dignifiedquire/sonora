@@ -41,19 +41,11 @@ impl RingIndex {
         self.write = self.dec_index(self.write);
     }
 
-    pub(crate) fn update_write(&mut self, offset: i32) {
-        self.write = self.offset_index(self.write, offset);
-    }
-
     pub(crate) fn inc_read(&mut self) {
         self.read = self.inc_index(self.read);
     }
 
     pub(crate) fn dec_read(&mut self) {
         self.read = self.dec_index(self.read);
-    }
-
-    pub(crate) fn update_read(&mut self, offset: i32) {
-        self.read = self.offset_index(self.read, offset);
     }
 }

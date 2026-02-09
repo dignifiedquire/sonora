@@ -110,10 +110,6 @@ fn set_max_erle_subbands(
 pub(crate) struct SignalDependentErleEstimator {
     min_erle: f32,
     num_sections: usize,
-    #[allow(dead_code, reason = "stored for consistency with C++")]
-    num_blocks: usize,
-    #[allow(dead_code, reason = "stored for consistency with C++")]
-    delay_headroom_blocks: usize,
     band_to_subband: [usize; FFT_LENGTH_BY_2_PLUS_1],
     max_erle: [f32; SUBBANDS],
     section_boundaries_blocks: Vec<usize>,
@@ -141,8 +137,6 @@ impl SignalDependentErleEstimator {
         let mut s = Self {
             min_erle: config.erle.min,
             num_sections,
-            num_blocks,
-            delay_headroom_blocks,
             band_to_subband,
             max_erle: set_max_erle_subbands(
                 config.erle.max_l,

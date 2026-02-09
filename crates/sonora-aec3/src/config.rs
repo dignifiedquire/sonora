@@ -615,10 +615,29 @@ impl Default for RenderLevels {
     }
 }
 
+/// Selects the transparent mode algorithm for AEC3.
+///
+/// Transparent mode detects scenarios where no echo is present (e.g. headset
+/// use) and reduces suppression accordingly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TransparentModeType {
+    /// Counter-based heuristic (the C++ default without field trials).
+    #[default]
+    Legacy,
+    /// Two-state Hidden Markov Model classifier.
+    ///
+    /// Uses Bayesian inference on filter convergence observations to estimate
+    /// the probability of being in a "transparent" (no-echo) state. Generally
+    /// more responsive than Legacy mode.
+    Hmm,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct EchoRemovalControl {
     pub has_clock_drift: bool,
     pub linear_and_stable_echo_path: bool,
+    /// Which transparent mode algorithm to use.
+    pub transparent_mode: TransparentModeType,
 }
 
 #[derive(Debug, Clone)]

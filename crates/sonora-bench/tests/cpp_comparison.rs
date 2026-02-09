@@ -8,7 +8,7 @@
 //! diverge by a small amount due to different FMA contraction behaviour between
 //! LLVM and GCC. The tolerances below accommodate this.
 
-use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
+use sonora::config::{EchoCanceller, GainController2, NoiseSuppression, TransparentModeType};
 use sonora::internals::{self, FULL_BAND_SIZE, NUM_BANDS, SPLIT_BAND_SIZE};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora_bench::comparison::compare_f32;
@@ -401,4 +401,72 @@ fn rust_cpp_pipeline_comparison() {
             failures.join("\n")
         );
     }
+}
+
+// ── HMM transparent mode: Rust vs C++ ────────────────────────────────────────
+
+#[test]
+fn hmm_transparent_mode_matches_cpp() {
+    let stream = StreamConfig::new(16000, 1);
+    let frames_per_10ms = stream.num_frames();
+    let sr = 16000i32;
+    let src = gen_signal(frames_per_10ms);
+
+    // Rust: EC with HMM transparent mode.
+    let config = Config {
+        echo_canceller: Some(EchoCanceller {
+            transparent_mode: TransparentModeType::Hmm,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut rust_apm = AudioProcessing::builder().config(config).build();
+
+    // C++: EC with HMM field trial enabled.
+    let mut cpp_apm =
+        sonora_sys::create_apm_with_field_trials("WebRTC-Aec3TransparentModeHmm/Enabled/");
+    sonora_sys::apply_config(cpp_apm.pin_mut(), true, false, 1, false, false);
+
+    let mut worst = sonora_bench::comparison::ComparisonResult {
+        max_abs_diff: 0.0,
+        max_abs_diff_index: 0,
+        mean_abs_diff: 0.0,
+        mismatches: 0,
+        total: 0,
+    };
+
+    for frame_idx in 0..(WARMUP_FRAMES + TEST_FRAMES) {
+        let mut rust_dst = vec![0.0f32; frames_per_10ms];
+        let mut cpp_dst = vec![0.0f32; frames_per_10ms];
+
+        let src_slices = [src.as_slice()];
+        let mut dst_slices = [rust_dst.as_mut_slice()];
+        let _ = rust_apm.process_capture_f32_with_config(
+            &src_slices,
+            &stream,
+            &stream,
+            &mut dst_slices,
+        );
+
+        sonora_sys::process_stream_f32(cpp_apm.pin_mut(), &src, sr, 1, sr, 1, &mut cpp_dst);
+
+        if frame_idx >= WARMUP_FRAMES {
+            let result = compare_f32(&dst_slices[0], &cpp_dst, 0.0);
+            if result.max_abs_diff > worst.max_abs_diff {
+                worst = result;
+            }
+        }
+    }
+
+    eprintln!("\n=== HMM transparent mode: Rust vs C++ ===");
+    if worst.max_abs_diff > 0.0 {
+        eprintln!("  DIFF  16k_mono/ec_hmm: {worst}");
+    } else {
+        eprintln!("  OK    16k_mono/ec_hmm: bit-identical");
+    }
+
+    assert!(
+        worst.max_abs_diff <= PIPELINE_TOL,
+        "HMM transparent mode diverged: {worst}",
+    );
 }

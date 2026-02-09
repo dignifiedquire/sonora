@@ -265,11 +265,6 @@ impl AdaptiveFirFilter {
         compute_frequency_response(self.backend, self.current_size_partitions, &self.h, h2);
     }
 
-    /// Returns the maximum number of partitions for the filter.
-    pub(crate) fn max_filter_size_partitions(&self) -> usize {
-        self.max_size_partitions
-    }
-
     /// Scales the filter impulse response and spectrum by a factor.
     pub(crate) fn scale_filter(&mut self, factor: f32) {
         for h_p in &mut self.h {
@@ -435,7 +430,6 @@ mod tests {
     fn filter_size() {
         let filter = AdaptiveFirFilter::new(SimdBackend::Scalar, 10, 5, 2, 1);
         assert_eq!(filter.size_partitions(), 5);
-        assert_eq!(filter.max_filter_size_partitions(), 10);
     }
 
     #[test]

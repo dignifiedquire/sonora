@@ -3,18 +3,6 @@
 //! This crate provides a pure-Rust implementation of WebRTC's modern echo
 //! canceller (AEC3), ported from the C++ source at
 //! `modules/audio_processing/aec3/`.
-#![allow(
-    dead_code,
-    reason = "Port-in-progress: many functions not yet wired up"
-)]
-#![allow(
-    clippy::needless_range_loop,
-    reason = "Index-based loops match the C++ original for review accuracy"
-)]
-#![allow(
-    clippy::excessive_precision,
-    reason = "Float constants match the C++ original for review accuracy"
-)]
 pub(crate) mod adaptive_fir_filter;
 pub(crate) mod adaptive_fir_filter_erl;
 pub(crate) mod aec3_fft;

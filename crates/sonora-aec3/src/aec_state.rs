@@ -127,10 +127,6 @@ impl InitialState {
         self.transition_triggered = !self.initial_state && prev_initial_state;
     }
 
-    fn initial_state_active(&self) -> bool {
-        self.initial_state
-    }
-
     fn transition_triggered(&self) -> bool {
         self.transition_triggered
     }
@@ -158,10 +154,6 @@ impl FilterDelay {
 
     fn external_delay_reported(&self) -> bool {
         self.external_delay.is_some()
-    }
-
-    fn external_delay_blocks(&self) -> Option<DelayEstimate> {
-        self.external_delay
     }
 
     fn direct_path_filter_delays(&self) -> &[i32] {
@@ -407,11 +399,6 @@ impl AecState {
         self.filter_quality_state.linear_filter_usable() && self.config.filter.use_linear_filter
     }
 
-    /// Returns whether the render signal is currently active.
-    pub(crate) fn active_render(&self) -> bool {
-        self.blocks_with_active_render > 200
-    }
-
     /// Gets the residual echo scaling.
     pub(crate) fn get_residual_echo_scaling(
         &self,
@@ -444,11 +431,6 @@ impl AecState {
     /// Returns the fullband ERLE estimate in log2 units.
     pub(crate) fn fullband_erle_log2(&self) -> f32 {
         self.erle_estimator.fullband_erle_log2()
-    }
-
-    /// Returns the ERL.
-    pub(crate) fn erl(&self) -> &[f32; FFT_LENGTH_BY_2_PLUS_1] {
-        self.erl_estimator.erl()
     }
 
     /// Returns the time-domain ERL.
@@ -528,11 +510,6 @@ impl AecState {
     /// Returns the filter length in blocks.
     pub(crate) fn filter_length_blocks(&self) -> usize {
         self.filter_analyzer.filter_length_blocks()
-    }
-
-    /// Returns the external delay estimate.
-    pub(crate) fn external_delay_blocks(&self) -> Option<DelayEstimate> {
-        self.delay_state.external_delay_blocks()
     }
 
     /// Updates the AEC state with new data.
@@ -707,7 +684,6 @@ mod tests {
         let config = EchoCanceller3Config::default();
         let state = AecState::new(&config, 1);
         assert!(!state.usable_linear_estimate());
-        assert!(!state.active_render());
         assert!(!state.saturated_capture());
         assert!(!state.saturated_echo());
         assert!(!state.transparent_mode_active());

@@ -138,11 +138,6 @@ impl SubbandErleEstimator {
         &self.erle_unbounded
     }
 
-    /// Returns the ERLE estimate at onsets (only used for testing).
-    pub(crate) fn erle_during_onsets(&self) -> &[[f32; FFT_LENGTH_BY_2_PLUS_1]] {
-        &self.erle_during_onsets
-    }
-
     fn update_bands(&mut self, converged_filters: &[bool]) {
         let num_capture_channels = self.accum_spectra.y2.len();
         for ch in 0..num_capture_channels {

@@ -9,11 +9,11 @@
 //! - `LegacyTransparentModeImpl` (counter-based)
 //! - null (disabled when `bounded_erl`)
 //!
-//! Since we skip field trials, we use LegacyTransparentModeImpl as default
-//! and represent the choice as an enum (not trait objects).
+//! Both modes are available, selectable via
+//! [`TransparentModeType`](crate::config::TransparentModeType) in the config.
 
 use crate::common::NUM_BLOCKS_PER_SECOND;
-use crate::config::EchoCanceller3Config;
+use crate::config::{EchoCanceller3Config, TransparentModeType};
 
 const BLOCKS_SINCE_CONVERGED_FILTER_INIT: usize = 10000;
 const BLOCKS_SINCE_CONSISTENT_ESTIMATE_INIT: usize = 10000;
@@ -23,39 +23,42 @@ const INITIAL_TRANSPARENT_STATE_PROBABILITY: f32 = 0.2;
 /// no echo (e.g. headset scenarios).
 #[derive(Debug)]
 pub(crate) enum TransparentMode {
-    /// HMM-based transparent mode classifier.
-    Hmm(TransparentModeHmm),
     /// Legacy counter-based transparent mode classifier.
     Legacy(LegacyTransparentMode),
+    /// HMM-based transparent mode classifier.
+    Hmm(HmmTransparentMode),
 }
 
 impl TransparentMode {
     /// Creates a transparent mode detector.
     ///
     /// Returns `None` when transparent mode is disabled (bounded ERL).
-    /// Without field trials, defaults to the Legacy implementation.
     pub(crate) fn create(config: &EchoCanceller3Config) -> Option<Self> {
         if config.ep_strength.bounded_erl {
             None
         } else {
-            // Without field trials, use Legacy (the default in C++).
-            Some(Self::Legacy(LegacyTransparentMode::new(config)))
+            match config.echo_removal_control.transparent_mode {
+                TransparentModeType::Legacy => {
+                    Some(Self::Legacy(LegacyTransparentMode::new(config)))
+                }
+                TransparentModeType::Hmm => Some(Self::Hmm(HmmTransparentMode::new())),
+            }
         }
     }
 
     /// Returns whether transparent mode is currently active.
     pub(crate) fn active(&self) -> bool {
         match self {
-            Self::Hmm(hmm) => hmm.active(),
             Self::Legacy(legacy) => legacy.active(),
+            Self::Hmm(hmm) => hmm.active(),
         }
     }
 
     /// Resets the detector state.
     pub(crate) fn reset(&mut self) {
         match self {
-            Self::Hmm(hmm) => hmm.reset(),
             Self::Legacy(legacy) => legacy.reset(),
+            Self::Hmm(hmm) => hmm.reset(),
         }
     }
 
@@ -75,7 +78,6 @@ impl TransparentMode {
         saturated_capture: bool,
     ) {
         match self {
-            Self::Hmm(hmm) => hmm.update(any_coarse_filter_converged, active_render),
             Self::Legacy(legacy) => legacy.update(
                 filter_delay_blocks,
                 any_filter_consistent,
@@ -84,71 +86,7 @@ impl TransparentMode {
                 active_render,
                 saturated_capture,
             ),
-        }
-    }
-}
-
-/// HMM-based transparent mode classifier.
-#[derive(Debug)]
-pub(crate) struct TransparentModeHmm {
-    transparency_activated: bool,
-    prob_transparent_state: f32,
-}
-
-impl TransparentModeHmm {
-    pub(crate) fn new() -> Self {
-        Self {
-            transparency_activated: false,
-            prob_transparent_state: INITIAL_TRANSPARENT_STATE_PROBABILITY,
-        }
-    }
-
-    fn active(&self) -> bool {
-        self.transparency_activated
-    }
-
-    fn reset(&mut self) {
-        self.transparency_activated = false;
-        self.prob_transparent_state = INITIAL_TRANSPARENT_STATE_PROBABILITY;
-    }
-
-    fn update(&mut self, any_coarse_filter_converged: bool, active_render: bool) {
-        if !active_render {
-            return;
-        }
-
-        const K_SWITCH: f32 = 0.000_001;
-        const K_CONVERGED_NORMAL: f32 = 0.01;
-        const K_CONVERGED_TRANSPARENT: f32 = 0.001;
-
-        // Transition probabilities.
-        const K_A: [f32; 2] = [K_SWITCH, 1.0 - K_SWITCH];
-
-        // Observation probabilities for [normal, transparent] x [not_converged, converged].
-        const K_B: [[f32; 2]; 2] = [
-            [1.0 - K_CONVERGED_NORMAL, K_CONVERGED_NORMAL],
-            [1.0 - K_CONVERGED_TRANSPARENT, K_CONVERGED_TRANSPARENT],
-        ];
-
-        let prob_transparent = self.prob_transparent_state;
-        let prob_normal = 1.0 - prob_transparent;
-
-        let prob_transition_transparent = prob_normal * K_A[0] + prob_transparent * K_A[1];
-        let prob_transition_normal = 1.0 - prob_transition_transparent;
-
-        let out = any_coarse_filter_converged as usize;
-
-        let prob_joint_normal = prob_transition_normal * K_B[0][out];
-        let prob_joint_transparent = prob_transition_transparent * K_B[1][out];
-
-        debug_assert!(prob_joint_normal + prob_joint_transparent > 0.0);
-        self.prob_transparent_state =
-            prob_joint_transparent / (prob_joint_normal + prob_joint_transparent);
-
-        if self.prob_transparent_state > 0.95 {
-            self.transparency_activated = true;
-        } else if self.prob_transparent_state < 0.5 {
-            self.transparency_activated = false;
+            Self::Hmm(hmm) => hmm.update(any_coarse_filter_converged, active_render),
         }
     }
 }
@@ -278,24 +216,85 @@ impl LegacyTransparentMode {
     }
 }
 
+/// HMM-based transparent mode classifier.
+///
+/// Uses a two-state Hidden Markov Model (normal vs. transparent) that
+/// observes whether the adaptive filter has converged. The posterior
+/// probability of the transparent state is updated via Bayes' theorem,
+/// with hysteresis thresholds to avoid oscillation.
+///
+/// Ported from `TransparentModeImpl` in C++ `transparent_mode.cc`.
+#[derive(Debug)]
+pub(crate) struct HmmTransparentMode {
+    transparency_activated: bool,
+    prob_transparent_state: f32,
+}
+
+impl HmmTransparentMode {
+    pub(crate) fn new() -> Self {
+        Self {
+            transparency_activated: false,
+            prob_transparent_state: INITIAL_TRANSPARENT_STATE_PROBABILITY,
+        }
+    }
+
+    fn active(&self) -> bool {
+        self.transparency_activated
+    }
+
+    fn reset(&mut self) {
+        self.transparency_activated = false;
+        self.prob_transparent_state = INITIAL_TRANSPARENT_STATE_PROBABILITY;
+    }
+
+    fn update(&mut self, any_coarse_filter_converged: bool, active_render: bool) {
+        if !active_render {
+            return;
+        }
+
+        // HMM transition probability (probability of switching states).
+        const SWITCH: f32 = 0.000001;
+        // Observation probability: P(filter converged | normal state).
+        const CONVERGED_NORMAL: f32 = 0.01;
+        // Observation probability: P(filter converged | transparent state).
+        const CONVERGED_TRANSPARENT: f32 = 0.001;
+
+        // Transition matrix: [P(switch), P(stay)].
+        const A: [f32; 2] = [SWITCH, 1.0 - SWITCH];
+        // Observation matrix: B[state][observation].
+        const B: [[f32; 2]; 2] = [
+            [1.0 - CONVERGED_NORMAL, CONVERGED_NORMAL],
+            [1.0 - CONVERGED_TRANSPARENT, CONVERGED_TRANSPARENT],
+        ];
+
+        let prob_transparent = self.prob_transparent_state;
+        let prob_normal = 1.0 - prob_transparent;
+
+        // Predict step: apply transition model.
+        let prob_transition_transparent = prob_normal * A[0] + prob_transparent * A[1];
+        let prob_transition_normal = 1.0 - prob_transition_transparent;
+
+        // Observation index: 1 if filter converged, 0 otherwise.
+        let obs = usize::from(any_coarse_filter_converged);
+
+        // Update step: Bayes' theorem.
+        let prob_joint_normal = prob_transition_normal * B[0][obs];
+        let prob_joint_transparent = prob_transition_transparent * B[1][obs];
+        self.prob_transparent_state =
+            prob_joint_transparent / (prob_joint_normal + prob_joint_transparent);
+
+        // Hysteresis to avoid oscillation.
+        if self.prob_transparent_state > 0.95 {
+            self.transparency_activated = true;
+        } else if self.prob_transparent_state < 0.5 {
+            self.transparency_activated = false;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn hmm_initial_state_not_active() {
-        let hmm = TransparentModeHmm::new();
-        assert!(!hmm.active());
-    }
-
-    #[test]
-    fn hmm_reset_clears_state() {
-        let mut hmm = TransparentModeHmm::new();
-        hmm.transparency_activated = true;
-        hmm.reset();
-        assert!(!hmm.active());
-        assert!((hmm.prob_transparent_state - INITIAL_TRANSPARENT_STATE_PROBABILITY).abs() < 1e-6);
-    }
 
     #[test]
     fn legacy_initial_state_not_active() {
@@ -319,5 +318,68 @@ mod tests {
         let mode = TransparentMode::create(&config);
         assert!(mode.is_some());
         assert!(!mode.unwrap().active());
+    }
+
+    #[test]
+    fn hmm_initial_state_not_active() {
+        let hmm = HmmTransparentMode::new();
+        assert!(!hmm.active());
+    }
+
+    #[test]
+    fn hmm_creates_via_config() {
+        let mut config = EchoCanceller3Config::default();
+        config.echo_removal_control.transparent_mode = TransparentModeType::Hmm;
+        let mode = TransparentMode::create(&config);
+        assert!(matches!(mode, Some(TransparentMode::Hmm(_))));
+    }
+
+    #[test]
+    fn hmm_activates_without_convergence() {
+        let mut hmm = HmmTransparentMode::new();
+        // Feed many blocks with active render but no filter convergence.
+        // The HMM should eventually activate transparent mode.
+        for _ in 0..10_000 {
+            hmm.update(false, true);
+        }
+        assert!(hmm.active());
+    }
+
+    #[test]
+    fn hmm_deactivates_with_convergence() {
+        let mut hmm = HmmTransparentMode::new();
+        // First, drive into transparent state.
+        for _ in 0..10_000 {
+            hmm.update(false, true);
+        }
+        assert!(hmm.active());
+        // Now feed convergence observations — should deactivate.
+        for _ in 0..100 {
+            hmm.update(true, true);
+        }
+        assert!(!hmm.active());
+    }
+
+    #[test]
+    fn hmm_no_update_without_active_render() {
+        let mut hmm = HmmTransparentMode::new();
+        let initial_prob = hmm.prob_transparent_state;
+        hmm.update(false, false);
+        assert_eq!(hmm.prob_transparent_state, initial_prob);
+    }
+
+    #[test]
+    fn hmm_reset_restores_initial_state() {
+        let mut hmm = HmmTransparentMode::new();
+        for _ in 0..10_000 {
+            hmm.update(false, true);
+        }
+        assert!(hmm.active());
+        hmm.reset();
+        assert!(!hmm.active());
+        assert_eq!(
+            hmm.prob_transparent_state,
+            INITIAL_TRANSPARENT_STATE_PROBABILITY
+        );
     }
 }

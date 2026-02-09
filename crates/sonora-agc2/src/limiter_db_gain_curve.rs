@@ -13,7 +13,8 @@ use crate::common::{
 /// A limiter gain curve (in dB scale) with four regions:
 /// identity (linear), knee (quadratic polynomial), compression (linear),
 /// saturation (linear).
-pub(crate) struct LimiterDbGainCurve {
+#[derive(Debug)]
+pub struct LimiterDbGainCurve {
     max_input_level_linear: f64,
     knee_start_dbfs: f64,
     knee_start_linear: f64,
@@ -111,24 +112,24 @@ impl Default for LimiterDbGainCurve {
 }
 
 impl LimiterDbGainCurve {
-    pub(crate) fn max_input_level_db(&self) -> f64 {
+    pub fn max_input_level_db(&self) -> f64 {
         LIMITER_MAX_INPUT_LEVEL_DB_FS
     }
 
-    pub(crate) fn max_input_level_linear(&self) -> f64 {
+    pub fn max_input_level_linear(&self) -> f64 {
         self.max_input_level_linear
     }
 
-    pub(crate) fn knee_start_linear(&self) -> f64 {
+    pub fn knee_start_linear(&self) -> f64 {
         self.knee_start_linear
     }
 
-    pub(crate) fn limiter_start_linear(&self) -> f64 {
+    pub fn limiter_start_linear(&self) -> f64 {
         self.limiter_start_linear
     }
 
     /// Returns the output level in dBFS given an input level in dBFS.
-    pub(crate) fn get_output_level_dbfs(&self, input_level_dbfs: f64) -> f64 {
+    pub fn get_output_level_dbfs(&self, input_level_dbfs: f64) -> f64 {
         if input_level_dbfs < self.knee_start_dbfs {
             input_level_dbfs
         } else if input_level_dbfs < self.limiter_start_dbfs {
@@ -139,7 +140,7 @@ impl LimiterDbGainCurve {
     }
 
     /// Returns the gain (linear scale) for a given input level (linear scale).
-    pub(crate) fn get_gain_linear(&self, input_level_linear: f64) -> f64 {
+    pub fn get_gain_linear(&self, input_level_linear: f64) -> f64 {
         if input_level_linear < self.knee_start_linear {
             return 1.0;
         }
@@ -149,7 +150,7 @@ impl LimiterDbGainCurve {
 
     /// Computes the first derivative of `get_gain_linear()` at `x`.
     /// Beyond-knee region only.
-    pub(crate) fn get_gain_first_derivative_linear(&self, x: f64) -> f64 {
+    pub fn get_gain_first_derivative_linear(&self, x: f64) -> f64 {
         debug_assert!(x >= self.limiter_start_linear - 1e-7 * MAX_ABS_FLOAT_S16_VALUE as f64);
         self.gain_curve_limiter_d1
             * (x / MAX_ABS_FLOAT_S16_VALUE as f64).powf(self.gain_curve_limiter_d2)
@@ -157,7 +158,7 @@ impl LimiterDbGainCurve {
 
     /// Computes the integral of `get_gain_linear()` in the range `[x0, x1]`.
     /// Beyond-knee region only.
-    pub(crate) fn get_gain_integral_linear(&self, x0: f64, x1: f64) -> f64 {
+    pub fn get_gain_integral_linear(&self, x0: f64, x1: f64) -> f64 {
         debug_assert!(x0 <= x1);
         debug_assert!(x0 >= self.limiter_start_linear);
         let limiter_integral =

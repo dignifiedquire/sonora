@@ -12,19 +12,6 @@ use sonora_common_audio::push_sinc_resampler::PushSincResampler;
 use crate::splitting_filter::SplittingFilter;
 use crate::stream_config::StreamConfig;
 
-/// Maximum samples per channel in a 10ms frame (384 kHz / 100).
-#[allow(dead_code, reason = "API completeness")]
-const MAX_SAMPLES_PER_CHANNEL_10MS: usize = 3840;
-
-/// Frequency band indices.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "API completeness")]
-pub(crate) enum Band {
-    Low = 0,
-    Mid = 1,
-    High = 2,
-}
-
 fn num_bands_from_frames_per_channel(num_frames: usize) -> usize {
     match num_frames {
         320 => 2,
@@ -171,20 +158,6 @@ impl AudioBuffer {
         self.data.bands_mut(channel)
     }
 
-    /// Get a pointer-like array of channel slices (for compatibility).
-    #[inline]
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn channels(&self) -> &ChannelBuffer<f32> {
-        &self.data
-    }
-
-    /// Get a mutable reference to the channel buffer.
-    #[inline]
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn channels_mut(&mut self) -> &mut ChannelBuffer<f32> {
-        &mut self.data
-    }
-
     /// Get split band data for a specific channel and band.
     pub(crate) fn split_band(&self, channel: usize, band: usize) -> &[f32] {
         if let Some(ref split) = self.split_data {
@@ -200,27 +173,6 @@ impl AudioBuffer {
             split.channel_mut(band, channel)
         } else {
             self.data.channel_mut(band, channel)
-        }
-    }
-
-    /// Get split channels for a specific band (all channels for one band).
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn split_channel(&self, band: Band) -> Option<Vec<&[f32]>> {
-        let band_idx = band as usize;
-        if let Some(ref split) = self.split_data {
-            Some(
-                (0..self.num_channels)
-                    .map(|ch| split.channel(band_idx, ch))
-                    .collect(),
-            )
-        } else if band_idx == 0 {
-            Some(
-                (0..self.num_channels)
-                    .map(|ch| self.data.bands(ch))
-                    .collect(),
-            )
-        } else {
-            None
         }
     }
 

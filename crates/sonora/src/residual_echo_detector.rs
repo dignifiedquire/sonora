@@ -11,7 +11,6 @@ const LOOKBACK_FRAMES: usize = 650;
 const RENDER_BUFFER_SIZE: usize = 30;
 const ALPHA: f32 = 0.001;
 /// 10 seconds of data, updated every 10 ms.
-#[allow(dead_code, reason = "API completeness")]
 const AGGREGATION_BUFFER_SIZE: usize = 10 * 100;
 
 fn power(input: &[f32]) -> f32 {
@@ -48,7 +47,6 @@ pub(crate) struct ResidualEchoDetector {
 }
 
 impl ResidualEchoDetector {
-    #[allow(dead_code, reason = "API completeness")]
     pub(crate) fn new() -> Self {
         Self {
             first_process_call: true,

@@ -19,7 +19,6 @@ use sonora_simd::SimdBackend;
 /// Block-level echo cancellation processor.
 #[derive(Debug)]
 pub struct BlockProcessor {
-    backend: SimdBackend,
     config: EchoCanceller3Config,
     capture_properly_started: bool,
     render_properly_started: bool,
@@ -89,7 +88,6 @@ impl BlockProcessor {
         );
 
         Self {
-            backend,
             config: config.clone(),
             capture_properly_started: false,
             render_properly_started: false,

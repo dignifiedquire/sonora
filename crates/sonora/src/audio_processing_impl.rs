@@ -19,6 +19,7 @@ use crate::gain_controller2::{
 use crate::high_pass_filter::HighPassFilter;
 use crate::input_volume_controller::InputVolumeControllerConfig;
 use crate::residual_echo_detector::ResidualEchoDetector;
+use crate::rms_level::RmsLevel;
 use crate::stats::AudioProcessingStats;
 use crate::stream_config::StreamConfig;
 use crate::submodule_states::SubmoduleStates;
@@ -84,6 +85,8 @@ struct CaptureState {
     applied_input_volume: Option<i32>,
     applied_input_volume_changed: bool,
     recommended_input_volume: Option<i32>,
+    was_stream_delay_set: bool,
+    stream_delay_ms: i32,
 }
 
 impl Default for CaptureState {
@@ -101,6 +104,8 @@ impl Default for CaptureState {
             applied_input_volume: None,
             applied_input_volume_changed: false,
             recommended_input_volume: None,
+            was_stream_delay_set: false,
+            stream_delay_ms: 0,
         }
     }
 }
@@ -158,21 +163,18 @@ pub(crate) struct AudioProcessingImpl {
     capture_nonlocked: CaptureNonlocked,
     render: RenderState,
     capture_runtime_settings: VecDeque<RuntimeSetting>,
-    #[allow(dead_code, reason = "API completeness")]
     render_runtime_settings: VecDeque<RuntimeSetting>,
     // Render queue for the residual echo detector.
     red_render_queue: Option<SwapQueue<Vec<f32>>>,
     red_render_queue_buffer: Vec<f32>,
     red_capture_queue_buffer: Vec<f32>,
+    // RMS level metering.
+    capture_input_rms: RmsLevel,
+    capture_output_rms: RmsLevel,
+    capture_rms_interval_counter: usize,
 }
 
 impl AudioProcessingImpl {
-    /// Creates a new audio processing instance with default configuration.
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn new() -> Self {
-        Self::with_config(Config::default())
-    }
-
     /// Creates a new audio processing instance with the given configuration.
     pub(crate) fn with_config(config: Config) -> Self {
         let mut apm = Self {
@@ -195,9 +197,19 @@ impl AudioProcessingImpl {
             red_render_queue: None,
             red_render_queue_buffer: Vec::new(),
             red_capture_queue_buffer: Vec::new(),
+            capture_input_rms: RmsLevel::new(),
+            capture_output_rms: RmsLevel::new(),
+            capture_rms_interval_counter: 0,
         };
         apm.initialize();
         apm
+    }
+
+    /// Installs the residual echo detector (opt-in).
+    ///
+    /// Must be called before `initialize()`.
+    pub(crate) fn set_echo_detector(&mut self) {
+        self.submodules.echo_detector = Some(ResidualEchoDetector::new());
     }
 
     /// Initializes or reinitializes the processing pipeline with
@@ -306,6 +318,12 @@ impl AudioProcessingImpl {
     /// Returns the applied input volume (as set by the caller).
     pub(crate) fn applied_input_volume(&self) -> Option<i32> {
         self.capture.applied_input_volume
+    }
+
+    /// Sets the stream delay in ms (forwarded from the public API).
+    pub(crate) fn set_stream_delay_ms(&mut self, delay_ms: i32) {
+        self.capture.was_stream_delay_set = true;
+        self.capture.stream_delay_ms = delay_ms;
     }
 
     // ─── Processing ──────────────────────────────────────────────
@@ -483,6 +501,17 @@ impl AudioProcessingImpl {
             adjuster.apply_pre_level_adjustment(capture_buffer);
         }
 
+        // Input RMS metering (after pre-level adjustment).
+        self.capture_input_rms
+            .analyze_float(capture_buffer.channel(0));
+        self.capture_rms_interval_counter += 1;
+        let log_rms = self.capture_rms_interval_counter >= 1000;
+        if log_rms {
+            self.capture_rms_interval_counter = 0;
+            // Reset counters; in C++ these feed Chrome histograms.
+            self.capture_input_rms.reset();
+        }
+
         // Phase 2: Echo path gain change detection.
         if self.submodules.echo_controller.is_some() {
             self.capture.echo_path_gain_change = self.capture.applied_input_volume_changed;
@@ -570,6 +599,9 @@ impl AudioProcessingImpl {
 
         // Phase 7: Echo control processing.
         if let Some(ec) = &mut self.submodules.echo_controller {
+            if self.capture.was_stream_delay_set {
+                ec.set_audio_buffer_delay(self.capture.stream_delay_ms);
+            }
             let echo_path_gain_change = self.capture.echo_path_gain_change;
             let capture_buffer = self.capture.capture_audio.as_mut().unwrap();
             ec.process_capture(capture_buffer, None, echo_path_gain_change);
@@ -691,6 +723,21 @@ impl AudioProcessingImpl {
                 gc2.process(input_volume_changed, capture_buffer);
             }
 
+            // Output RMS metering (after GC2).
+            {
+                let capture_buffer = self
+                    .capture
+                    .capture_fullband_audio
+                    .as_ref()
+                    .or(self.capture.capture_audio.as_ref())
+                    .unwrap();
+                self.capture_output_rms
+                    .analyze_float(capture_buffer.channel(0));
+            }
+            if log_rms {
+                self.capture_output_rms.reset();
+            }
+
             // Echo detector stats.
             if let Some(red) = &self.submodules.echo_detector {
                 let metrics = red.get_metrics();
@@ -758,6 +805,8 @@ impl AudioProcessingImpl {
 
     /// The render processing pipeline.
     fn process_render_stream_locked(&mut self) {
+        self.handle_render_runtime_settings();
+
         // Queue non-banded render audio for the echo detector (uses shared ref).
         {
             let render_buffer = self.render.render_audio.as_ref().unwrap();
@@ -885,9 +934,27 @@ impl AudioProcessingImpl {
                         gc2.set_capture_output_used(value);
                     }
                 }
-                RuntimeSetting::PlayoutAudioDeviceChange(_) => {
-                    // No render pre-processor in Rust port.
+                RuntimeSetting::PlayoutAudioDeviceChange(_info) => {
+                    // TODO: forward to render pre-processor when implemented.
                 }
+            }
+        }
+    }
+
+    fn handle_render_runtime_settings(&mut self) {
+        while let Some(setting) = self.render_runtime_settings.pop_front() {
+            match setting {
+                RuntimeSetting::PlayoutAudioDeviceChange(info) => {
+                    tracing::trace!(
+                        id = info.id,
+                        max_volume = info.max_volume,
+                        "playout device changed"
+                    );
+                }
+                RuntimeSetting::PlayoutVolumeChange(_) => {
+                    // TODO: forward to render pre-processor when implemented.
+                }
+                _ => {}
             }
         }
     }
@@ -1215,15 +1282,16 @@ impl AudioProcessingImpl {
     fn initialize_echo_controller(&mut self) {
         self.submodules.echo_controller = None;
 
-        if self.config.echo_canceller.is_none() {
+        let Some(ec) = &self.config.echo_canceller else {
             return;
-        }
+        };
 
         let sample_rate_hz = self.proc_sample_rate_hz();
         let num_render_channels = self.num_reverse_channels();
         let num_capture_channels = self.num_proc_channels();
 
-        let config = EchoCanceller3Config::default();
+        let mut config = EchoCanceller3Config::default();
+        config.echo_removal_control.transparent_mode = ec.transparent_mode;
         let multichannel_config = Some(EchoCanceller3Config::create_default_multichannel_config());
 
         self.submodules.echo_controller = Some(EchoCanceller3::new(
@@ -1459,7 +1527,7 @@ mod tests {
 
     #[test]
     fn create_default() {
-        let apm = AudioProcessingImpl::new();
+        let apm = AudioProcessingImpl::with_config(Config::default());
         assert!(apm.capture.capture_audio.is_some());
         assert!(apm.submodules.echo_controller.is_none());
         assert!(apm.submodules.noise_suppressors.is_empty());
@@ -1513,7 +1581,7 @@ mod tests {
 
     #[test]
     fn apply_config_enables_echo_canceller() {
-        let mut apm = AudioProcessingImpl::new();
+        let mut apm = AudioProcessingImpl::with_config(Config::default());
         assert!(apm.submodules.echo_controller.is_none());
 
         let config = Config {
@@ -1543,6 +1611,7 @@ mod tests {
         let config = Config {
             echo_canceller: Some(EchoCanceller {
                 enforce_high_pass_filtering: true,
+                ..Default::default()
             }),
             // high_pass_filter is None (disabled)
             ..Default::default()
@@ -1553,7 +1622,7 @@ mod tests {
 
     #[test]
     fn statistics_default() {
-        let apm = AudioProcessingImpl::new();
+        let apm = AudioProcessingImpl::with_config(Config::default());
         let stats = apm.get_statistics();
         assert!(stats.echo_return_loss.is_none());
         assert!(stats.delay_ms.is_none());
@@ -1561,7 +1630,7 @@ mod tests {
 
     #[test]
     fn initialize_with_different_rates() {
-        let mut apm = AudioProcessingImpl::new();
+        let mut apm = AudioProcessingImpl::with_config(Config::default());
         let config = ProcessingConfig {
             input_stream: StreamConfig::new(48000, 2),
             output_stream: StreamConfig::new(48000, 2),

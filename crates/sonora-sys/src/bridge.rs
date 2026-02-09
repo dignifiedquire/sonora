@@ -12,6 +12,12 @@ mod ffi {
         /// Create a new AudioProcessing instance with default config.
         fn create_apm() -> UniquePtr<ApmHandle>;
 
+        /// Create a new AudioProcessing instance with custom field trials.
+        ///
+        /// `field_trials` is a WebRTC field trial string, e.g.
+        /// `"WebRTC-Aec3TransparentModeHmm/Enabled/"`.
+        fn create_apm_with_field_trials(field_trials: &str) -> UniquePtr<ApmHandle>;
+
         /// Apply audio processing config.
         fn apply_config(
             handle: Pin<&mut ApmHandle>,

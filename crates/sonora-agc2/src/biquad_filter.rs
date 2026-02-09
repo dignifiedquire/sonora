@@ -7,7 +7,7 @@
 
 /// Biquad filter coefficients.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BiquadFilterConfig {
+pub struct BiquadFilterConfig {
     /// Feedforward coefficients `[b0, b1, b2]`.
     pub b: [f32; 3],
     /// Feedback coefficients `[a1, a2]`.
@@ -18,7 +18,7 @@ pub(crate) struct BiquadFilterConfig {
 ///
 /// Transfer function: `H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)`
 #[derive(Debug)]
-pub(crate) struct BiquadFilter {
+pub struct BiquadFilter {
     config: BiquadFilterConfig,
     /// State: `[x[n-1], x[n-2], y[n-1], y[n-2]]`.
     state: [f32; 4],
@@ -26,7 +26,7 @@ pub(crate) struct BiquadFilter {
 
 impl BiquadFilter {
     /// Creates a new biquad filter with the given configuration.
-    pub(crate) fn new(config: BiquadFilterConfig) -> Self {
+    pub fn new(config: BiquadFilterConfig) -> Self {
         Self {
             config,
             state: [0.0; 4],
@@ -34,12 +34,12 @@ impl BiquadFilter {
     }
 
     /// Resets the filter state to zero.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.state = [0.0; 4];
     }
 
     /// Reconfigures the filter and resets state.
-    pub(crate) fn set_config(&mut self, config: BiquadFilterConfig) {
+    pub fn set_config(&mut self, config: BiquadFilterConfig) {
         self.config = config;
         self.reset();
     }
@@ -47,7 +47,7 @@ impl BiquadFilter {
     /// Processes input samples `x` and writes filtered output to `y`.
     ///
     /// `x` and `y` may be the same slice for in-place processing.
-    pub(crate) fn process(&mut self, x: &[f32], y: &mut [f32]) {
+    pub fn process(&mut self, x: &[f32], y: &mut [f32]) {
         debug_assert_eq!(x.len(), y.len());
         for k in 0..x.len() {
             let tmp = x[k];
@@ -64,7 +64,7 @@ impl BiquadFilter {
     }
 
     /// Processes samples in-place.
-    pub(crate) fn process_in_place(&mut self, samples: &mut [f32]) {
+    pub fn process_in_place(&mut self, samples: &mut [f32]) {
         for sample in samples.iter_mut() {
             let tmp = *sample;
             *sample = self.config.b[0] * tmp

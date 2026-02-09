@@ -321,6 +321,7 @@ pub struct AudioProcessingBuilder {
     config: Config,
     capture_config: StreamConfig,
     render_config: StreamConfig,
+    echo_detector: bool,
 }
 
 /// Default stream config: 16 kHz mono.
@@ -332,6 +333,7 @@ impl AudioProcessingBuilder {
             config: Config::default(),
             capture_config: DEFAULT_STREAM_CONFIG,
             render_config: DEFAULT_STREAM_CONFIG,
+            echo_detector: false,
         }
     }
 
@@ -357,9 +359,22 @@ impl AudioProcessingBuilder {
         self
     }
 
+    /// Enable the residual echo detector.
+    ///
+    /// The echo detector is opt-in (matching C++ `SetEchoDetector()`).
+    /// It provides `residual_echo_likelihood` statistics.
+    pub fn echo_detector(mut self, enabled: bool) -> Self {
+        self.echo_detector = enabled;
+        self
+    }
+
     /// Build the [`AudioProcessing`] instance.
     pub fn build(self) -> AudioProcessing {
         let mut inner = AudioProcessingImpl::with_config(self.config);
+
+        if self.echo_detector {
+            inner.set_echo_detector();
+        }
 
         use crate::audio_processing_impl::ProcessingConfig;
         let processing_config = ProcessingConfig {
@@ -500,7 +515,7 @@ impl AudioProcessing {
 
     /// Notifies that the playout (render) audio device has changed.
     ///
-    /// Applied at the next `process_capture_*` call.
+    /// Applied at the next `process_render_*` call.
     pub fn set_playout_audio_device(&mut self, id: i32, max_volume: i32) {
         self.inner
             .set_runtime_setting(RuntimeSetting::PlayoutAudioDeviceChange(
@@ -566,6 +581,7 @@ impl AudioProcessing {
             warning = true;
         }
         self.stream_delay_ms = clamped;
+        self.inner.set_stream_delay_ms(clamped);
         if warning {
             Err(Error::StreamParameterClamped)
         } else {

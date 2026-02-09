@@ -33,10 +33,6 @@ impl NoiseSpectrum {
         self.noise_spectrum.fill(MIN_NOISE_POWER);
     }
 
-    fn spectrum(&self) -> &[f32; FFT_LENGTH_BY_2_PLUS_1] {
-        &self.noise_spectrum
-    }
-
     fn power(&self, band: usize) -> f32 {
         debug_assert!(band < self.noise_spectrum.len());
         self.noise_spectrum[band]
@@ -256,7 +252,7 @@ mod tests {
     #[test]
     fn noise_spectrum_initializes_to_min_power() {
         let ns = NoiseSpectrum::new();
-        for &v in ns.spectrum() {
+        for &v in &ns.noise_spectrum {
             assert_eq!(v, MIN_NOISE_POWER);
         }
     }

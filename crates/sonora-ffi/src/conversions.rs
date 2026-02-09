@@ -66,6 +66,7 @@ impl WapConfig {
             echo_canceller: if self.echo_canceller_enabled {
                 Some(EchoCanceller {
                     enforce_high_pass_filtering: self.echo_canceller_enforce_high_pass_filtering,
+                    ..Default::default()
                 })
             } else {
                 None
@@ -425,6 +426,7 @@ mod tests {
         let rust_config = Config {
             echo_canceller: Some(EchoCanceller {
                 enforce_high_pass_filtering: true,
+                ..Default::default()
             }),
             noise_suppression: Some(NoiseSuppression {
                 level: NoiseSuppressionLevel::VeryHigh,

@@ -2,13 +2,11 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/saturation_protector_buffer.h/.cc`.
 
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::SATURATION_PROTECTOR_BUFFER_SIZE;
 
 /// Ring buffer that supports push back and read oldest item.
 #[derive(Debug, Clone)]
-pub(crate) struct SaturationProtectorBuffer {
+pub struct SaturationProtectorBuffer {
     buffer: [f32; SATURATION_PROTECTOR_BUFFER_SIZE],
     next: usize,
     size: usize,
@@ -47,24 +45,24 @@ impl PartialEq for SaturationProtectorBuffer {
 impl Eq for SaturationProtectorBuffer {}
 
 impl SaturationProtectorBuffer {
-    /// Maximum number of values the buffer can contain.
-    pub(crate) fn capacity(&self) -> usize {
-        SATURATION_PROTECTOR_BUFFER_SIZE
-    }
-
-    /// Number of values currently in the buffer.
-    pub(crate) fn size(&self) -> usize {
+    /// Returns the number of items currently in the buffer.
+    pub fn size(&self) -> usize {
         self.size
     }
 
+    /// Returns the total capacity of the buffer.
+    pub fn capacity(&self) -> usize {
+        SATURATION_PROTECTOR_BUFFER_SIZE
+    }
+
     /// Resets the buffer to empty.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.next = 0;
         self.size = 0;
     }
 
     /// Pushes `v` to the back. If full, the oldest value is replaced.
-    pub(crate) fn push_back(&mut self, v: f32) {
+    pub fn push_back(&mut self, v: f32) {
         self.buffer[self.next] = v;
         self.next += 1;
         if self.next == SATURATION_PROTECTOR_BUFFER_SIZE {
@@ -76,7 +74,7 @@ impl SaturationProtectorBuffer {
     }
 
     /// Returns the oldest item, or `None` if empty.
-    pub(crate) fn front(&self) -> Option<f32> {
+    pub fn front(&self) -> Option<f32> {
         if self.size == 0 {
             return None;
         }
@@ -99,8 +97,7 @@ mod tests {
     #[test]
     fn construct() {
         let buffer = SaturationProtectorBuffer::default();
-        assert_eq!(buffer.size(), 0);
-        assert_eq!(buffer.capacity(), SATURATION_PROTECTOR_BUFFER_SIZE);
+        assert_eq!(buffer.size, 0);
         assert_eq!(buffer.front(), None);
     }
 
@@ -108,11 +105,11 @@ mod tests {
     fn push_and_front() {
         let mut buffer = SaturationProtectorBuffer::default();
         buffer.push_back(1.0);
-        assert_eq!(buffer.size(), 1);
+        assert_eq!(buffer.size, 1);
         assert_eq!(buffer.front(), Some(1.0));
 
         buffer.push_back(2.0);
-        assert_eq!(buffer.size(), 2);
+        assert_eq!(buffer.size, 2);
         assert_eq!(buffer.front(), Some(1.0));
     }
 
@@ -122,12 +119,12 @@ mod tests {
         for i in 0..SATURATION_PROTECTOR_BUFFER_SIZE {
             buffer.push_back(i as f32);
         }
-        assert_eq!(buffer.size(), SATURATION_PROTECTOR_BUFFER_SIZE);
+        assert_eq!(buffer.size, SATURATION_PROTECTOR_BUFFER_SIZE);
         assert_eq!(buffer.front(), Some(0.0));
 
         // Overflow: oldest (0.0) is replaced.
         buffer.push_back(100.0);
-        assert_eq!(buffer.size(), SATURATION_PROTECTOR_BUFFER_SIZE);
+        assert_eq!(buffer.size, SATURATION_PROTECTOR_BUFFER_SIZE);
         assert_eq!(buffer.front(), Some(1.0));
     }
 
@@ -137,7 +134,7 @@ mod tests {
         buffer.push_back(1.0);
         buffer.push_back(2.0);
         buffer.reset();
-        assert_eq!(buffer.size(), 0);
+        assert_eq!(buffer.size, 0);
         assert_eq!(buffer.front(), None);
     }
 

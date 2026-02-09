@@ -138,8 +138,6 @@ impl ErleInstantaneous {
 #[derive(Debug)]
 pub(crate) struct FullBandErleEstimator {
     min_erle_log2: f32,
-    #[allow(dead_code, reason = "will be used in later steps")]
-    max_erle_lf_log2: f32,
     hold_counters_instantaneous_erle: Vec<i32>,
     erle_time_domain_log2: Vec<f32>,
     instantaneous_erle: Vec<ErleInstantaneous>,
@@ -149,10 +147,8 @@ pub(crate) struct FullBandErleEstimator {
 impl FullBandErleEstimator {
     pub(crate) fn new(config: &ErleConfig, num_capture_channels: usize) -> Self {
         let min_erle_log2 = fast_approx_log2f(config.min + EPSILON);
-        let max_erle_lf_log2 = fast_approx_log2f(config.max_l + EPSILON);
         let mut s = Self {
             min_erle_log2,
-            max_erle_lf_log2,
             hold_counters_instantaneous_erle: vec![0; num_capture_channels],
             erle_time_domain_log2: vec![min_erle_log2; num_capture_channels],
             instantaneous_erle: (0..num_capture_channels)

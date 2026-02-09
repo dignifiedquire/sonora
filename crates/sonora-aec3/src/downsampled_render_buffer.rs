@@ -25,14 +25,6 @@ impl DownsampledRenderBuffer {
         }
     }
 
-    pub(crate) fn inc_index(&self, index: usize) -> usize {
-        if index < self.size - 1 { index + 1 } else { 0 }
-    }
-
-    pub(crate) fn dec_index(&self, index: usize) -> usize {
-        if index > 0 { index - 1 } else { self.size - 1 }
-    }
-
     pub(crate) fn offset_index(&self, index: usize, offset: i32) -> usize {
         ((self.size as i32 + index as i32 + offset) as usize) % self.size
     }
@@ -41,23 +33,7 @@ impl DownsampledRenderBuffer {
         self.write = self.offset_index(self.write, offset);
     }
 
-    pub(crate) fn inc_write_index(&mut self) {
-        self.write = self.inc_index(self.write);
-    }
-
-    pub(crate) fn dec_write_index(&mut self) {
-        self.write = self.dec_index(self.write);
-    }
-
     pub(crate) fn update_read_index(&mut self, offset: i32) {
         self.read = self.offset_index(self.read, offset);
-    }
-
-    pub(crate) fn inc_read_index(&mut self) {
-        self.read = self.inc_index(self.read);
-    }
-
-    pub(crate) fn dec_read_index(&mut self) {
-        self.read = self.dec_index(self.read);
     }
 }

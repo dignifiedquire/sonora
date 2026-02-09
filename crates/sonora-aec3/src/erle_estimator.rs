@@ -118,11 +118,6 @@ impl ErleEstimator {
         }
     }
 
-    /// Returns the subband ERLE estimated during onsets (only used for testing).
-    pub(crate) fn erle_during_onsets(&self) -> &[[f32; FFT_LENGTH_BY_2_PLUS_1]] {
-        self.subband_erle_estimator.erle_during_onsets()
-    }
-
     /// Returns the fullband ERLE estimate in log2 units.
     pub(crate) fn fullband_erle_log2(&self) -> f32 {
         self.fullband_erle_estimator.fullband_erle_log2()

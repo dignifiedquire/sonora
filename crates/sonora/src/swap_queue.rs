@@ -21,7 +21,7 @@ pub(crate) struct SwapQueue<T> {
 
 impl<T: Default> SwapQueue<T> {
     /// Creates a queue of the given size filled with default-constructed Ts.
-    #[allow(dead_code, reason = "API completeness")]
+    #[cfg(test)]
     pub(crate) fn new(size: usize) -> Self {
         let mut queue = Vec::with_capacity(size);
         for _ in 0..size {
@@ -108,7 +108,7 @@ impl<T> SwapQueue<T> {
     /// Since elements may be concurrently added, the caller must treat this
     /// as a lower bound, not an exact count. May only be called by the
     /// consumer.
-    #[allow(dead_code, reason = "API completeness")]
+    #[cfg(test)]
     pub(crate) fn size_at_least(&self) -> usize {
         self.num_elements.load(Ordering::Acquire)
     }

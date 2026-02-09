@@ -47,6 +47,7 @@ struct NsHandle {
 
 // Creation
 std::unique_ptr<ApmHandle> create_apm();
+std::unique_ptr<ApmHandle> create_apm_with_field_trials(rust::Str field_trials);
 
 // Configuration
 void apply_config(

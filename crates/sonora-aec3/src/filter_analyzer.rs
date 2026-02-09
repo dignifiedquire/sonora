@@ -262,11 +262,6 @@ impl FilterAnalyzer {
         &self.filter_delays_blocks
     }
 
-    /// Returns the minimum delay of all filters in terms of blocks.
-    pub(crate) fn min_filter_delay_blocks(&self) -> i32 {
-        self.min_filter_delay_blocks
-    }
-
     /// Returns the number of blocks for the current used filter.
     pub(crate) fn filter_length_blocks(&self) -> usize {
         self.filter_analysis_states[0].filter_length_blocks

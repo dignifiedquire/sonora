@@ -20,19 +20,6 @@ impl VectorMath {
     pub(crate) fn sqrt(&self, x: &mut [f32]) {
         self.backend.elementwise_sqrt(x);
     }
-
-    /// Elementwise multiply: `z[k] = x[k] * y[k]`.
-    pub(crate) fn multiply(&self, x: &[f32], y: &[f32], z: &mut [f32]) {
-        debug_assert_eq!(x.len(), y.len());
-        debug_assert_eq!(x.len(), z.len());
-        self.backend.elementwise_multiply(x, y, z);
-    }
-
-    /// Elementwise accumulate: `z[k] += x[k]`.
-    pub(crate) fn accumulate(&self, x: &[f32], z: &mut [f32]) {
-        debug_assert_eq!(x.len(), z.len());
-        self.backend.elementwise_accumulate(x, z);
-    }
 }
 
 #[cfg(test)]
@@ -56,37 +43,6 @@ mod tests {
                 z[k],
                 x[k].sqrt()
             );
-        }
-    }
-
-    #[test]
-    fn multiply_matches_scalar() {
-        let vm = VectorMath::new(sonora_simd::detect_backend());
-        let mut x = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let mut y = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        for k in 0..x.len() {
-            x[k] = k as f32;
-            y[k] = (2.0 / 3.0) * k as f32;
-        }
-        let mut z = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        vm.multiply(&x, &y, &mut z);
-        for k in 0..z.len() {
-            assert_eq!(z[k], x[k] * y[k], "mismatch at {k}");
-        }
-    }
-
-    #[test]
-    fn accumulate_matches_scalar() {
-        let vm = VectorMath::new(sonora_simd::detect_backend());
-        let mut x = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let mut z = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        for k in 0..x.len() {
-            x[k] = k as f32;
-            z[k] = 2.0 * k as f32;
-        }
-        vm.accumulate(&x, &mut z);
-        for k in 0..z.len() {
-            assert_eq!(z[k], x[k] + 2.0 * x[k], "mismatch at {k}");
         }
     }
 }

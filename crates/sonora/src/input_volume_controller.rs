@@ -265,12 +265,6 @@ impl MonoInputVolumeController {
         self.min_input_volume_after_clipping
     }
 
-    #[cfg(test)]
-    #[allow(dead_code, reason = "test utility")]
-    pub(crate) fn min_input_volume(&self) -> i32 {
-        self.min_input_volume
-    }
-
     fn set_input_volume(&mut self, new_volume: i32) {
         let applied_input_volume = self.recommended_input_volume;
         if applied_input_volume == 0 {
@@ -548,24 +542,9 @@ impl InputVolumeController {
         self.capture_output_used = capture_output_used;
     }
 
-    #[allow(dead_code, reason = "API completeness")]
+    #[cfg(test)]
     pub(crate) fn recommended_input_volume(&self) -> i32 {
         self.recommended_input_volume
-    }
-
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn capture_output_used(&self) -> bool {
-        self.capture_output_used
-    }
-
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn clipping_predictor_enabled(&self) -> bool {
-        self.clipping_predictor.is_some()
-    }
-
-    #[allow(dead_code, reason = "API completeness")]
-    pub(crate) fn use_clipping_predictor_step(&self) -> bool {
-        self.use_clipping_predictor_step
     }
 
     fn set_applied_input_volume(&mut self, input_volume: i32) {
@@ -1302,8 +1281,6 @@ mod tests {
     const CLIPPED_WAIT_FRAMES: i32 = 300;
     const SPEECH_LEVEL: f32 = -25.0;
 
-    #[allow(dead_code, reason = "test utility")]
-    const MIN_SAMPLE: f32 = i16::MIN as f32;
     const MAX_SAMPLE: f32 = i16::MAX as f32;
 
     fn get_test_config() -> InputVolumeControllerConfig {
@@ -1844,8 +1821,8 @@ mod tests {
             let mut controller = InputVolumeController::new(1, &config);
             controller.initialize();
 
-            assert!(!controller.clipping_predictor_enabled());
-            assert!(!controller.use_clipping_predictor_step());
+            assert!(controller.clipping_predictor.is_none());
+            assert!(!controller.use_clipping_predictor_step);
         }
     }
 
@@ -1862,8 +1839,8 @@ mod tests {
             let mut controller = InputVolumeController::new(1, &config);
             controller.initialize();
 
-            assert!(controller.clipping_predictor_enabled());
-            assert!(controller.use_clipping_predictor_step());
+            assert!(controller.clipping_predictor.is_some());
+            assert!(controller.use_clipping_predictor_step);
         }
     }
 
