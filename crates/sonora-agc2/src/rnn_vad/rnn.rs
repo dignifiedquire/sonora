@@ -90,7 +90,6 @@ impl RnnVad {
 mod tests {
     use super::*;
 
-    #[allow(clippy::excessive_precision, reason = "values from C++ test data")]
     const FEATURES: FeatureVector = FeatureVector {
         average: [-1.00131, -0.627069, -7.81097, 7.86285, -2.87145, 3.32365],
         higher_bands_cepstrum: [

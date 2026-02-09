@@ -85,7 +85,6 @@ const HANNING_64: [f32; FFT_LENGTH_BY_2] = [
 
 /// Sqrt-Hanning window coefficients for 128 samples.
 /// From Matlab `sqrt(hanning(128))`.
-#[allow(clippy::approx_constant, reason = "exact upstream table values")]
 const SQRT_HANNING_128: [f32; FFT_LENGTH] = [
     0.000_000_000_000_00,
     0.024_541_228_522_91,

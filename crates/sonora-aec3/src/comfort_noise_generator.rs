@@ -16,7 +16,6 @@ const FFT_LENGTH_BY_2: usize = common::FFT_LENGTH_BY_2;
 /// Table of sqrt(2) * sin(2*pi*i/32).
 const SQRT2: f32 = consts::SQRT_2;
 
-#[allow(clippy::excessive_precision, reason = "exact upstream table values")]
 const K_SQRT2_SIN: [f32; 32] = [
     0.0000000, 0.2758994, 0.5411961, 0.7856950, 1.0000000, 1.1758756, 1.3065630, 1.3870398, SQRT2,
     1.3870398, 1.3065630, 1.1758756, 1.0000000, 0.7856950, 0.5411961, 0.2758994, 0.0000000,

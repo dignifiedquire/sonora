@@ -29,7 +29,6 @@ mod tests {
     use super::*;
     use sonora_simd::detect_backend;
 
-    #[allow(clippy::excessive_precision, reason = "values from C++ test data")]
     const X: [f32; 19] = [
         0.31593041,
         0.9350786,
@@ -51,9 +50,7 @@ mod tests {
         -0.92207423,
         0.10738454,
     ];
-    #[allow(clippy::excessive_precision, reason = "values from C++ test data")]
     const ENERGY_OF_X: f32 = 7.315563958160327;
-    #[allow(clippy::excessive_precision, reason = "values from C++ test data")]
     const ENERGY_OF_X_SUBSPAN: f32 = 6.333327669592963;
     const SIZE_OF_X_SUBSPAN: usize = 16;
 

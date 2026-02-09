@@ -20,11 +20,6 @@ use crate::wiener_filter::WienerFilter;
 ///
 /// Applied to both ends of the 256-sample extended frame. The middle 64
 /// samples (indices 96..160) are left unwindowed (gain = 1.0).
-#[allow(
-    clippy::excessive_precision,
-    clippy::approx_constant,
-    reason = "match C++ source table exactly"
-)]
 const BLOCKS_160W256_FIRST_HALF: [f32; 96] = [
     0.00000000, 0.01636173, 0.03271908, 0.04906767, 0.06540313, 0.08172107, 0.09801714, 0.11428696,
     0.13052619, 0.14673047, 0.16289547, 0.17901686, 0.19509032, 0.21111155, 0.22707626, 0.24298018,

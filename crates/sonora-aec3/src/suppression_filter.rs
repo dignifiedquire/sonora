@@ -14,7 +14,6 @@ use crate::fft_data::FftData;
 use crate::vector_math::VectorMath;
 
 /// Sqrt-Hanning window from Matlab command `win = sqrt(hanning(128))`.
-#[allow(clippy::approx_constant, reason = "exact upstream table values")]
 const K_SQRT_HANNING: [f32; FFT_LENGTH] = [
     0.000_000_000_000_00,
     0.024_541_228_522_91,

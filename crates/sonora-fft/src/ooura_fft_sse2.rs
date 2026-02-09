@@ -3,9 +3,6 @@
 //! C source: `webrtc/common_audio/third_party/ooura/fft_size_128/ooura_fft_sse2.cc`
 //! Tables from `ooura_fft_tables_neon_sse2.h`.
 
-// Twiddle constants are the exact f32 bit patterns from the C++ source.
-#![allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
-
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]

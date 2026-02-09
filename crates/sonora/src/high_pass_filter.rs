@@ -6,7 +6,6 @@ use sonora_common_audio::cascaded_biquad_filter::{BiQuadCoefficients, CascadedBi
 
 use crate::audio_buffer::AudioBuffer;
 
-#[allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
 const HIGH_PASS_FILTER_COEFFICIENTS_16KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [
@@ -26,7 +25,6 @@ const HIGH_PASS_FILTER_COEFFICIENTS_16KHZ: [BiQuadCoefficients; 3] = [
     },
 ];
 
-#[allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
 const HIGH_PASS_FILTER_COEFFICIENTS_32KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [
@@ -46,7 +44,6 @@ const HIGH_PASS_FILTER_COEFFICIENTS_32KHZ: [BiQuadCoefficients; 3] = [
     },
 ];
 
-#[allow(clippy::excessive_precision, reason = "exact C++ bit patterns")]
 const HIGH_PASS_FILTER_COEFFICIENTS_48KHZ: [BiQuadCoefficients; 3] = [
     BiQuadCoefficients {
         b: [

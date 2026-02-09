@@ -54,6 +54,10 @@ absolute_paths = "warn"
 manual_let_else = "warn"
 allow_attributes_without_reason = "warn"
 mod_module_files = "deny"
+# DSP: exact C++ float constants for bit-exact output
+excessive_precision = "allow"
+# DSP: exact C++ table values near known constants (e.g. PI)
+approx_constant = "allow"
 
 # Match C++ optimization level: -O3, LTO, single codegen unit
 [profile.release]

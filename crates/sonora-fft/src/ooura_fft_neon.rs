@@ -3,11 +3,6 @@
 //! C source: `webrtc/common_audio/third_party/ooura/fft_size_128/ooura_fft_neon.cc`
 //! Tables from `ooura_fft_tables_neon_sse2.h`.
 
-#![allow(
-    clippy::excessive_precision,
-    reason = "twiddle tables are exact copies from upstream C++ for bit-exact reproducibility"
-)]
-
 use core::arch::aarch64::*;
 
 use crate::ooura_fft::{FFT_SIZE, RDFT_W};

@@ -18,7 +18,6 @@ pub(crate) const OPUS_SCALE_NUM_BINS_24K_HZ_20MS: [usize; OPUS_BANDS_24K_HZ - 1]
 ];
 
 /// Weights for each FFT coefficient for each Opus band (Nyquist excluded).
-#[allow(clippy::excessive_precision, reason = "values from C++ source")]
 const OPUS_BAND_WEIGHTS_24K_HZ_20MS: [f32; FRAME_SIZE_20MS_24K_HZ / 2] = [
     // Band 0
     0.0, 0.25, 0.5, 0.75, // Band 1
@@ -169,7 +168,6 @@ pub(crate) fn compute_dct(
     output: &mut [f32],
 ) {
     // DCT scaling factor: sqrt(2 / NUM_BANDS).
-    #[allow(clippy::excessive_precision, reason = "value from C++ source")]
     const DCT_SCALING_FACTOR: f32 = 0.301511345;
 
     debug_assert!(!ptr::eq(input.as_ptr(), output.as_ptr()));

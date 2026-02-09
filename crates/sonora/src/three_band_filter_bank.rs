@@ -58,11 +58,6 @@ const DCT_MODULATION: [[f32; NUM_BANDS]; NUM_NON_ZERO_FILTERS] = [
 /// using and updating `state`.
 ///
 /// Direct port of C++ `FilterCore` in `three_band_filter_bank.cc`.
-#[allow(
-    clippy::needless_range_loop,
-    clippy::explicit_counter_loop,
-    reason = "direct C++ port with index arithmetic"
-)]
 fn filter_core(
     filter: &[f32; FILTER_SIZE],
     input: &[f32; SPLIT_BAND_SIZE],
@@ -94,40 +89,33 @@ fn filter_core(
 
     // Part 2: transition samples (partially from input, partially from state).
     // Matches C++ loop structure with loop_limit = min(kFilterSize, 1 + (shift >> kStrideLog2)).
-    {
-        let mut shift = 0usize;
-        for k in in_shift..(FILTER_SIZE * STRIDE) {
-            let loop_limit = (1 + (shift >> STRIDE_LOG2)).min(FILTER_SIZE);
+    for k in in_shift..(FILTER_SIZE * STRIDE) {
+        let shift = k - in_shift;
+        let loop_limit = (1 + (shift >> STRIDE_LOG2)).min(FILTER_SIZE);
 
-            // Taps sourced from input.
-            for i in 0..loop_limit {
-                output[k] += input[shift - i * STRIDE] * filter[i];
-            }
+        // Taps sourced from input.
+        for i in 0..loop_limit {
+            output[k] += input[shift - i * STRIDE] * filter[i];
+        }
 
-            // Taps sourced from state.
-            let j_base = MEMORY_SIZE + shift - loop_limit * STRIDE;
-            for i in loop_limit..FILTER_SIZE {
-                output[k] += state[j_base - (i - loop_limit) * STRIDE] * filter[i];
-            }
-
-            shift += 1;
+        // Taps sourced from state.
+        let j_base = MEMORY_SIZE + shift - loop_limit * STRIDE;
+        for i in loop_limit..FILTER_SIZE {
+            output[k] += state[j_base - (i - loop_limit) * STRIDE] * filter[i];
         }
     }
 
     // Part 3: samples fully within input (hottest path — 144 of 160 iterations).
     // All 4 taps read from input at fixed offsets.
-    {
-        let mut base = FILTER_SIZE * STRIDE - in_shift;
-        for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
-            output[k] = f0.mul_add(
-                input[base],
-                f1.mul_add(
-                    input[base - STRIDE],
-                    f2.mul_add(input[base - 2 * STRIDE], f3 * input[base - 3 * STRIDE]),
-                ),
-            );
-            base += 1;
-        }
+    for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
+        let base = k - in_shift;
+        output[k] = f0.mul_add(
+            input[base],
+            f1.mul_add(
+                input[base - STRIDE],
+                f2.mul_add(input[base - 2 * STRIDE], f3 * input[base - 3 * STRIDE]),
+            ),
+        );
     }
 
     // Update state from end of input.

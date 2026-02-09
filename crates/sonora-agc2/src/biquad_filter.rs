@@ -2,9 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/biquad_filter.h`.
 
-// Used by adaptive_digital_gain_controller (Step 8).
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 /// Biquad filter coefficients.
 #[derive(Debug, Clone, Copy)]
 pub struct BiquadFilterConfig {

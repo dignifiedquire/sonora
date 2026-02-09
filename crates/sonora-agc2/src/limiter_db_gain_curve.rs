@@ -2,9 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/limiter_db_gain_curve.h/.cc`.
 
-// Used by interpolated_gain_curve and limiter.
-#![allow(dead_code, reason = "consumed by later AGC2 modules")]
-
 use crate::common::{
     LIMITER_COMPRESSION_RATIO, LIMITER_KNEE_SMOOTHNESS_DB, LIMITER_MAX_INPUT_LEVEL_DB_FS,
     MAX_ABS_FLOAT_S16_VALUE, dbfs_to_float_s16_f64, float_s16_to_dbfs_f64,
