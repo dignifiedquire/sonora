@@ -15,4 +15,3 @@ workspace = true
 
 [dependencies]
 sonora-fft = { workspace = true }
-tracing = { workspace = true }

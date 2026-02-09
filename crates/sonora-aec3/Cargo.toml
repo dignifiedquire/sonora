@@ -12,7 +12,6 @@ repository.workspace = true
 sonora-common-audio = { workspace = true }
 sonora-fft = { workspace = true }
 sonora-simd = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

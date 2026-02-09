@@ -16,4 +16,3 @@ workspace = true
 [dependencies]
 derive_more = { workspace = true }
 sonora-simd = { workspace = true }
-tracing = { workspace = true }

@@ -848,7 +848,6 @@ dependencies = [
  "sonora-fft",
  "sonora-simd",
  "test-strategy",
- "tracing",
 ]
 
 [[package]]
@@ -871,7 +870,6 @@ version = "0.1.0"
 dependencies = [
  "derive_more",
  "sonora-simd",
- "tracing",
 ]
 
 [[package]]
@@ -895,7 +893,6 @@ name = "sonora-ns"
 version = "0.1.0"
 dependencies = [
  "sonora-fft",
- "tracing",
 ]
 
 [[package]]
