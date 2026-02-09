@@ -809,164 +809,168 @@ mod tests {
 
     /// Verifies that SIMD matched_filter_core_dispatch produces the same
     /// results as the scalar path for various filter sizes and start indices.
+    /// Tests all available backends (SSE2 and AVX2 on x86_64).
     #[test]
     fn matched_filter_core_simd_matches_scalar() {
-        let backend = sonora_simd::detect_backend();
-        if backend == SimdBackend::Scalar {
-            // Nothing to compare — skip.
-            return;
-        }
+        let backends = sonora_simd::available_backends();
 
         let mut rng = TestRandom::new(42);
 
         // Test several filter sizes (must be divisible by 16 for AVX2 accumulated error).
-        for h_size in [16, 32, 64, 128, 256, 512] {
-            let x_size = h_size * 3;
-            let sub_block_size = 16;
+        for &backend in &backends {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for h_size in [16, 32, 64, 128, 256, 512] {
+                let x_size = h_size * 3;
+                let sub_block_size = 16;
 
-            let mut x = vec![0.0f32; x_size];
-            rng.fill(&mut x);
-            let mut y = vec![0.0f32; sub_block_size];
-            rng.fill(&mut y);
+                let mut x = vec![0.0f32; x_size];
+                rng.fill(&mut x);
+                let mut y = vec![0.0f32; sub_block_size];
+                rng.fill(&mut y);
 
-            // Test with various start indices, including near wraparound.
-            for x_start_index in [0, 1, h_size / 2, x_size - 1, x_size - h_size / 2] {
-                // --- Without accumulated error ---
-                let mut h_scalar = vec![0.0f32; h_size];
-                rng.fill(&mut h_scalar);
-                let mut h_simd = h_scalar.clone();
+                // Test with various start indices, including near wraparound.
+                for x_start_index in [0, 1, h_size / 2, x_size - 1, x_size - h_size / 2] {
+                    // --- Without accumulated error ---
+                    let mut h_scalar = vec![0.0f32; h_size];
+                    rng.fill(&mut h_scalar);
+                    let mut h_simd = h_scalar.clone();
 
-                let mut updated_scalar = false;
-                let mut updated_simd = false;
-                let mut error_sum_scalar = 0.0f32;
-                let mut error_sum_simd = 0.0f32;
-                let mut acc_err_scalar = vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
-                let mut acc_err_simd = acc_err_scalar.clone();
-                let mut scratch = vec![0.0f32; h_size];
+                    let mut updated_scalar = false;
+                    let mut updated_simd = false;
+                    let mut error_sum_scalar = 0.0f32;
+                    let mut error_sum_simd = 0.0f32;
+                    let mut acc_err_scalar =
+                        vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
+                    let mut acc_err_simd = acc_err_scalar.clone();
+                    let mut scratch = vec![0.0f32; h_size];
 
-                matched_filter_core(
-                    x_start_index,
-                    1.0,
-                    0.5,
-                    &x,
-                    &y,
-                    &mut h_scalar,
-                    &mut updated_scalar,
-                    &mut error_sum_scalar,
-                    false,
-                    &mut acc_err_scalar,
-                );
+                    matched_filter_core(
+                        x_start_index,
+                        1.0,
+                        0.5,
+                        &x,
+                        &y,
+                        &mut h_scalar,
+                        &mut updated_scalar,
+                        &mut error_sum_scalar,
+                        false,
+                        &mut acc_err_scalar,
+                    );
 
-                matched_filter_core_dispatch(
-                    backend,
-                    x_start_index,
-                    1.0,
-                    0.5,
-                    &x,
-                    &y,
-                    &mut h_simd,
-                    &mut updated_simd,
-                    &mut error_sum_simd,
-                    false,
-                    &mut acc_err_simd,
-                    &mut scratch,
-                );
+                    matched_filter_core_dispatch(
+                        backend,
+                        x_start_index,
+                        1.0,
+                        0.5,
+                        &x,
+                        &y,
+                        &mut h_simd,
+                        &mut updated_simd,
+                        &mut error_sum_simd,
+                        false,
+                        &mut acc_err_simd,
+                        &mut scratch,
+                    );
 
-                assert_eq!(
-                    updated_scalar, updated_simd,
-                    "filters_updated mismatch for h_size={h_size}, x_start={x_start_index}"
-                );
-                let err_scale = error_sum_scalar.abs().max(1.0);
-                assert!(
-                    (error_sum_scalar - error_sum_simd).abs() / err_scale < 1e-3,
-                    "error_sum mismatch: scalar={error_sum_scalar}, simd={error_sum_simd}, \
+                    assert_eq!(
+                        updated_scalar, updated_simd,
+                        "filters_updated mismatch for h_size={h_size}, x_start={x_start_index}"
+                    );
+                    let err_scale = error_sum_scalar.abs().max(1.0);
+                    assert!(
+                        (error_sum_scalar - error_sum_simd).abs() / err_scale < 1e-3,
+                        "error_sum mismatch: scalar={error_sum_scalar}, simd={error_sum_simd}, \
                      h_size={h_size}, x_start={x_start_index}"
-                );
-                for k in 0..h_size {
-                    let abs_err = (h_scalar[k] - h_simd[k]).abs();
-                    let scale = h_scalar[k].abs().max(1.0);
-                    assert!(
-                        abs_err / scale < 1e-3,
-                        "h mismatch at {k}: scalar={}, simd={}, h_size={h_size}, \
-                         x_start={x_start_index}",
-                        h_scalar[k],
-                        h_simd[k],
                     );
-                }
+                    for k in 0..h_size {
+                        let abs_err = (h_scalar[k] - h_simd[k]).abs();
+                        let scale = h_scalar[k].abs().max(1.0);
+                        assert!(
+                            abs_err / scale < 1e-3,
+                            "h mismatch at {k}: scalar={}, simd={}, h_size={h_size}, \
+                         x_start={x_start_index}",
+                            h_scalar[k],
+                            h_simd[k],
+                        );
+                    }
 
-                // --- With accumulated error ---
-                let mut h_scalar2 = vec![0.0f32; h_size];
-                rng.fill(&mut h_scalar2);
-                let mut h_simd2 = h_scalar2.clone();
+                    // --- With accumulated error ---
+                    let mut h_scalar2 = vec![0.0f32; h_size];
+                    rng.fill(&mut h_scalar2);
+                    let mut h_simd2 = h_scalar2.clone();
 
-                let mut updated_scalar2 = false;
-                let mut updated_simd2 = false;
-                let mut error_sum_scalar2 = 0.0f32;
-                let mut error_sum_simd2 = 0.0f32;
-                let mut acc_err_scalar2 = vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
-                let mut acc_err_simd2 = acc_err_scalar2.clone();
-                let mut scratch2 = vec![0.0f32; h_size];
+                    let mut updated_scalar2 = false;
+                    let mut updated_simd2 = false;
+                    let mut error_sum_scalar2 = 0.0f32;
+                    let mut error_sum_simd2 = 0.0f32;
+                    let mut acc_err_scalar2 =
+                        vec![0.0f32; h_size / ACCUMULATED_ERROR_SUB_SAMPLE_RATE];
+                    let mut acc_err_simd2 = acc_err_scalar2.clone();
+                    let mut scratch2 = vec![0.0f32; h_size];
 
-                matched_filter_core(
-                    x_start_index,
-                    1.0,
-                    0.5,
-                    &x,
-                    &y,
-                    &mut h_scalar2,
-                    &mut updated_scalar2,
-                    &mut error_sum_scalar2,
-                    true,
-                    &mut acc_err_scalar2,
-                );
+                    matched_filter_core(
+                        x_start_index,
+                        1.0,
+                        0.5,
+                        &x,
+                        &y,
+                        &mut h_scalar2,
+                        &mut updated_scalar2,
+                        &mut error_sum_scalar2,
+                        true,
+                        &mut acc_err_scalar2,
+                    );
 
-                matched_filter_core_dispatch(
-                    backend,
-                    x_start_index,
-                    1.0,
-                    0.5,
-                    &x,
-                    &y,
-                    &mut h_simd2,
-                    &mut updated_simd2,
-                    &mut error_sum_simd2,
-                    true,
-                    &mut acc_err_simd2,
-                    &mut scratch2,
-                );
+                    matched_filter_core_dispatch(
+                        backend,
+                        x_start_index,
+                        1.0,
+                        0.5,
+                        &x,
+                        &y,
+                        &mut h_simd2,
+                        &mut updated_simd2,
+                        &mut error_sum_simd2,
+                        true,
+                        &mut acc_err_simd2,
+                        &mut scratch2,
+                    );
 
-                assert_eq!(
-                    updated_scalar2, updated_simd2,
-                    "filters_updated mismatch (acc_error) for h_size={h_size}, \
+                    assert_eq!(
+                        updated_scalar2, updated_simd2,
+                        "filters_updated mismatch (acc_error) for h_size={h_size}, \
                      x_start={x_start_index}"
-                );
-                let err_scale2 = error_sum_scalar2.abs().max(1.0);
-                assert!(
-                    (error_sum_scalar2 - error_sum_simd2).abs() / err_scale2 < 1e-3,
-                    "error_sum mismatch (acc_error): scalar={error_sum_scalar2}, \
+                    );
+                    let err_scale2 = error_sum_scalar2.abs().max(1.0);
+                    assert!(
+                        (error_sum_scalar2 - error_sum_simd2).abs() / err_scale2 < 1e-3,
+                        "error_sum mismatch (acc_error): scalar={error_sum_scalar2}, \
                      simd={error_sum_simd2}, h_size={h_size}, x_start={x_start_index}"
-                );
-                for k in 0..h_size {
-                    let abs_err = (h_scalar2[k] - h_simd2[k]).abs();
-                    let scale = h_scalar2[k].abs().max(1.0);
-                    assert!(
-                        abs_err / scale < 1e-3,
-                        "h mismatch (acc_error) at {k}: scalar={}, simd={}, h_size={h_size}, \
+                    );
+                    for k in 0..h_size {
+                        let abs_err = (h_scalar2[k] - h_simd2[k]).abs();
+                        let scale = h_scalar2[k].abs().max(1.0);
+                        assert!(
+                            abs_err / scale < 1e-3,
+                            "h mismatch (acc_error) at {k}: scalar={}, simd={}, h_size={h_size}, \
                          x_start={x_start_index}",
-                        h_scalar2[k],
-                        h_simd2[k],
-                    );
-                }
-                for k in 0..acc_err_scalar2.len() {
-                    let abs_err = (acc_err_scalar2[k] - acc_err_simd2[k]).abs();
-                    let scale = acc_err_scalar2[k].abs().max(1.0);
-                    assert!(
-                        abs_err / scale < 1e-3,
-                        "accumulated_error mismatch at {k}: scalar={}, simd={}, \
+                            h_scalar2[k],
+                            h_simd2[k],
+                        );
+                    }
+                    for k in 0..acc_err_scalar2.len() {
+                        let abs_err = (acc_err_scalar2[k] - acc_err_simd2[k]).abs();
+                        let scale = acc_err_scalar2[k].abs().max(1.0);
+                        assert!(
+                            abs_err / scale < 1e-3,
+                            "accumulated_error mismatch at {k}: scalar={}, simd={}, \
                          h_size={h_size}, x_start={x_start_index}",
-                        acc_err_scalar2[k],
-                        acc_err_simd2[k],
-                    );
+                            acc_err_scalar2[k],
+                            acc_err_simd2[k],
+                        );
+                    }
                 }
             }
         }

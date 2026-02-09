@@ -348,6 +348,30 @@ cpufeatures::new!(has_avx2_fma, "avx2", "fma");
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 cpufeatures::new!(has_sse2, "sse2");
 
+/// Return all SIMD backends supported by the current CPU.
+///
+/// Always includes [`SimdBackend::Scalar`]. On x86/x86_64, includes SSE2
+/// and/or AVX2+FMA depending on what the CPU reports. On aarch64, includes
+/// NEON. Useful for testing every backend, not just the fastest one.
+pub fn available_backends() -> Vec<SimdBackend> {
+    let mut backends = vec![SimdBackend::Scalar];
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if has_sse2::get() {
+            backends.push(SimdBackend::Sse2);
+        }
+        if has_avx2_fma::get() {
+            backends.push(SimdBackend::Avx2);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    backends.push(SimdBackend::Neon);
+
+    backends
+}
+
 /// Detect the best available SIMD backend for the current CPU.
 ///
 /// Uses runtime feature detection on x86/x86_64 (cached atomically after
@@ -442,72 +466,88 @@ mod tests {
         assert_eq!(d2, 0.0);
     }
 
-    /// Compare SIMD backend against scalar fallback with larger inputs.
+    /// Compare all SIMD backends against scalar fallback with larger inputs.
     #[test]
     fn test_dot_product_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256] {
-            let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
-            let b: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256] {
+                let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+                let b: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
 
-            let scalar_result = scalar.dot_product(&a, &b);
-            let simd_result = simd.dot_product(&a, &b);
+                let scalar_result = scalar.dot_product(&a, &b);
+                let simd_result = backend.dot_product(&a, &b);
 
-            assert!(
-                (scalar_result - simd_result).abs() < 1e-3,
-                "Mismatch for size {size}: scalar={scalar_result}, simd={simd_result}"
-            );
+                assert!(
+                    (scalar_result - simd_result).abs() < 1e-3,
+                    "[{}] Mismatch for size {size}: scalar={scalar_result}, simd={simd_result}",
+                    backend.name()
+                );
+            }
         }
     }
 
     #[test]
     fn test_dual_dot_product_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 16, 31, 64, 128, 256] {
-            let input: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
-            let k1: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.003).collect();
-            let k2: Vec<f32> = (0..size).map(|i| 0.5 + (i as f32) * 0.002).collect();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 16, 31, 64, 128, 256] {
+                let input: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+                let k1: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.003).collect();
+                let k2: Vec<f32> = (0..size).map(|i| 0.5 + (i as f32) * 0.002).collect();
 
-            let (s1, s2) = scalar.dual_dot_product(&input, &k1, &k2);
-            let (d1, d2) = simd.dual_dot_product(&input, &k1, &k2);
+                let (s1, s2) = scalar.dual_dot_product(&input, &k1, &k2);
+                let (d1, d2) = backend.dual_dot_product(&input, &k1, &k2);
 
-            assert!(
-                (s1 - d1).abs() < 1e-3,
-                "k1 mismatch for size {size}: scalar={s1}, simd={d1}"
-            );
-            assert!(
-                (s2 - d2).abs() < 1e-3,
-                "k2 mismatch for size {size}: scalar={s2}, simd={d2}"
-            );
+                assert!(
+                    (s1 - d1).abs() < 1e-3,
+                    "[{}] k1 mismatch for size {size}: scalar={s1}, simd={d1}",
+                    backend.name()
+                );
+                assert!(
+                    (s2 - d2).abs() < 1e-3,
+                    "[{}] k2 mismatch for size {size}: scalar={s2}, simd={d2}",
+                    backend.name()
+                );
+            }
         }
     }
 
     #[test]
     fn test_multiply_accumulate_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 16, 31, 64, 128] {
-            let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
-            let b: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 16, 31, 64, 128] {
+                let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+                let b: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
 
-            let mut acc_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1).collect();
-            let mut acc_simd = acc_scalar.clone();
+                let mut acc_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1).collect();
+                let mut acc_simd = acc_scalar.clone();
 
-            scalar.multiply_accumulate(&mut acc_scalar, &a, &b);
-            simd.multiply_accumulate(&mut acc_simd, &a, &b);
+                scalar.multiply_accumulate(&mut acc_scalar, &a, &b);
+                backend.multiply_accumulate(&mut acc_simd, &a, &b);
 
-            for i in 0..size {
-                assert!(
-                    (acc_scalar[i] - acc_simd[i]).abs() < 1e-4,
-                    "Mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    acc_scalar[i],
-                    acc_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (acc_scalar[i] - acc_simd[i]).abs() < 1e-4,
+                        "[{}] Mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        acc_scalar[i],
+                        acc_simd[i]
+                    );
+                }
             }
         }
     }
@@ -527,22 +567,27 @@ mod tests {
     #[test]
     fn test_elementwise_sqrt_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 15, 16, 31, 64, 65, 128] {
-            let mut x_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.5 + 0.1).collect();
-            let mut x_simd = x_scalar.clone();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 15, 16, 31, 64, 65, 128] {
+                let mut x_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.5 + 0.1).collect();
+                let mut x_simd = x_scalar.clone();
 
-            scalar.elementwise_sqrt(&mut x_scalar);
-            simd.elementwise_sqrt(&mut x_simd);
+                scalar.elementwise_sqrt(&mut x_scalar);
+                backend.elementwise_sqrt(&mut x_simd);
 
-            for i in 0..size {
-                assert!(
-                    (x_scalar[i] - x_simd[i]).abs() < 1e-6,
-                    "sqrt mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    x_scalar[i],
-                    x_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (x_scalar[i] - x_simd[i]).abs() < 1e-6,
+                        "[{}] sqrt mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        x_scalar[i],
+                        x_simd[i]
+                    );
+                }
             }
         }
     }
@@ -564,24 +609,29 @@ mod tests {
     #[test]
     fn test_elementwise_multiply_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let x: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
-            let y: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
-            let mut z_scalar = vec![0.0f32; size];
-            let mut z_simd = vec![0.0f32; size];
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let x: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+                let y: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.005).collect();
+                let mut z_scalar = vec![0.0f32; size];
+                let mut z_simd = vec![0.0f32; size];
 
-            scalar.elementwise_multiply(&x, &y, &mut z_scalar);
-            simd.elementwise_multiply(&x, &y, &mut z_simd);
+                scalar.elementwise_multiply(&x, &y, &mut z_scalar);
+                backend.elementwise_multiply(&x, &y, &mut z_simd);
 
-            for i in 0..size {
-                assert!(
-                    (z_scalar[i] - z_simd[i]).abs() < 1e-6,
-                    "multiply mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    z_scalar[i],
-                    z_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (z_scalar[i] - z_simd[i]).abs() < 1e-6,
+                        "[{}] multiply mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        z_scalar[i],
+                        z_simd[i]
+                    );
+                }
             }
         }
     }
@@ -602,23 +652,28 @@ mod tests {
     #[test]
     fn test_elementwise_accumulate_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let x: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
-            let mut z_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1).collect();
-            let mut z_simd = z_scalar.clone();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let x: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+                let mut z_scalar: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1).collect();
+                let mut z_simd = z_scalar.clone();
 
-            scalar.elementwise_accumulate(&x, &mut z_scalar);
-            simd.elementwise_accumulate(&x, &mut z_simd);
+                scalar.elementwise_accumulate(&x, &mut z_scalar);
+                backend.elementwise_accumulate(&x, &mut z_simd);
 
-            for i in 0..size {
-                assert!(
-                    (z_scalar[i] - z_simd[i]).abs() < 1e-6,
-                    "accumulate mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    z_scalar[i],
-                    z_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (z_scalar[i] - z_simd[i]).abs() < 1e-6,
+                        "[{}] accumulate mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        z_scalar[i],
+                        z_simd[i]
+                    );
+                }
             }
         }
     }
@@ -640,24 +695,29 @@ mod tests {
     #[test]
     fn test_power_spectrum_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
-            let im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
-            let mut out_scalar = vec![0.0f32; size];
-            let mut out_simd = vec![0.0f32; size];
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+                let im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+                let mut out_scalar = vec![0.0f32; size];
+                let mut out_simd = vec![0.0f32; size];
 
-            scalar.power_spectrum(&re, &im, &mut out_scalar);
-            simd.power_spectrum(&re, &im, &mut out_simd);
+                scalar.power_spectrum(&re, &im, &mut out_scalar);
+                backend.power_spectrum(&re, &im, &mut out_simd);
 
-            for i in 0..size {
-                assert!(
-                    (out_scalar[i] - out_simd[i]).abs() < 1e-4,
-                    "power_spectrum mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    out_scalar[i],
-                    out_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (out_scalar[i] - out_simd[i]).abs() < 1e-4,
+                        "[{}] power_spectrum mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        out_scalar[i],
+                        out_simd[i]
+                    );
+                }
             }
         }
     }
@@ -675,24 +735,29 @@ mod tests {
     #[test]
     fn test_elementwise_min_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
-            let b: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
-            let mut out_scalar = vec![0.0f32; size];
-            let mut out_simd = vec![0.0f32; size];
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+                let b: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+                let mut out_scalar = vec![0.0f32; size];
+                let mut out_simd = vec![0.0f32; size];
 
-            scalar.elementwise_min(&a, &b, &mut out_scalar);
-            simd.elementwise_min(&a, &b, &mut out_simd);
+                scalar.elementwise_min(&a, &b, &mut out_scalar);
+                backend.elementwise_min(&a, &b, &mut out_simd);
 
-            for i in 0..size {
-                assert!(
-                    (out_scalar[i] - out_simd[i]).abs() < 1e-6,
-                    "min mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    out_scalar[i],
-                    out_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (out_scalar[i] - out_simd[i]).abs() < 1e-6,
+                        "[{}] min mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        out_scalar[i],
+                        out_simd[i]
+                    );
+                }
             }
         }
     }
@@ -710,24 +775,29 @@ mod tests {
     #[test]
     fn test_elementwise_max_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
-            let b: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
-            let mut out_scalar = vec![0.0f32; size];
-            let mut out_simd = vec![0.0f32; size];
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let a: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+                let b: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+                let mut out_scalar = vec![0.0f32; size];
+                let mut out_simd = vec![0.0f32; size];
 
-            scalar.elementwise_max(&a, &b, &mut out_scalar);
-            simd.elementwise_max(&a, &b, &mut out_simd);
+                scalar.elementwise_max(&a, &b, &mut out_scalar);
+                backend.elementwise_max(&a, &b, &mut out_simd);
 
-            for i in 0..size {
-                assert!(
-                    (out_scalar[i] - out_simd[i]).abs() < 1e-6,
-                    "max mismatch at index {i} for size {size}: scalar={}, simd={}",
-                    out_scalar[i],
-                    out_simd[i]
-                );
+                for i in 0..size {
+                    assert!(
+                        (out_scalar[i] - out_simd[i]).abs() < 1e-6,
+                        "[{}] max mismatch at index {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        out_scalar[i],
+                        out_simd[i]
+                    );
+                }
             }
         }
     }
@@ -752,49 +822,55 @@ mod tests {
     #[test]
     fn test_complex_multiply_accumulate_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let x_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
-            let x_im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
-            let h_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.05 + 0.5).collect();
-            let h_im: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.03).collect();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let x_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+                let x_im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+                let h_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.05 + 0.5).collect();
+                let h_im: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.03).collect();
 
-            let mut acc_re_scalar = vec![0.5f32; size];
-            let mut acc_im_scalar = vec![-0.3f32; size];
-            let mut acc_re_simd = acc_re_scalar.clone();
-            let mut acc_im_simd = acc_im_scalar.clone();
+                let mut acc_re_scalar = vec![0.5f32; size];
+                let mut acc_im_scalar = vec![-0.3f32; size];
+                let mut acc_re_simd = acc_re_scalar.clone();
+                let mut acc_im_simd = acc_im_scalar.clone();
 
-            scalar.complex_multiply_accumulate(
-                &x_re,
-                &x_im,
-                &h_re,
-                &h_im,
-                &mut acc_re_scalar,
-                &mut acc_im_scalar,
-            );
-            simd.complex_multiply_accumulate(
-                &x_re,
-                &x_im,
-                &h_re,
-                &h_im,
-                &mut acc_re_simd,
-                &mut acc_im_simd,
-            );
-
-            for i in 0..size {
-                assert!(
-                    (acc_re_scalar[i] - acc_re_simd[i]).abs() < 1e-4,
-                    "cma re mismatch at {i} for size {size}: scalar={}, simd={}",
-                    acc_re_scalar[i],
-                    acc_re_simd[i]
+                scalar.complex_multiply_accumulate(
+                    &x_re,
+                    &x_im,
+                    &h_re,
+                    &h_im,
+                    &mut acc_re_scalar,
+                    &mut acc_im_scalar,
                 );
-                assert!(
-                    (acc_im_scalar[i] - acc_im_simd[i]).abs() < 1e-4,
-                    "cma im mismatch at {i} for size {size}: scalar={}, simd={}",
-                    acc_im_scalar[i],
-                    acc_im_simd[i]
+                backend.complex_multiply_accumulate(
+                    &x_re,
+                    &x_im,
+                    &h_re,
+                    &h_im,
+                    &mut acc_re_simd,
+                    &mut acc_im_simd,
                 );
+
+                for i in 0..size {
+                    assert!(
+                        (acc_re_scalar[i] - acc_re_simd[i]).abs() < 1e-4,
+                        "[{}] cma re mismatch at {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        acc_re_scalar[i],
+                        acc_re_simd[i]
+                    );
+                    assert!(
+                        (acc_im_scalar[i] - acc_im_simd[i]).abs() < 1e-4,
+                        "[{}] cma im mismatch at {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        acc_im_scalar[i],
+                        acc_im_simd[i]
+                    );
+                }
             }
         }
     }
@@ -826,49 +902,55 @@ mod tests {
     #[test]
     fn test_complex_multiply_accumulate_standard_matches_scalar() {
         let scalar = SimdBackend::Scalar;
-        let simd = detect_backend();
 
-        for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
-            let x_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
-            let x_im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
-            let h_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.05 + 0.5).collect();
-            let h_im: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.03).collect();
+        for &backend in &available_backends() {
+            if backend == SimdBackend::Scalar {
+                continue;
+            }
+            for size in [0, 1, 4, 7, 8, 16, 31, 64, 65, 128] {
+                let x_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1 - 3.0).collect();
+                let x_im: Vec<f32> = (0..size).map(|i| 2.0 - (i as f32) * 0.07).collect();
+                let h_re: Vec<f32> = (0..size).map(|i| (i as f32) * 0.05 + 0.5).collect();
+                let h_im: Vec<f32> = (0..size).map(|i| 1.0 - (i as f32) * 0.03).collect();
 
-            let mut acc_re_scalar = vec![0.5f32; size];
-            let mut acc_im_scalar = vec![-0.3f32; size];
-            let mut acc_re_simd = acc_re_scalar.clone();
-            let mut acc_im_simd = acc_im_scalar.clone();
+                let mut acc_re_scalar = vec![0.5f32; size];
+                let mut acc_im_scalar = vec![-0.3f32; size];
+                let mut acc_re_simd = acc_re_scalar.clone();
+                let mut acc_im_simd = acc_im_scalar.clone();
 
-            scalar.complex_multiply_accumulate_standard(
-                &x_re,
-                &x_im,
-                &h_re,
-                &h_im,
-                &mut acc_re_scalar,
-                &mut acc_im_scalar,
-            );
-            simd.complex_multiply_accumulate_standard(
-                &x_re,
-                &x_im,
-                &h_re,
-                &h_im,
-                &mut acc_re_simd,
-                &mut acc_im_simd,
-            );
-
-            for i in 0..size {
-                assert!(
-                    (acc_re_scalar[i] - acc_re_simd[i]).abs() < 1e-4,
-                    "std cma re mismatch at {i} for size {size}: scalar={}, simd={}",
-                    acc_re_scalar[i],
-                    acc_re_simd[i]
+                scalar.complex_multiply_accumulate_standard(
+                    &x_re,
+                    &x_im,
+                    &h_re,
+                    &h_im,
+                    &mut acc_re_scalar,
+                    &mut acc_im_scalar,
                 );
-                assert!(
-                    (acc_im_scalar[i] - acc_im_simd[i]).abs() < 1e-4,
-                    "std cma im mismatch at {i} for size {size}: scalar={}, simd={}",
-                    acc_im_scalar[i],
-                    acc_im_simd[i]
+                backend.complex_multiply_accumulate_standard(
+                    &x_re,
+                    &x_im,
+                    &h_re,
+                    &h_im,
+                    &mut acc_re_simd,
+                    &mut acc_im_simd,
                 );
+
+                for i in 0..size {
+                    assert!(
+                        (acc_re_scalar[i] - acc_re_simd[i]).abs() < 1e-4,
+                        "[{}] std cma re mismatch at {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        acc_re_scalar[i],
+                        acc_re_simd[i]
+                    );
+                    assert!(
+                        (acc_im_scalar[i] - acc_im_simd[i]).abs() < 1e-4,
+                        "[{}] std cma im mismatch at {i} for size {size}: scalar={}, simd={}",
+                        backend.name(),
+                        acc_im_scalar[i],
+                        acc_im_simd[i]
+                    );
+                }
             }
         }
     }
