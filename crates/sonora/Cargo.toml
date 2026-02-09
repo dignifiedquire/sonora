@@ -10,9 +10,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-cpp-comparison = ["dep:sonora-sys"]
-
 [dependencies]
 sonora-common-audio = { workspace = true }
 sonora-aec3 = { workspace = true }
@@ -20,15 +17,11 @@ sonora-agc2 = { workspace = true }
 sonora-ns = { workspace = true }
 sonora-simd = { workspace = true }
 tracing = { workspace = true }
-sonora-sys = { workspace = true, features = ["cxx-bridge"], optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
-test-strategy = { workspace = true }
 criterion = { workspace = true }
 sonora-fft = { workspace = true }
 sonora-common-audio = { workspace = true }
-sonora-proptest = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [lints]
@@ -37,8 +30,3 @@ workspace = true
 [[bench]]
 name = "pipeline"
 harness = false
-
-[[bench]]
-name = "cpp_comparison"
-harness = false
-required-features = ["cpp-comparison"]

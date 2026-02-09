@@ -76,13 +76,14 @@ fn choose_coefficients(sample_rate_hz: i32) -> &'static [BiQuadCoefficients; 3] 
 }
 
 /// Per-channel high-pass filter using cascaded biquad sections.
-pub(crate) struct HighPassFilter {
+#[derive(Debug)]
+pub struct HighPassFilter {
     sample_rate_hz: i32,
     filters: Vec<CascadedBiQuadFilter>,
 }
 
 impl HighPassFilter {
-    pub(crate) fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
+    pub fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
         let coefficients = choose_coefficients(sample_rate_hz);
         let filters = (0..num_channels)
             .map(|_| CascadedBiQuadFilter::new(coefficients))
@@ -110,7 +111,7 @@ impl HighPassFilter {
     }
 
     /// Process audio through the high-pass filter using raw channel vectors.
-    pub(crate) fn process_channels(&mut self, audio: &mut [Vec<f32>]) {
+    pub fn process_channels(&mut self, audio: &mut [Vec<f32>]) {
         debug_assert_eq!(self.filters.len(), audio.len());
         for (k, channel) in audio.iter_mut().enumerate() {
             self.filters[k].process_in_place(channel);

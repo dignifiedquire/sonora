@@ -15,11 +15,11 @@ const FILTER_SIZE: usize = 4;
 const MEMORY_SIZE: usize = FILTER_SIZE * STRIDE - 1; // 15
 
 /// Number of frequency bands.
-pub(crate) const NUM_BANDS: usize = 3;
+pub const NUM_BANDS: usize = 3;
 /// Full-band frame size (480 samples = 48 kHz × 10 ms).
-pub(crate) const FULL_BAND_SIZE: usize = 480;
+pub const FULL_BAND_SIZE: usize = 480;
 /// Split-band frame size (160 samples per band).
-pub(crate) const SPLIT_BAND_SIZE: usize = FULL_BAND_SIZE / NUM_BANDS;
+pub const SPLIT_BAND_SIZE: usize = FULL_BAND_SIZE / NUM_BANDS;
 
 const NUM_NON_ZERO_FILTERS: usize = SPARSITY * NUM_BANDS - NUM_ZERO_FILTERS; // 10
 const SUB_SAMPLING: usize = NUM_BANDS;
@@ -135,13 +135,20 @@ fn filter_core(
 }
 
 /// 3-band QMF filter bank for analysis and synthesis.
-pub(crate) struct ThreeBandFilterBank {
+#[derive(Debug)]
+pub struct ThreeBandFilterBank {
     state_analysis: [[f32; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
     state_synthesis: [[f32; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
 }
 
+impl Default for ThreeBandFilterBank {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreeBandFilterBank {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             state_analysis: [[0.0; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
             state_synthesis: [[0.0; MEMORY_SIZE]; NUM_NON_ZERO_FILTERS],
@@ -149,7 +156,7 @@ impl ThreeBandFilterBank {
     }
 
     /// Splits a 480-sample fullband frame into 3 × 160-sample sub-bands.
-    pub(crate) fn analysis(
+    pub fn analysis(
         &mut self,
         input: &[f32; FULL_BAND_SIZE],
         output: &mut [[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
@@ -206,7 +213,7 @@ impl ThreeBandFilterBank {
     }
 
     /// Merges 3 × 160-sample sub-bands into a 480-sample fullband frame.
-    pub(crate) fn synthesis(
+    pub fn synthesis(
         &mut self,
         input: &[[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
         output: &mut [f32; FULL_BAND_SIZE],

@@ -61,5 +61,5 @@ cd ..
 
 # Run the comparison benchmark
 RUSTFLAGS="-C target-cpu=native" PKG_CONFIG_PATH=$(pwd)/cpp/install/lib/pkgconfig \
-  cargo bench -p sonora --features cpp-comparison --bench cpp_comparison
+  cargo bench --manifest-path crates/sonora-bench/Cargo.toml --bench cpp_comparison
 ```

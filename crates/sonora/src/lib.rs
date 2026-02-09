@@ -39,9 +39,6 @@ pub(crate) mod config_selector;
 pub(crate) mod echo_canceller3;
 pub(crate) mod echo_detector;
 pub(crate) mod gain_controller2;
-#[cfg(not(feature = "cpp-comparison"))]
-pub(crate) mod high_pass_filter;
-#[cfg(feature = "cpp-comparison")]
 #[doc(hidden)]
 pub mod high_pass_filter;
 pub(crate) mod input_volume_controller;
@@ -52,9 +49,6 @@ pub mod stats;
 pub(crate) mod stream_config;
 pub(crate) mod submodule_states;
 pub(crate) mod swap_queue;
-#[cfg(not(feature = "cpp-comparison"))]
-pub(crate) mod three_band_filter_bank;
-#[cfg(feature = "cpp-comparison")]
 #[doc(hidden)]
 pub mod three_band_filter_bank;
 
@@ -65,7 +59,6 @@ pub use stats::AudioProcessingStats;
 pub use stream_config::StreamConfig;
 
 // Expose internal types for per-component comparison testing.
-#[cfg(feature = "cpp-comparison")]
 #[doc(hidden)]
 pub mod internals {
     pub use crate::high_pass_filter::HighPassFilter;

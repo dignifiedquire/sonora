@@ -13,12 +13,6 @@
 //! ninja -C builddir
 //! ```
 //!
-//! Then enable the `cxx-bridge` feature:
-//!
-//! ```bash
-//! cargo test -p sonora-sys --features cxx-bridge
-//! ```
-//!
 //! # Design
 //!
 //! Since `AudioProcessing` is an abstract C++ class with virtual methods,
@@ -28,10 +22,6 @@
 //! Shim functions are added incrementally as each porting phase needs
 //! comparison testing for new components.
 
-#[cfg(feature = "cxx-bridge")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cxx-bridge")))]
 mod bridge;
 
-#[cfg(feature = "cxx-bridge")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cxx-bridge")))]
 pub use bridge::*;

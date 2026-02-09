@@ -5,11 +5,9 @@
 //!
 //! Requires the `cpp-comparison` feature and a pre-built C++ library.
 
-#![cfg(feature = "cpp-comparison")]
-
+use sonora_bench::comparison::compare_f32;
 use sonora_ns::config::{NS_FRAME_SIZE, NsConfig, SuppressionLevel};
 use sonora_ns::noise_suppressor::NoiseSuppressor;
-use sonora_proptest::comparison::compare_f32;
 
 fn gen_signal(len: usize) -> Vec<f32> {
     (0..len).map(|i| (i as f32 * 0.01).sin() * 0.1).collect()
@@ -69,7 +67,7 @@ fn ns_all_levels_match_cpp() {
 
         let mut worst_diff = 0.0f32;
 
-        for frame_idx in 0..20 {
+        for _frame_idx in 0..20 {
             rust_ns.analyze(input_arr);
             sonora_sys::ns_analyze(cpp_ns.pin_mut(), &input);
 

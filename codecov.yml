@@ -35,4 +35,5 @@ ignore:
   - "cpp/"
   - "fuzz/"
   - "crates/sonora/benches/"
-  - "crates/sonora-proptest/"
+  - "crates/sonora-bench/"
+  - "crates/sonora-sys/"

@@ -1,0 +1,21 @@
+[package]
+name = "sonora-bench"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.91"
+license = "BSD-3-Clause"
+
+[dependencies]
+sonora = { path = "../sonora" }
+sonora-ns = { path = "../sonora-ns" }
+sonora-sys = { path = "../sonora-sys" }
+proptest = "1.9"
+test-strategy = "0.4"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "cpp_comparison"
+harness = false

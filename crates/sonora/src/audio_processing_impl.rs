@@ -1183,7 +1183,7 @@ impl AudioProcessingImpl {
                 .config
                 .high_pass_filter
                 .as_ref()
-                .is_none_or(|hpf| hpf.apply_in_full_band);
+                .is_some_and(|hpf| hpf.apply_in_full_band);
             let rate = if use_full_band {
                 self.proc_fullband_sample_rate_hz() as i32
             } else {

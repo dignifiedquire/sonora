@@ -22,7 +22,6 @@ Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module.
 | [`sonora-common-audio`] | Audio DSP primitives (resamplers, filters) | [![crates.io](https://img.shields.io/crates/v/sonora-common-audio.svg)](https://crates.io/crates/sonora-common-audio) | [![docs.rs](https://docs.rs/sonora-common-audio/badge.svg)](https://docs.rs/sonora-common-audio) |
 | [`sonora-simd`] | SIMD operations (SSE2, AVX2, NEON) | [![crates.io](https://img.shields.io/crates/v/sonora-simd.svg)](https://crates.io/crates/sonora-simd) | [![docs.rs](https://docs.rs/sonora-simd/badge.svg)](https://docs.rs/sonora-simd) |
 | [`sonora-fft`] | FFT implementations (Ooura, PFFFT) | [![crates.io](https://img.shields.io/crates/v/sonora-fft.svg)](https://crates.io/crates/sonora-fft) | [![docs.rs](https://docs.rs/sonora-fft/badge.svg)](https://docs.rs/sonora-fft) |
-| [`sonora-sys`] | C++ FFI bridge for comparison testing | | |
 
 ## Features
 
@@ -71,7 +70,7 @@ Runtime feature detection is used for AVX2 on x86_64. SSE2 is assumed available 
 
 ### C++ Integration
 
-The C++ reference test suite (WebRTC M145, 2400+ tests) is validated on Ubuntu x86_64 with the Rust backend linked via the [`sonora-sys`] FFI bridge.
+The C++ reference test suite (WebRTC M145, 2400+ tests) is validated on Ubuntu x86_64 with the Rust backend linked via the `sonora-sys` FFI bridge.
 
 ## Benchmarks
 
@@ -124,7 +123,6 @@ The audio processing code in this project has a long lineage:
 [`sonora-common-audio`]: ./crates/sonora-common-audio
 [`sonora-simd`]: ./crates/sonora-simd
 [`sonora-fft`]: ./crates/sonora-fft
-[`sonora-sys`]: ./crates/sonora-sys
 
 [//]: # (general links)
 

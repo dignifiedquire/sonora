@@ -1,17 +1,15 @@
 [workspace]
 resolver = "3"
-exclude = ["cpp", "fuzz"]
+exclude = ["cpp", "fuzz", "crates/sonora-sys", "crates/sonora-bench"]
 members = [
     "crates/sonora",
     "crates/sonora-ffi",
-    "crates/sonora-sys",
     "crates/sonora-common-audio",
     "crates/sonora-aec3",
     "crates/sonora-agc2",
     "crates/sonora-ns",
     "crates/sonora-simd",
     "crates/sonora-fft",
-    "crates/sonora-proptest",
 ]
 
 [workspace.package]
@@ -24,14 +22,12 @@ repository = "https://github.com/dignifiedquire/sonora"
 # Internal crates
 sonora = { version = "0.1.0", path = "crates/sonora" }
 sonora-ffi = { version = "0.1.0", path = "crates/sonora-ffi" }
-sonora-sys = { version = "0.1.0", path = "crates/sonora-sys" }
 sonora-common-audio = { version = "0.1.0", path = "crates/sonora-common-audio" }
 sonora-aec3 = { version = "0.1.0", path = "crates/sonora-aec3" }
 sonora-agc2 = { version = "0.1.0", path = "crates/sonora-agc2" }
 sonora-ns = { version = "0.1.0", path = "crates/sonora-ns" }
 sonora-simd = { version = "0.1.0", path = "crates/sonora-simd" }
 sonora-fft = { version = "0.1.0", path = "crates/sonora-fft" }
-sonora-proptest = { version = "0.1.0", path = "crates/sonora-proptest" }
 
 # External dependencies
 cpufeatures = "0.3"

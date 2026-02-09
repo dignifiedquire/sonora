@@ -2,15 +2,11 @@
 //!
 //! Per-component tests verify bit-level matching at each DSP stage.
 //! Full-pipeline tests verify end-to-end equivalence.
-//!
-//! Requires the `cpp-comparison` feature and a pre-built C++ library.
 
-#![cfg(feature = "cpp-comparison")]
-
-use sonora::config::{EchoCanceller, GainController2, HighPassFilter, NoiseSuppression};
+use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
 use sonora::internals::{self, FULL_BAND_SIZE, NUM_BANDS, SPLIT_BAND_SIZE};
 use sonora::{AudioProcessing, Config, StreamConfig};
-use sonora_proptest::comparison::{assert_f32_near, compare_f32};
+use sonora_bench::comparison::compare_f32;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -223,22 +219,22 @@ const TEST_FRAMES: usize = 10;
 
 fn make_rust_apm(cfg: &ComponentConfig) -> AudioProcessing {
     let config = Config {
-        echo_canceller: EchoCanceller {
-            enabled: cfg.ec,
-            ..Default::default()
+        echo_canceller: if cfg.ec {
+            Some(EchoCanceller::default())
+        } else {
+            None
         },
-        noise_suppression: NoiseSuppression {
-            enabled: cfg.ns,
-            ..Default::default()
+        noise_suppression: if cfg.ns {
+            Some(NoiseSuppression::default())
+        } else {
+            None
         },
-        gain_controller2: GainController2 {
-            enabled: cfg.agc2,
-            ..Default::default()
+        gain_controller2: if cfg.agc2 {
+            Some(GainController2::default())
+        } else {
+            None
         },
-        high_pass_filter: HighPassFilter {
-            enabled: false,
-            ..Default::default()
-        },
+        high_pass_filter: None,
         ..Default::default()
     };
     AudioProcessing::builder().config(config).build()
@@ -246,7 +242,7 @@ fn make_rust_apm(cfg: &ComponentConfig) -> AudioProcessing {
 
 #[test]
 fn rust_cpp_pipeline_comparison() {
-    let mut all_results: Vec<(String, sonora_proptest::comparison::ComparisonResult)> = Vec::new();
+    let mut all_results: Vec<(String, sonora_bench::comparison::ComparisonResult)> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
 
     for fmt in FORMATS {
@@ -265,7 +261,7 @@ fn rust_cpp_pipeline_comparison() {
             if fmt.channels == 1 {
                 let mut rust_dst = vec![0.0f32; frames_per_10ms];
                 let mut cpp_dst = vec![0.0f32; frames_per_10ms];
-                let mut worst = sonora_proptest::comparison::ComparisonResult {
+                let mut worst = sonora_bench::comparison::ComparisonResult {
                     max_abs_diff: 0.0,
                     max_abs_diff_index: 0,
                     mean_abs_diff: 0.0,
@@ -314,7 +310,7 @@ fn rust_cpp_pipeline_comparison() {
                 let mut rust_dst_r = vec![0.0f32; frames_per_10ms];
                 let mut cpp_dst_l = vec![0.0f32; frames_per_10ms];
                 let mut cpp_dst_r = vec![0.0f32; frames_per_10ms];
-                let mut worst_l = sonora_proptest::comparison::ComparisonResult {
+                let mut worst_l = sonora_bench::comparison::ComparisonResult {
                     max_abs_diff: 0.0,
                     max_abs_diff_index: 0,
                     mean_abs_diff: 0.0,
