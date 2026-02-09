@@ -26,7 +26,10 @@ unsafe fn hsum_ps(v: __m128) -> f32 {
 /// # Safety
 /// Requires SSE2 support. `h.len()` must be divisible by 4.
 #[target_feature(enable = "sse2")]
-#[allow(clippy::too_many_arguments, reason = "matches C++ API")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel — struct indirection would hurt performance"
+)]
 pub(super) unsafe fn matched_filter_core(
     mut x_start_index: usize,
     x2_sum_threshold: f32,
@@ -139,7 +142,10 @@ pub(super) unsafe fn matched_filter_core(
 /// Requires SSE2 support. `h.len()` must be divisible by 8.
 /// `scratch_memory.len()` must be >= `h.len()`.
 #[target_feature(enable = "sse2")]
-#[allow(clippy::too_many_arguments, reason = "matches C++ API")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel — struct indirection would hurt performance"
+)]
 pub(super) unsafe fn matched_filter_core_accumulated_error(
     mut x_start_index: usize,
     x2_sum_threshold: f32,

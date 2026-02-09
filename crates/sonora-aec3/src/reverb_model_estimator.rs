@@ -33,7 +33,6 @@ impl ReverbModelEstimator {
     }
 
     /// Updates the estimates based on new data from all capture channels.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
     pub(crate) fn update(
         &mut self,
         impulse_responses: &[Vec<f32>],

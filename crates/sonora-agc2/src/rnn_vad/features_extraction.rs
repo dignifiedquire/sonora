@@ -82,17 +82,19 @@ impl FeaturesExtractor {
             self.pitch_buf_24k_hz.get_most_recent_values_view();
 
         // Analyze reference and lagged frames, check silence, write features.
-        self.spectral_features_extractor
-            .check_silence_compute_features(
-                reference_frame,
-                lagged_frame,
-                &mut feature_vector.higher_bands_cepstrum,
-                &mut feature_vector.average,
-                &mut feature_vector.first_derivative,
-                &mut feature_vector.second_derivative,
-                &mut feature_vector.bands_cross_correlation,
-                &mut feature_vector.spectral_variability,
-            )
+        let Some(features) = self
+            .spectral_features_extractor
+            .check_silence_compute_features(reference_frame, lagged_frame)
+        else {
+            return true;
+        };
+        feature_vector.higher_bands_cepstrum = features.higher_bands_cepstrum;
+        feature_vector.average = features.average;
+        feature_vector.first_derivative = features.first_derivative;
+        feature_vector.second_derivative = features.second_derivative;
+        feature_vector.bands_cross_correlation = features.bands_cross_correlation;
+        feature_vector.spectral_variability = features.variability;
+        false
     }
 }
 

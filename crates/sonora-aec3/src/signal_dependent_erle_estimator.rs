@@ -9,6 +9,18 @@ use crate::common::{BLOCK_SIZE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
 use crate::config::EchoCanceller3Config;
 use crate::render_buffer::RenderBuffer;
 
+/// Input data for updating the signal-dependent ERLE estimate.
+pub(crate) struct ErleUpdateContext<'a> {
+    pub render_buffer: &'a RenderBuffer<'a>,
+    pub filter_frequency_responses: &'a [Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>],
+    pub x2: &'a [f32; FFT_LENGTH_BY_2_PLUS_1],
+    pub y2: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub e2: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub average_erle: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub average_erle_onset_compensated: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub converged_filters: &'a [bool],
+}
+
 pub(crate) const SUBBANDS: usize = 6;
 
 const BAND_BOUNDARIES: [usize; SUBBANDS + 1] = [1, 8, 16, 24, 32, 48, FFT_LENGTH_BY_2_PLUS_1];
@@ -191,34 +203,26 @@ impl SignalDependentErleEstimator {
     }
 
     /// Updates the ERLE estimate.
-    #[allow(clippy::too_many_arguments, reason = "mirrors C++ API")]
-    pub(crate) fn update(
-        &mut self,
-        render_buffer: &RenderBuffer<'_>,
-        filter_frequency_responses: &[Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>],
-        x2: &[f32; FFT_LENGTH_BY_2_PLUS_1],
-        y2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        e2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        average_erle: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        average_erle_onset_compensated: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        converged_filters: &[bool],
-    ) {
+    pub(crate) fn update(&mut self, ctx: &ErleUpdateContext<'_>) {
         debug_assert!(self.num_sections > 1);
 
-        self.compute_number_of_active_filter_sections(render_buffer, filter_frequency_responses);
-        self.update_correction_factors(x2, y2, e2, converged_filters);
+        self.compute_number_of_active_filter_sections(
+            ctx.render_buffer,
+            ctx.filter_frequency_responses,
+        );
+        self.update_correction_factors(ctx.x2, ctx.y2, ctx.e2, ctx.converged_filters);
 
         for ch in 0..self.erle.len() {
             for k in 0..FFT_LENGTH_BY_2 {
                 debug_assert!(self.n_active_sections[ch][k] < self.correction_factors[ch].len());
                 let correction_factor = self.correction_factors[ch][self.n_active_sections[ch][k]]
                     [self.band_to_subband[k]];
-                self.erle[ch][k] = (average_erle[ch][k] * correction_factor)
+                self.erle[ch][k] = (ctx.average_erle[ch][k] * correction_factor)
                     .clamp(self.min_erle, self.max_erle[self.band_to_subband[k]]);
                 if self.use_onset_detection {
-                    self.erle_onset_compensated[ch][k] = (average_erle_onset_compensated[ch][k]
-                        * correction_factor)
-                        .clamp(self.min_erle, self.max_erle[self.band_to_subband[k]]);
+                    self.erle_onset_compensated[ch][k] =
+                        (ctx.average_erle_onset_compensated[ch][k] * correction_factor)
+                            .clamp(self.min_erle, self.max_erle[self.band_to_subband[k]]);
                 }
             }
         }
@@ -485,16 +489,16 @@ mod tests {
         let converged = vec![true; num_capture_channels];
 
         for _ in 0..200 {
-            s.update(
-                &render_buffer,
-                &filter_freq_resp,
-                &x2,
-                &y2,
-                &e2,
-                &average_erle,
-                &average_erle,
-                &converged,
-            );
+            s.update(&ErleUpdateContext {
+                render_buffer: &render_buffer,
+                filter_frequency_responses: &filter_freq_resp,
+                x2: &x2,
+                y2: &y2,
+                e2: &e2,
+                average_erle: &average_erle,
+                average_erle_onset_compensated: &average_erle,
+                converged_filters: &converged,
+            });
         }
         for &v in s.erle(false)[0].iter() {
             assert!(v.is_finite());

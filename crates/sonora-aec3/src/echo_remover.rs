@@ -5,7 +5,7 @@
 
 use std::ptr;
 
-use crate::aec_state::AecState;
+use crate::aec_state::{AecState, AecStateUpdate};
 use crate::aec3_fft::{Aec3Fft, Window};
 use crate::block::Block;
 use crate::comfort_noise_generator::ComfortNoiseGenerator;
@@ -20,11 +20,11 @@ use crate::echo_remover_metrics::EchoRemoverMetrics;
 use crate::fft_data::FftData;
 use crate::render_buffer::RenderBuffer;
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
-use crate::residual_echo_estimator::ResidualEchoEstimator;
+use crate::residual_echo_estimator::{ResidualEchoEstimator, ResidualEchoInput};
 use crate::subtractor::Subtractor;
 use crate::subtractor_output::SubtractorOutput;
 use crate::suppression_filter::SuppressionFilter;
-use crate::suppression_gain::SuppressionGain;
+use crate::suppression_gain::{SuppressionGain, SuppressionInput};
 
 /// Echo control metrics returned by `get_metrics`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -245,10 +245,6 @@ impl EchoRemover {
             y_fft[ch].spectrum(&mut y2[ch]);
             e_fft[ch].spectrum(&mut e2[ch]);
         }
-        // y_old and e_old now point to the current block.
-        let y_current = &self.y_old;
-        let e_current = &self.e_old;
-
         // Optionally return the linear filter output.
         if let Some(linear_out) = linear_output {
             debug_assert!(linear_out.num_bands() <= 1);
@@ -259,15 +255,15 @@ impl EchoRemover {
         }
 
         // Update the AEC state information.
-        self.aec_state.update(
+        self.aec_state.update(&AecStateUpdate {
             external_delay,
-            self.subtractor.filter_frequency_responses(),
-            self.subtractor.filter_impulse_responses(),
+            adaptive_filter_frequency_responses: self.subtractor.filter_frequency_responses(),
+            adaptive_filter_impulse_responses: self.subtractor.filter_impulse_responses(),
             render_buffer,
-            &e2,
-            &y2,
-            &subtractor_output,
-        );
+            e2_refined: &e2,
+            y2: &y2,
+            subtractor_output: &subtractor_output,
+        });
 
         // Choose the linear output.
         let y_fft_for_suppression: &[FftData] = if self.aec_state.use_linear_filter_output() {
@@ -281,14 +277,13 @@ impl EchoRemover {
         if self.capture_output_used {
             // Estimate the residual echo power.
             self.residual_echo_estimator.estimate(
-                &self.aec_state,
-                render_buffer,
-                y_current,
-                e_current,
-                &s2_linear,
-                &y2,
-                &e2,
-                self.suppression_gain.is_dominant_nearend(),
+                &ResidualEchoInput {
+                    aec_state: &self.aec_state,
+                    render_buffer,
+                    s2_linear: &s2_linear,
+                    y2: &y2,
+                    dominant_nearend: self.suppression_gain.is_dominant_nearend(),
+                },
                 &mut r2,
                 &mut r2_unbounded,
             );
@@ -332,17 +327,18 @@ impl EchoRemover {
 
             // Compute preferred gains.
             let mut high_bands_gain = 0.0f32;
-            let x = render_buffer.get_block(0);
             self.suppression_gain.get_gain(
-                nearend_spectrum,
-                echo_spectrum,
-                &r2,
-                &r2_unbounded,
-                self.cng.noise_spectrum(),
-                &self.render_signal_analyzer,
-                &self.aec_state,
-                x,
-                clock_drift,
+                &SuppressionInput {
+                    nearend_spectrum,
+                    echo_spectrum,
+                    residual_echo_spectrum: &r2,
+                    residual_echo_spectrum_unbounded: &r2_unbounded,
+                    comfort_noise_spectrum: self.cng.noise_spectrum(),
+                    render_signal_analyzer: &self.render_signal_analyzer,
+                    aec_state: &self.aec_state,
+                    render: render_buffer.get_block(0),
+                    clock_drift,
+                },
                 &mut high_bands_gain,
                 &mut g,
             );

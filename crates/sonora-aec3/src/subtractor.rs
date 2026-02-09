@@ -19,7 +19,7 @@ use crate::common::{
 use crate::config::EchoCanceller3Config;
 use crate::echo_path_variability::{DelayAdjustment, EchoPathVariability};
 use crate::fft_data::FftData;
-use crate::refined_filter_update_gain::RefinedFilterUpdateGain;
+use crate::refined_filter_update_gain::{FilterUpdateContext, RefinedFilterUpdateGain};
 use crate::render_buffer::RenderBuffer;
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
 use crate::subtractor_output::SubtractorOutput;
@@ -213,7 +213,6 @@ impl Subtractor {
     }
 
     /// Performs the echo subtraction.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
     pub(crate) fn process(
         &mut self,
         render_buffer: &RenderBuffer<'_>,
@@ -326,13 +325,15 @@ impl Subtractor {
                     &mut erl,
                 );
                 self.refined_gains[ch].compute(
-                    &x2_refined,
-                    render_signal_analyzer,
-                    output,
-                    &erl,
-                    self.refined_filters[ch].size_partitions(),
-                    aec_state.saturated_capture(),
-                    disallow_leakage_diverged,
+                    &FilterUpdateContext {
+                        render_power: &x2_refined,
+                        render_signal_analyzer,
+                        subtractor_output: output,
+                        erl: &erl,
+                        size_partitions: self.refined_filters[ch].size_partitions(),
+                        saturated_capture_signal: aec_state.saturated_capture(),
+                        disallow_leakage_diverged,
+                    },
                     &mut g,
                 );
             } else {

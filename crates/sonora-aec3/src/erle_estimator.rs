@@ -8,7 +8,7 @@ use crate::common::FFT_LENGTH_BY_2_PLUS_1;
 use crate::config::EchoCanceller3Config;
 use crate::fullband_erle_estimator::FullBandErleEstimator;
 use crate::render_buffer::RenderBuffer;
-use crate::signal_dependent_erle_estimator::SignalDependentErleEstimator;
+use crate::signal_dependent_erle_estimator::{ErleUpdateContext, SignalDependentErleEstimator};
 use crate::subband_erle_estimator::SubbandErleEstimator;
 
 /// Estimates the echo return loss enhancement. One estimate is done per subband
@@ -61,20 +61,15 @@ impl ErleEstimator {
     }
 
     /// Updates the ERLE estimates.
-    #[allow(clippy::too_many_arguments, reason = "mirrors C++ API")]
     pub(crate) fn update(
         &mut self,
         render_buffer: &RenderBuffer<'_>,
         filter_frequency_responses: &[Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>],
-        avg_render_spectrum_with_reverb: &[f32; FFT_LENGTH_BY_2_PLUS_1],
-        capture_spectra: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        subtractor_spectra: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
+        x2_reverb: &[f32; FFT_LENGTH_BY_2_PLUS_1],
+        y2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
+        e2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
         converged_filters: &[bool],
     ) {
-        let x2_reverb = avg_render_spectrum_with_reverb;
-        let y2 = capture_spectra;
-        let e2 = subtractor_spectra;
-
         self.blocks_since_reset += 1;
         if self.blocks_since_reset < self.startup_phase_length_blocks {
             return;
@@ -84,16 +79,16 @@ impl ErleEstimator {
             .update(x2_reverb, y2, e2, converged_filters);
 
         if let Some(ref mut sd) = self.signal_dependent_erle_estimator {
-            sd.update(
+            sd.update(&ErleUpdateContext {
                 render_buffer,
                 filter_frequency_responses,
-                x2_reverb,
+                x2: x2_reverb,
                 y2,
                 e2,
-                self.subband_erle_estimator.erle(false),
-                self.subband_erle_estimator.erle(true),
+                average_erle: self.subband_erle_estimator.erle(false),
+                average_erle_onset_compensated: self.subband_erle_estimator.erle(true),
                 converged_filters,
-            );
+            });
         }
 
         self.fullband_erle_estimator

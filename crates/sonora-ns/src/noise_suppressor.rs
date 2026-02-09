@@ -12,7 +12,7 @@ use crate::config::{
 use crate::fast_math::sqrt_fast_approximation;
 use crate::noise_estimator::NoiseEstimator;
 use crate::ns_fft::NsFft;
-use crate::speech_probability_estimator::SpeechProbabilityEstimator;
+use crate::speech_probability_estimator::{SignalAnalysis, SpeechProbabilityEstimator};
 use crate::suppression_params::SuppressionParams;
 use crate::wiener_filter::WienerFilter;
 
@@ -400,15 +400,15 @@ impl NoiseSuppressor {
         );
 
         // Update speech probability.
-        ch.speech_probability_estimator.update(
-            self.num_analyzed_frames,
-            &prior_snr,
-            &post_snr,
-            ch.noise_estimator.conservative_noise_spectrum(),
-            &fbs.signal_spectrum,
+        ch.speech_probability_estimator.update(&SignalAnalysis {
+            num_analyzed_frames: self.num_analyzed_frames,
+            prior_snr: &prior_snr,
+            post_snr: &post_snr,
+            conservative_noise_spectrum: ch.noise_estimator.conservative_noise_spectrum(),
+            signal_spectrum: &fbs.signal_spectrum,
             signal_spectral_sum,
             signal_energy,
-        );
+        });
 
         // Post-update noise estimator with speech probability.
         ch.noise_estimator.post_update(

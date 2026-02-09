@@ -10,6 +10,17 @@ use crate::config::{FFT_SIZE_BY_2_PLUS_1, LONG_STARTUP_PHASE_BLOCKS};
 use crate::fast_math::exp_approximation_sign_flip;
 use crate::signal_model_estimator::SignalModelEstimator;
 
+/// Signal analysis data for updating speech probability.
+pub(crate) struct SignalAnalysis<'a> {
+    pub num_analyzed_frames: i32,
+    pub prior_snr: &'a [f32; FFT_SIZE_BY_2_PLUS_1],
+    pub post_snr: &'a [f32; FFT_SIZE_BY_2_PLUS_1],
+    pub conservative_noise_spectrum: &'a [f32; FFT_SIZE_BY_2_PLUS_1],
+    pub signal_spectrum: &'a [f32; FFT_SIZE_BY_2_PLUS_1],
+    pub signal_spectral_sum: f32,
+    pub signal_energy: f32,
+}
+
 /// Per-bin speech probability estimator.
 #[derive(Debug)]
 pub(crate) struct SpeechProbabilityEstimator {
@@ -30,29 +41,19 @@ impl Default for SpeechProbabilityEstimator {
 
 impl SpeechProbabilityEstimator {
     /// Compute speech probability for the current frame.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ API signature")]
-    pub(crate) fn update(
-        &mut self,
-        num_analyzed_frames: i32,
-        prior_snr: &[f32; FFT_SIZE_BY_2_PLUS_1],
-        post_snr: &[f32; FFT_SIZE_BY_2_PLUS_1],
-        conservative_noise_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
-        signal_spectrum: &[f32; FFT_SIZE_BY_2_PLUS_1],
-        signal_spectral_sum: f32,
-        signal_energy: f32,
-    ) {
+    pub(crate) fn update(&mut self, analysis: &SignalAnalysis<'_>) {
         // Update models.
-        if num_analyzed_frames < LONG_STARTUP_PHASE_BLOCKS {
+        if analysis.num_analyzed_frames < LONG_STARTUP_PHASE_BLOCKS {
             self.signal_model_estimator
-                .adjust_normalization(num_analyzed_frames, signal_energy);
+                .adjust_normalization(analysis.num_analyzed_frames, analysis.signal_energy);
         }
         self.signal_model_estimator.update(
-            prior_snr,
-            post_snr,
-            conservative_noise_spectrum,
-            signal_spectrum,
-            signal_spectral_sum,
-            signal_energy,
+            analysis.prior_snr,
+            analysis.post_snr,
+            analysis.conservative_noise_spectrum,
+            analysis.signal_spectrum,
+            analysis.signal_spectral_sum,
+            analysis.signal_energy,
         );
 
         let model = self.signal_model_estimator.model();
@@ -150,7 +151,15 @@ mod tests {
         let signal = [10.0f32; FFT_SIZE_BY_2_PLUS_1];
         let sum: f32 = signal.iter().sum();
 
-        est.update(0, &prior_snr, &post_snr, &cons_noise, &signal, sum, sum);
+        est.update(&SignalAnalysis {
+            num_analyzed_frames: 0,
+            prior_snr: &prior_snr,
+            post_snr: &post_snr,
+            conservative_noise_spectrum: &cons_noise,
+            signal_spectrum: &signal,
+            signal_spectral_sum: sum,
+            signal_energy: sum,
+        });
 
         // All probabilities should be in [0, 1].
         for &p in est.probability() {
@@ -176,7 +185,15 @@ mod tests {
         let post_snr = [10.0f32; FFT_SIZE_BY_2_PLUS_1];
 
         for frame in 0..100 {
-            est.update(frame, &prior_snr, &post_snr, &noise, &signal, sum, sum);
+            est.update(&SignalAnalysis {
+                num_analyzed_frames: frame,
+                prior_snr: &prior_snr,
+                post_snr: &post_snr,
+                conservative_noise_spectrum: &noise,
+                signal_spectrum: &signal,
+                signal_spectral_sum: sum,
+                signal_energy: sum,
+            });
         }
 
         // After many frames with high SNR, speech probability should be high.
@@ -199,7 +216,15 @@ mod tests {
         let post_snr = [0.01f32; FFT_SIZE_BY_2_PLUS_1];
 
         for frame in 0..100 {
-            est.update(frame, &prior_snr, &post_snr, &noise, &signal, sum, sum);
+            est.update(&SignalAnalysis {
+                num_analyzed_frames: frame,
+                prior_snr: &prior_snr,
+                post_snr: &post_snr,
+                conservative_noise_spectrum: &noise,
+                signal_spectrum: &signal,
+                signal_spectral_sum: sum,
+                signal_energy: sum,
+            });
         }
 
         let avg_prob: f32 = est.probability().iter().sum::<f32>() / FFT_SIZE_BY_2_PLUS_1 as f32;

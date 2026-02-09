@@ -21,7 +21,18 @@ use crate::reverb_model_estimator::ReverbModelEstimator;
 use crate::spectrum_buffer::SpectrumBuffer;
 use crate::subtractor_output::SubtractorOutput;
 use crate::subtractor_output_analyzer::SubtractorOutputAnalyzer;
-use crate::transparent_mode::TransparentMode;
+use crate::transparent_mode::{TransparentMode, TransparentModeState};
+
+/// Subtractor results and render state for updating AEC state.
+pub(crate) struct AecStateUpdate<'a> {
+    pub external_delay: &'a Option<DelayEstimate>,
+    pub adaptive_filter_frequency_responses: &'a [Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>],
+    pub adaptive_filter_impulse_responses: &'a [Vec<f32>],
+    pub render_buffer: &'a RenderBuffer<'a>,
+    pub e2_refined: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub y2: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub subtractor_output: &'a [SubtractorOutput],
+}
 
 /// Computes the average render spectrum with reverb contribution.
 fn compute_avg_render_reverb(
@@ -513,37 +524,28 @@ impl AecState {
     }
 
     /// Updates the AEC state with new data.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
-    pub(crate) fn update(
-        &mut self,
-        external_delay: &Option<DelayEstimate>,
-        adaptive_filter_frequency_responses: &[Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>],
-        adaptive_filter_impulse_responses: &[Vec<f32>],
-        render_buffer: &RenderBuffer<'_>,
-        e2_refined: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        y2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        subtractor_output: &[SubtractorOutput],
-    ) {
-        debug_assert_eq!(self.num_capture_channels, y2.len());
-        debug_assert_eq!(self.num_capture_channels, subtractor_output.len());
+    pub(crate) fn update(&mut self, ctx: &AecStateUpdate<'_>) {
+        debug_assert_eq!(self.num_capture_channels, ctx.y2.len());
+        debug_assert_eq!(self.num_capture_channels, ctx.subtractor_output.len());
         debug_assert_eq!(
             self.num_capture_channels,
-            adaptive_filter_frequency_responses.len()
+            ctx.adaptive_filter_frequency_responses.len()
         );
         debug_assert_eq!(
             self.num_capture_channels,
-            adaptive_filter_impulse_responses.len()
+            ctx.adaptive_filter_impulse_responses.len()
         );
 
         // Analyze the filter outputs and filters.
-        let (any_filter_converged, any_coarse_filter_converged, all_filters_diverged) =
-            self.subtractor_output_analyzer.update(subtractor_output);
+        let (any_filter_converged, any_coarse_filter_converged, all_filters_diverged) = self
+            .subtractor_output_analyzer
+            .update(ctx.subtractor_output);
 
         let mut any_filter_consistent = false;
         let mut max_echo_path_gain = 0.0f32;
         self.filter_analyzer.update(
-            adaptive_filter_impulse_responses,
-            render_buffer,
+            ctx.adaptive_filter_impulse_responses,
+            ctx.render_buffer,
             &mut any_filter_consistent,
             &mut max_echo_path_gain,
         );
@@ -552,13 +554,14 @@ impl AecState {
         if self.config.filter.use_linear_filter {
             self.delay_state.update(
                 self.filter_analyzer.filter_delays_blocks(),
-                external_delay,
+                ctx.external_delay,
                 self.strong_not_saturated_render_blocks,
             );
         }
 
-        let aligned_render_block =
-            render_buffer.get_block(-self.delay_state.min_direct_path_filter_delay());
+        let aligned_render_block = ctx
+            .render_buffer
+            .get_block(-self.delay_state.min_direct_path_filter_delay());
 
         // Update render counters.
         let mut active_render = false;
@@ -584,7 +587,7 @@ impl AecState {
         let mut avg_render_spectrum_with_reverb = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
 
         compute_avg_render_reverb(
-            render_buffer.get_spectrum_buffer(),
+            ctx.render_buffer.get_spectrum_buffer(),
             self.delay_state.min_direct_path_filter_delay(),
             self.reverb_decay(false),
             &mut self.avg_render_reverb,
@@ -593,7 +596,7 @@ impl AecState {
 
         if self.config.echo_audibility.use_stationarity_properties {
             self.echo_audibility.update(
-                render_buffer,
+                ctx.render_buffer,
                 self.avg_render_reverb.reverb(),
                 self.delay_state.min_direct_path_filter_delay(),
                 self.delay_state.external_delay_reported(),
@@ -606,18 +609,19 @@ impl AecState {
         }
 
         self.erle_estimator.update(
-            render_buffer,
-            adaptive_filter_frequency_responses,
+            ctx.render_buffer,
+            ctx.adaptive_filter_frequency_responses,
             &avg_render_spectrum_with_reverb,
-            y2,
-            e2_refined,
+            ctx.y2,
+            ctx.e2_refined,
             self.subtractor_output_analyzer.converged_filters(),
         );
 
         self.erl_estimator.update(
             self.subtractor_output_analyzer.converged_filters(),
-            render_buffer.spectrum(self.delay_state.min_direct_path_filter_delay()),
-            y2,
+            ctx.render_buffer
+                .spectrum(self.delay_state.min_direct_path_filter_delay()),
+            ctx.y2,
         );
 
         // Detect and flag echo saturation.
@@ -626,7 +630,7 @@ impl AecState {
                 aligned_render_block,
                 self.saturated_capture(),
                 self.usable_linear_estimate(),
-                subtractor_output,
+                ctx.subtractor_output,
                 max_echo_path_gain,
             );
         } else {
@@ -640,15 +644,15 @@ impl AecState {
         // Detect whether the transparent mode should be activated.
         let saturated_capture = self.saturated_capture();
         if let Some(ref mut ts) = self.transparent_state {
-            ts.update(
-                self.delay_state.min_direct_path_filter_delay(),
+            ts.update(&TransparentModeState {
+                filter_delay_blocks: self.delay_state.min_direct_path_filter_delay(),
                 any_filter_consistent,
                 any_filter_converged,
                 any_coarse_filter_converged,
                 all_filters_diverged,
                 active_render,
                 saturated_capture,
-            );
+            });
         }
 
         // Analyze the quality of the filter.
@@ -656,7 +660,7 @@ impl AecState {
             active_render,
             self.transparent_mode_active(),
             self.saturated_capture(),
-            external_delay,
+            ctx.external_delay,
             any_filter_converged,
         );
 
@@ -666,7 +670,7 @@ impl AecState {
 
         self.reverb_model_estimator.update(
             self.filter_analyzer.get_adjusted_filters(),
-            adaptive_filter_frequency_responses,
+            ctx.adaptive_filter_frequency_responses,
             self.erle_estimator.get_inst_linear_quality_estimates(),
             self.delay_state.direct_path_filter_delays(),
             self.filter_quality_state.usable_linear_filter_outputs(),

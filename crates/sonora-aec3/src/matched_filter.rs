@@ -44,7 +44,10 @@ impl LagEstimate {
 /// Performs NLMS cross-correlation of filter `h` with render signal `x` and
 /// capture signal `y`. Optionally computes accumulated error for pre-echo
 /// detection.
-#[allow(clippy::too_many_arguments, reason = "Matches C++ original signature")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel — struct indirection would hurt performance"
+)]
 pub(crate) fn matched_filter_core(
     mut x_start_index: usize,
     x2_sum_threshold: f32,
@@ -126,7 +129,10 @@ pub(crate) fn matched_filter_core(
 ///
 /// Selects the best available implementation based on `backend`.
 /// Falls back to scalar when no SIMD path matches.
-#[allow(clippy::too_many_arguments, reason = "matches C++ function signature")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel — struct indirection would hurt performance"
+)]
 pub(crate) fn matched_filter_core_dispatch(
     backend: SimdBackend,
     x_start_index: usize,
@@ -367,7 +373,7 @@ pub(crate) struct MatchedFilter {
 impl MatchedFilter {
     #[allow(
         clippy::too_many_arguments,
-        reason = "matches C++ constructor signature"
+        reason = "one-time constructor with independent config parameters"
     )]
     pub(crate) fn new(
         backend: SimdBackend,

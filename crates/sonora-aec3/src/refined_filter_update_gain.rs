@@ -13,6 +13,17 @@ use crate::fft_data::FftData;
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
 use crate::subtractor_output::SubtractorOutput;
 
+/// Input data for computing the refined filter update gain.
+pub(crate) struct FilterUpdateContext<'a> {
+    pub render_power: &'a [f32; FFT_LENGTH_BY_2_PLUS_1],
+    pub render_signal_analyzer: &'a RenderSignalAnalyzer,
+    pub subtractor_output: &'a SubtractorOutput,
+    pub erl: &'a [f32; FFT_LENGTH_BY_2_PLUS_1],
+    pub size_partitions: usize,
+    pub saturated_capture_signal: bool,
+    pub disallow_leakage_diverged: bool,
+}
+
 const H_ERROR_INITIAL: f32 = 10_000.0;
 const POOR_EXCITATION_COUNTER_INITIAL: usize = 1000;
 
@@ -60,53 +71,43 @@ impl RefinedFilterUpdateGain {
     }
 
     /// Computes the gain.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
-    pub(crate) fn compute(
-        &mut self,
-        render_power: &[f32; FFT_LENGTH_BY_2_PLUS_1],
-        render_signal_analyzer: &RenderSignalAnalyzer,
-        subtractor_output: &SubtractorOutput,
-        erl: &[f32; FFT_LENGTH_BY_2_PLUS_1],
-        size_partitions: usize,
-        saturated_capture_signal: bool,
-        disallow_leakage_diverged: bool,
-        gain_fft: &mut FftData,
-    ) {
-        let e_refined = &subtractor_output.e_refined_fft;
-        let e2_refined = &subtractor_output.e2_refined;
-        let e2_coarse = &subtractor_output.e2_coarse;
+    pub(crate) fn compute(&mut self, ctx: &FilterUpdateContext<'_>, gain_fft: &mut FftData) {
+        let e_refined = &ctx.subtractor_output.e_refined_fft;
+        let e2_refined = &ctx.subtractor_output.e2_refined;
+        let e2_coarse = &ctx.subtractor_output.e2_coarse;
 
         self.call_counter += 1;
         self.update_current_config();
 
-        if render_signal_analyzer.poor_signal_excitation() {
+        if ctx.render_signal_analyzer.poor_signal_excitation() {
             self.poor_excitation_counter = 0;
         }
 
         // Do not update the filter if the render is not sufficiently excited.
         self.poor_excitation_counter += 1;
-        if self.poor_excitation_counter < size_partitions
-            || saturated_capture_signal
-            || self.call_counter <= size_partitions
+        if self.poor_excitation_counter < ctx.size_partitions
+            || ctx.saturated_capture_signal
+            || self.call_counter <= ctx.size_partitions
         {
             gain_fft.clear();
         } else {
             // mu = H_error / (0.5 * H_error * X2 + n * E2).
             let mut mu = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                if render_power[k] >= self.current_config.noise_gate {
+                if ctx.render_power[k] >= self.current_config.noise_gate {
                     mu[k] = self.h_error[k]
-                        / (0.5 * self.h_error[k] * render_power[k]
-                            + size_partitions as f32 * e2_refined[k]);
+                        / (0.5 * self.h_error[k] * ctx.render_power[k]
+                            + ctx.size_partitions as f32 * e2_refined[k]);
                 }
             }
 
             // Avoid updating the filter close to narrow bands.
-            render_signal_analyzer.mask_regions_around_narrow_bands(&mut mu);
+            ctx.render_signal_analyzer
+                .mask_regions_around_narrow_bands(&mut mu);
 
             // H_error -= 0.5 * mu * X2 * H_error.
             for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-                self.h_error[k] -= 0.5 * mu[k] * render_power[k] * self.h_error[k];
+                self.h_error[k] -= 0.5 * mu[k] * ctx.render_power[k] * self.h_error[k];
             }
 
             // G = mu * E.
@@ -118,10 +119,10 @@ impl RefinedFilterUpdateGain {
 
         // H_error += factor * erl.
         for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
-            if e2_refined[k] <= e2_coarse[k] || disallow_leakage_diverged {
-                self.h_error[k] += self.current_config.leakage_converged * erl[k];
+            if e2_refined[k] <= e2_coarse[k] || ctx.disallow_leakage_diverged {
+                self.h_error[k] += self.current_config.leakage_converged * ctx.erl[k];
             } else {
-                self.h_error[k] += self.current_config.leakage_diverged * erl[k];
+                self.h_error[k] += self.current_config.leakage_diverged * ctx.erl[k];
             }
             self.h_error[k] = self.h_error[k].max(self.current_config.error_floor);
             self.h_error[k] = self.h_error[k].min(self.current_config.error_ceil);
@@ -208,7 +209,18 @@ mod tests {
         let erl = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         let mut g = FftData::default();
 
-        gain.compute(&render_power, &rsa, &output, &erl, 10, true, false, &mut g);
+        gain.compute(
+            &FilterUpdateContext {
+                render_power: &render_power,
+                render_signal_analyzer: &rsa,
+                subtractor_output: &output,
+                erl: &erl,
+                size_partitions: 10,
+                saturated_capture_signal: true,
+                disallow_leakage_diverged: false,
+            },
+            &mut g,
+        );
         for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
             assert_eq!(g.re[k], 0.0);
             assert_eq!(g.im[k], 0.0);
@@ -231,13 +243,15 @@ mod tests {
         let size_partitions = 5;
         for _ in 0..=size_partitions * 2 {
             gain.compute(
-                &render_power,
-                &rsa,
-                &output,
-                &erl,
-                size_partitions,
-                false,
-                false,
+                &FilterUpdateContext {
+                    render_power: &render_power,
+                    render_signal_analyzer: &rsa,
+                    subtractor_output: &output,
+                    erl: &erl,
+                    size_partitions,
+                    saturated_capture_signal: false,
+                    disallow_leakage_diverged: false,
+                },
                 &mut g,
             );
         }
@@ -278,7 +292,18 @@ mod tests {
 
         // Run many iterations to push h_error toward bounds.
         for _ in 0..2000 {
-            gain.compute(&render_power, &rsa, &output, &erl, 5, false, false, &mut g);
+            gain.compute(
+                &FilterUpdateContext {
+                    render_power: &render_power,
+                    render_signal_analyzer: &rsa,
+                    subtractor_output: &output,
+                    erl: &erl,
+                    size_partitions: 5,
+                    saturated_capture_signal: false,
+                    disallow_leakage_diverged: false,
+                },
+                &mut g,
+            );
         }
 
         // h_error should be clamped at error_ceil.

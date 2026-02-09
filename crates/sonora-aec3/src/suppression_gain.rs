@@ -11,6 +11,19 @@ use crate::nearend_detector::{DominantNearendDetector, NearendDetector, SubbandN
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
 use crate::vector_math::VectorMath;
 
+/// Input spectra and state for computing suppression gains.
+pub(crate) struct SuppressionInput<'a> {
+    pub nearend_spectrum: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub echo_spectrum: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub residual_echo_spectrum: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub residual_echo_spectrum_unbounded: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub comfort_noise_spectrum: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub render_signal_analyzer: &'a RenderSignalAnalyzer,
+    pub aec_state: &'a AecState,
+    pub render: &'a Block,
+    pub clock_drift: bool,
+}
+
 /// Limits the low frequency gains to avoid the impact of the high-pass filter
 /// on the lower-frequency gain influencing the overall achieved gain.
 fn limit_low_frequency_gains(gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
@@ -252,57 +265,40 @@ impl SuppressionGain {
     }
 
     /// Computes the suppression gains.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ API")]
     pub(crate) fn get_gain(
         &mut self,
-        nearend_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        echo_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        residual_echo_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        residual_echo_spectrum_unbounded: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        comfort_noise_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        render_signal_analyzer: &RenderSignalAnalyzer,
-        aec_state: &AecState,
-        render: &Block,
-        clock_drift: bool,
+        input: &SuppressionInput<'_>,
         high_bands_gain: &mut f32,
         low_band_gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
     ) {
         // Choose residual echo spectrum for dominant nearend detection.
         let echo = if self.use_unbounded_echo_spectrum {
-            residual_echo_spectrum_unbounded
+            input.residual_echo_spectrum_unbounded
         } else {
-            residual_echo_spectrum
+            input.residual_echo_spectrum
         };
 
         // Update the nearend state selection.
         self.dominant_nearend_detector.update(
-            nearend_spectrum,
+            input.nearend_spectrum,
             echo,
-            comfort_noise_spectrum,
+            input.comfort_noise_spectrum,
             self.initial_state,
         );
 
         // Compute gain for the lower band.
-        let low_noise_render = self.low_render_detector.detect(render);
-        self.lower_band_gain(
-            low_noise_render,
-            aec_state,
-            nearend_spectrum,
-            residual_echo_spectrum,
-            comfort_noise_spectrum,
-            clock_drift,
-            low_band_gain,
-        );
+        let low_noise_render = self.low_render_detector.detect(input.render);
+        self.lower_band_gain(low_noise_render, input, low_band_gain);
 
         // Compute the gain for the upper bands.
-        let narrow_peak_band = render_signal_analyzer.narrow_peak_band();
+        let narrow_peak_band = input.render_signal_analyzer.narrow_peak_band();
 
         *high_bands_gain = self.upper_bands_gain(
-            echo_spectrum,
-            comfort_noise_spectrum,
+            input.echo_spectrum,
+            input.comfort_noise_spectrum,
             narrow_peak_band,
-            aec_state.saturated_echo(),
-            render,
+            input.aec_state.saturated_echo(),
+            input.render,
             low_band_gain,
         );
     }
@@ -498,32 +494,27 @@ impl SuppressionGain {
         }
     }
 
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
     fn lower_band_gain(
         &mut self,
         low_noise_render: bool,
-        aec_state: &AecState,
-        suppressor_input: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        residual_echo: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        comfort_noise: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        clock_drift: bool,
+        input: &SuppressionInput<'_>,
         gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
     ) {
         gain.fill(1.0);
-        let saturated_echo = aec_state.saturated_echo();
+        let saturated_echo = input.aec_state.saturated_echo();
         let mut max_gain = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
         self.get_max_gain(&mut max_gain);
 
         for ch in 0..self.num_capture_channels {
             let mut g = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             let mut nearend = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-            self.nearend_smoothers[ch].average(&suppressor_input[ch], &mut nearend);
+            self.nearend_smoothers[ch].average(&input.nearend_spectrum[ch], &mut nearend);
 
             // Weight echo power in terms of audibility.
             let mut weighted_residual_echo = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             weight_echo_for_audibility(
                 &self.config,
-                &residual_echo[ch],
+                &input.residual_echo_spectrum[ch],
                 &mut weighted_residual_echo,
             );
 
@@ -540,7 +531,7 @@ impl SuppressionGain {
             self.gain_to_no_audible_echo(
                 &nearend,
                 &weighted_residual_echo,
-                &comfort_noise[0],
+                &input.comfort_noise_spectrum[0],
                 &mut g,
             );
 
@@ -559,7 +550,7 @@ impl SuppressionGain {
         // Use conservative high-frequency gains during clock-drift or when not
         // in dominant nearend.
         if !self.dominant_nearend_detector.is_nearend_state()
-            || clock_drift
+            || input.clock_drift
             || self.config.suppressor.conservative_hf_suppression
         {
             limit_high_frequency_gains(&self.config.suppressor, gain);

@@ -3,13 +3,22 @@
 //! Ported from `modules/audio_processing/aec3/residual_echo_estimator.h/cc`.
 
 use crate::aec_state::AecState;
-use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
+use crate::common::FFT_LENGTH_BY_2_PLUS_1;
 use crate::config::{EchoCanceller3Config, EchoModel};
 use crate::render_buffer::RenderBuffer;
 use crate::reverb_model::ReverbModel;
 use crate::spectrum_buffer::SpectrumBuffer;
 
 const DEFAULT_TRANSPARENT_MODE_GAIN: f32 = 0.01;
+
+/// Input data for residual echo power estimation.
+pub(crate) struct ResidualEchoInput<'a> {
+    pub aec_state: &'a AecState,
+    pub render_buffer: &'a RenderBuffer<'a>,
+    pub s2_linear: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub y2: &'a [[f32; FFT_LENGTH_BY_2_PLUS_1]],
+    pub dominant_nearend: bool,
+}
 
 /// Estimates the residual echo power based on ERLE and the linear power
 /// estimate.
@@ -153,75 +162,71 @@ impl ResidualEchoEstimator {
     }
 
     /// Estimates the residual echo power.
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
     pub(crate) fn estimate(
         &mut self,
-        aec_state: &AecState,
-        render_buffer: &RenderBuffer<'_>,
-        _capture: &[[f32; FFT_LENGTH_BY_2]],
-        _linear_aec_output: &[[f32; FFT_LENGTH_BY_2]],
-        s2_linear: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        y2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        _e2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
-        dominant_nearend: bool,
+        input: &ResidualEchoInput<'_>,
         r2: &mut [[f32; FFT_LENGTH_BY_2_PLUS_1]],
         r2_unbounded: &mut [[f32; FFT_LENGTH_BY_2_PLUS_1]],
     ) {
-        debug_assert_eq!(r2.len(), y2.len());
-        debug_assert_eq!(r2.len(), s2_linear.len());
+        debug_assert_eq!(r2.len(), input.y2.len());
+        debug_assert_eq!(r2.len(), input.s2_linear.len());
 
         let num_capture_channels = r2.len();
 
         // Estimate the power of stationary noise in the render signal.
-        self.update_render_noise_power(render_buffer);
+        self.update_render_noise_power(input.render_buffer);
 
         // NeuralResidualEchoEstimator is skipped (not ported).
 
         // Estimate the residual echo power.
-        if aec_state.usable_linear_estimate() {
+        if input.aec_state.usable_linear_estimate() {
             // When there is saturated echo, assume the same spectral content
             // as is present in the microphone signal.
-            if aec_state.saturated_echo() {
+            if input.aec_state.saturated_echo() {
                 for ch in 0..num_capture_channels {
-                    r2[ch].copy_from_slice(&y2[ch]);
-                    r2_unbounded[ch].copy_from_slice(&y2[ch]);
+                    r2[ch].copy_from_slice(&input.y2[ch]);
+                    r2_unbounded[ch].copy_from_slice(&input.y2[ch]);
                 }
             } else {
                 let onset_compensated =
-                    self.erle_onset_compensation_in_dominant_nearend || !dominant_nearend;
-                linear_estimate(s2_linear, aec_state.erle(onset_compensated), r2);
-                linear_estimate(s2_linear, aec_state.erle_unbounded(), r2_unbounded);
+                    self.erle_onset_compensation_in_dominant_nearend || !input.dominant_nearend;
+                linear_estimate(input.s2_linear, input.aec_state.erle(onset_compensated), r2);
+                linear_estimate(
+                    input.s2_linear,
+                    input.aec_state.erle_unbounded(),
+                    r2_unbounded,
+                );
             }
 
             self.update_reverb(
                 ReverbType::Linear,
-                aec_state,
-                render_buffer,
-                dominant_nearend,
+                input.aec_state,
+                input.render_buffer,
+                input.dominant_nearend,
             );
             self.add_reverb(r2);
             self.add_reverb(r2_unbounded);
         } else {
-            let echo_path_gain = self.get_echo_path_gain(aec_state, true);
+            let echo_path_gain = self.get_echo_path_gain(input.aec_state, true);
 
             // When there is saturated echo, assume the same spectral content
             // as is present in the microphone signal.
-            if aec_state.saturated_echo() {
+            if input.aec_state.saturated_echo() {
                 for ch in 0..num_capture_channels {
-                    r2[ch].copy_from_slice(&y2[ch]);
-                    r2_unbounded[ch].copy_from_slice(&y2[ch]);
+                    r2[ch].copy_from_slice(&input.y2[ch]);
+                    r2_unbounded[ch].copy_from_slice(&input.y2[ch]);
                 }
             } else {
                 // Estimate the echo generating signal power.
                 let mut x2 = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
                 echo_generating_power(
                     self.num_render_channels,
-                    render_buffer.get_spectrum_buffer(),
+                    input.render_buffer.get_spectrum_buffer(),
                     &self.config.echo_model,
-                    aec_state.min_direct_path_filter_delay(),
+                    input.aec_state.min_direct_path_filter_delay(),
                     &mut x2,
                 );
-                if !aec_state.use_stationarity_properties() {
+                if !input.aec_state.use_stationarity_properties() {
                     apply_noise_gate(&self.config.echo_model, &mut x2);
                 }
 
@@ -236,22 +241,24 @@ impl ResidualEchoEstimator {
             }
 
             if self.config.echo_model.model_reverb_in_nonlinear_mode
-                && !aec_state.transparent_mode_active()
+                && !input.aec_state.transparent_mode_active()
             {
                 self.update_reverb(
                     ReverbType::NonLinear,
-                    aec_state,
-                    render_buffer,
-                    dominant_nearend,
+                    input.aec_state,
+                    input.render_buffer,
+                    input.dominant_nearend,
                 );
                 self.add_reverb(r2);
                 self.add_reverb(r2_unbounded);
             }
         }
 
-        if aec_state.use_stationarity_properties() {
+        if input.aec_state.use_stationarity_properties() {
             let mut residual_scaling = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-            aec_state.get_residual_echo_scaling(&mut residual_scaling);
+            input
+                .aec_state
+                .get_residual_echo_scaling(&mut residual_scaling);
             for ch in 0..num_capture_channels {
                 for k in 0..FFT_LENGTH_BY_2_PLUS_1 {
                     r2[ch][k] *= residual_scaling[k];
@@ -423,24 +430,20 @@ mod tests {
         let (bb, sb, fb) = make_render_buffer(size, 1);
         let rb = RenderBuffer::new(&bb, &sb, &fb);
 
-        let capture = [[0.0f32; FFT_LENGTH_BY_2]];
-        let linear_out = [[0.0f32; FFT_LENGTH_BY_2]];
         let s2_linear = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]];
         let y2 = [[1.0f32; FFT_LENGTH_BY_2_PLUS_1]];
-        let e2 = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]];
         let mut r2 = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]];
         let mut r2_unbounded = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]];
 
         // AecState defaults to usable_linear_estimate=false, so nonlinear path.
         estimator.estimate(
-            &aec_state,
-            &rb,
-            &capture,
-            &linear_out,
-            &s2_linear,
-            &y2,
-            &e2,
-            false,
+            &ResidualEchoInput {
+                aec_state: &aec_state,
+                render_buffer: &rb,
+                s2_linear: &s2_linear,
+                y2: &y2,
+                dominant_nearend: false,
+            },
             &mut r2,
             &mut r2_unbounded,
         );

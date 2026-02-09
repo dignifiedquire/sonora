@@ -15,6 +15,17 @@
 use crate::common::NUM_BLOCKS_PER_SECOND;
 use crate::config::{EchoCanceller3Config, TransparentModeType};
 
+/// Current filter and render state used to update transparent mode.
+pub(crate) struct TransparentModeState {
+    pub filter_delay_blocks: i32,
+    pub any_filter_consistent: bool,
+    pub any_filter_converged: bool,
+    pub any_coarse_filter_converged: bool,
+    pub all_filters_diverged: bool,
+    pub active_render: bool,
+    pub saturated_capture: bool,
+}
+
 const BLOCKS_SINCE_CONVERGED_FILTER_INIT: usize = 10000;
 const BLOCKS_SINCE_CONSISTENT_ESTIMATE_INIT: usize = 10000;
 const INITIAL_TRANSPARENT_STATE_PROBABILITY: f32 = 0.2;
@@ -63,30 +74,10 @@ impl TransparentMode {
     }
 
     /// Updates the detection decision based on new data.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "matches C++ virtual method signature"
-    )]
-    pub(crate) fn update(
-        &mut self,
-        filter_delay_blocks: i32,
-        any_filter_consistent: bool,
-        any_filter_converged: bool,
-        any_coarse_filter_converged: bool,
-        all_filters_diverged: bool,
-        active_render: bool,
-        saturated_capture: bool,
-    ) {
+    pub(crate) fn update(&mut self, state: &TransparentModeState) {
         match self {
-            Self::Legacy(legacy) => legacy.update(
-                filter_delay_blocks,
-                any_filter_consistent,
-                any_filter_converged,
-                all_filters_diverged,
-                active_render,
-                saturated_capture,
-            ),
-            Self::Hmm(hmm) => hmm.update(any_coarse_filter_converged, active_render),
+            Self::Legacy(legacy) => legacy.update(state),
+            Self::Hmm(hmm) => hmm.update(state.any_coarse_filter_converged, state.active_render),
         }
     }
 }
@@ -139,27 +130,19 @@ impl LegacyTransparentMode {
         }
     }
 
-    #[allow(clippy::too_many_arguments, reason = "matches C++ method signature")]
-    fn update(
-        &mut self,
-        filter_delay_blocks: i32,
-        any_filter_consistent: bool,
-        any_filter_converged: bool,
-        all_filters_diverged: bool,
-        active_render: bool,
-        saturated_capture: bool,
-    ) {
+    fn update(&mut self, state: &TransparentModeState) {
         self.capture_block_counter += 1;
-        self.strong_not_saturated_render_blocks += if active_render && !saturated_capture {
-            1
-        } else {
-            0
-        };
+        self.strong_not_saturated_render_blocks +=
+            if state.active_render && !state.saturated_capture {
+                1
+            } else {
+                0
+            };
 
-        if any_filter_consistent && filter_delay_blocks < 5 {
+        if state.any_filter_consistent && state.filter_delay_blocks < 5 {
             self.sane_filter_observed = true;
             self.active_blocks_since_sane_filter = 0;
-        } else if active_render {
+        } else if state.active_render {
             self.active_blocks_since_sane_filter += 1;
         }
 
@@ -169,7 +152,7 @@ impl LegacyTransparentMode {
             self.active_blocks_since_sane_filter <= 30 * NUM_BLOCKS_PER_SECOND
         };
 
-        if any_filter_converged {
+        if state.any_filter_converged {
             self.recent_convergence_during_activity = true;
             self.active_non_converged_sequence_size = 0;
             self.non_converged_sequence_size = 0;
@@ -180,7 +163,7 @@ impl LegacyTransparentMode {
                 self.num_converged_blocks = 0;
             }
 
-            if active_render {
+            if state.active_render {
                 self.active_non_converged_sequence_size += 1;
                 if self.active_non_converged_sequence_size > 60 * NUM_BLOCKS_PER_SECOND {
                     self.recent_convergence_during_activity = false;
@@ -188,7 +171,7 @@ impl LegacyTransparentMode {
             }
         }
 
-        if !all_filters_diverged {
+        if !state.all_filters_diverged {
             self.diverged_sequence_size = 0;
         } else {
             self.diverged_sequence_size += 1;

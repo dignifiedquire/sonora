@@ -3,7 +3,8 @@
 //! Ported from `webrtc/modules/audio_processing/agc2/rnn_vad/spectral_features.cc`.
 
 use super::common::{
-    CEPSTRAL_COEFFS_HISTORY_SIZE, FRAME_SIZE_20MS_24K_HZ, NUM_BANDS, NUM_LOWER_BANDS,
+    CEPSTRAL_COEFFS_HISTORY_SIZE, FRAME_SIZE_20MS_24K_HZ, NUM_BANDS, NUM_HIGHER_BANDS,
+    NUM_LOWER_BANDS,
 };
 use super::ring_buffer::RingBuffer;
 use super::spectral_features_internal::{
@@ -16,6 +17,16 @@ use std::f32::consts::FRAC_PI_2;
 use std::fmt;
 
 const SILENCE_THRESHOLD: f32 = 0.04;
+
+/// Output of spectral feature extraction for a non-silent frame.
+pub(crate) struct SpectralFeaturesOutput {
+    pub higher_bands_cepstrum: [f32; NUM_HIGHER_BANDS],
+    pub average: [f32; NUM_LOWER_BANDS],
+    pub first_derivative: [f32; NUM_LOWER_BANDS],
+    pub second_derivative: [f32; NUM_LOWER_BANDS],
+    pub bands_cross_correlation: [f32; NUM_LOWER_BANDS],
+    pub variability: f32,
+}
 
 /// Spectral feature extractor for 20 ms frames at 24 kHz.
 pub(crate) struct SpectralFeaturesExtractor {
@@ -76,26 +87,15 @@ impl SpectralFeaturesExtractor {
     /// Analyzes a pair of reference and lagged frames, detects silence and
     /// computes features.
     ///
-    /// Returns `true` if silence is detected (output is not written).
-    #[allow(clippy::too_many_arguments, reason = "matches C++ API signature")]
+    /// Returns `None` if silence is detected, otherwise returns the computed
+    /// spectral features.
     pub(crate) fn check_silence_compute_features(
         &mut self,
         reference_frame: &[f32],
         lagged_frame: &[f32],
-        higher_bands_cepstrum: &mut [f32],
-        average: &mut [f32],
-        first_derivative: &mut [f32],
-        second_derivative: &mut [f32],
-        bands_cross_corr_out: &mut [f32],
-        variability: &mut f32,
-    ) -> bool {
+    ) -> Option<SpectralFeaturesOutput> {
         debug_assert_eq!(reference_frame.len(), FRAME_SIZE_20MS_24K_HZ);
         debug_assert_eq!(lagged_frame.len(), FRAME_SIZE_20MS_24K_HZ);
-        debug_assert_eq!(higher_bands_cepstrum.len(), NUM_BANDS - NUM_LOWER_BANDS);
-        debug_assert_eq!(average.len(), NUM_LOWER_BANDS);
-        debug_assert_eq!(first_derivative.len(), NUM_LOWER_BANDS);
-        debug_assert_eq!(second_derivative.len(), NUM_LOWER_BANDS);
-        debug_assert_eq!(bands_cross_corr_out.len(), NUM_LOWER_BANDS);
 
         // Compute the Opus band energies for the reference frame.
         self.compute_windowed_forward_fft(reference_frame, true);
@@ -107,7 +107,7 @@ impl SpectralFeaturesExtractor {
         // Check if the reference frame has silence.
         let tot_energy: f32 = self.reference_frame_bands_energy.iter().sum();
         if tot_energy < SILENCE_THRESHOLD {
-            return true;
+            return None;
         }
 
         // Compute the Opus band energies for the lagged frame.
@@ -135,15 +135,30 @@ impl SpectralFeaturesExtractor {
         self.cepstral_coeffs_ring_buf.push(&cepstrum);
         self.update_cepstral_difference_stats(&cepstrum);
 
-        // Write the higher bands cepstral coefficients.
+        // Compute remaining features.
+        let mut average = [0.0_f32; NUM_LOWER_BANDS];
+        let mut first_derivative = [0.0_f32; NUM_LOWER_BANDS];
+        let mut second_derivative = [0.0_f32; NUM_LOWER_BANDS];
+        self.compute_avg_and_derivatives(
+            &mut average,
+            &mut first_derivative,
+            &mut second_derivative,
+        );
+
+        let mut bands_cross_correlation = [0.0_f32; NUM_LOWER_BANDS];
+        self.compute_normalized_cepstral_correlation(&mut bands_cross_correlation);
+
+        let mut higher_bands_cepstrum = [0.0_f32; NUM_HIGHER_BANDS];
         higher_bands_cepstrum.copy_from_slice(&cepstrum[NUM_LOWER_BANDS..]);
 
-        // Compute and write remaining features.
-        self.compute_avg_and_derivatives(average, first_derivative, second_derivative);
-        self.compute_normalized_cepstral_correlation(bands_cross_corr_out);
-        *variability = self.compute_variability();
-
-        false
+        Some(SpectralFeaturesOutput {
+            higher_bands_cepstrum,
+            average,
+            first_derivative,
+            second_derivative,
+            bands_cross_correlation,
+            variability: self.compute_variability(),
+        })
     }
 
     /// Applies windowing and computes forward FFT.
@@ -267,24 +282,9 @@ mod tests {
     fn silence_detection_on_zero_frame() {
         let mut extractor = SpectralFeaturesExtractor::default();
         let frame = [0.0_f32; FRAME_SIZE_20MS_24K_HZ];
-        let mut higher = [0.0_f32; NUM_BANDS - NUM_LOWER_BANDS];
-        let mut avg = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d1 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d2 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut cross = [0.0_f32; NUM_LOWER_BANDS];
-        let mut var = 0.0_f32;
 
-        let is_silence = extractor.check_silence_compute_features(
-            &frame,
-            &frame,
-            &mut higher,
-            &mut avg,
-            &mut d1,
-            &mut d2,
-            &mut cross,
-            &mut var,
-        );
-        assert!(is_silence, "Zero frame should be detected as silence");
+        let result = extractor.check_silence_compute_features(&frame, &frame);
+        assert!(result.is_none(), "Zero frame should be detected as silence");
     }
 
     #[test]
@@ -296,70 +296,53 @@ mod tests {
         for (i, s) in frame.iter_mut().enumerate() {
             *s = (TAU * 440.0 * i as f32 / 24000.0).sin();
         }
-        let mut higher = [0.0_f32; NUM_BANDS - NUM_LOWER_BANDS];
-        let mut avg = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d1 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d2 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut cross = [0.0_f32; NUM_LOWER_BANDS];
-        let mut var = 0.0_f32;
 
         // Feed multiple frames to fill the cepstral history.
+        let mut last_output = None;
         for _ in 0..CEPSTRAL_COEFFS_HISTORY_SIZE + 1 {
-            let is_silence = extractor.check_silence_compute_features(
-                &frame,
-                &frame,
-                &mut higher,
-                &mut avg,
-                &mut d1,
-                &mut d2,
-                &mut cross,
-                &mut var,
-            );
-            assert!(!is_silence, "Non-zero frame should not be silence");
+            let result = extractor.check_silence_compute_features(&frame, &frame);
+            assert!(result.is_some(), "Non-zero frame should not be silence");
+            last_output = result;
         }
 
         // After enough frames, features should have finite values.
-        assert!(avg.iter().all(|v| v.is_finite()));
-        assert!(d1.iter().all(|v| v.is_finite()));
-        assert!(d2.iter().all(|v| v.is_finite()));
-        assert!(cross.iter().all(|v| v.is_finite()));
-        assert!(var.is_finite());
+        let features = last_output.unwrap();
+        assert!(features.average.iter().all(|v| v.is_finite()));
+        assert!(features.first_derivative.iter().all(|v| v.is_finite()));
+        assert!(features.second_derivative.iter().all(|v| v.is_finite()));
+        assert!(
+            features
+                .bands_cross_correlation
+                .iter()
+                .all(|v| v.is_finite())
+        );
+        assert!(features.variability.is_finite());
     }
 
     #[test]
     fn constant_input_zero_derivative() {
         let mut extractor = SpectralFeaturesExtractor::default();
-        // Create a constant non-zero frame.
-        let frame = [0.1_f32; FRAME_SIZE_20MS_24K_HZ];
-        let mut higher = [0.0_f32; NUM_BANDS - NUM_LOWER_BANDS];
-        let mut avg = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d1 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut d2 = [0.0_f32; NUM_LOWER_BANDS];
-        let mut cross = [0.0_f32; NUM_LOWER_BANDS];
-        let mut var = 0.0_f32;
+        // Create a constant non-zero frame (amplitude must exceed silence threshold).
+        let frame = [1.0_f32; FRAME_SIZE_20MS_24K_HZ];
 
         // Feed the same frame multiple times.
+        let mut last_output = None;
         for _ in 0..CEPSTRAL_COEFFS_HISTORY_SIZE + 1 {
-            extractor.check_silence_compute_features(
-                &frame,
-                &frame,
-                &mut higher,
-                &mut avg,
-                &mut d1,
-                &mut d2,
-                &mut cross,
-                &mut var,
-            );
+            let result = extractor.check_silence_compute_features(&frame, &frame);
+            if result.is_some() {
+                last_output = result;
+            }
         }
 
         // With constant input, derivatives should be zero.
-        for (i, &deriv) in d1.iter().enumerate() {
+        let features = last_output.expect("expected non-silent output");
+        for (i, &deriv) in features.first_derivative.iter().enumerate() {
             assert!(
                 deriv.abs() < 1e-5,
                 "first_derivative[{i}] = {deriv}, expected ~0"
             );
         }
-        for (i, &deriv) in d2.iter().enumerate() {
+        for (i, &deriv) in features.second_derivative.iter().enumerate() {
             assert!(
                 deriv.abs() < 1e-5,
                 "second_derivative[{i}] = {deriv}, expected ~0"

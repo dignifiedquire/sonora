@@ -589,7 +589,7 @@ fn passf3(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &
 /// Complex radix-4 butterfly pass.
 #[allow(
     clippy::too_many_arguments,
-    reason = "matches FFTPACK radix-4 signature"
+    reason = "FFT radix-4 butterfly — all params are independent array slices"
 )]
 fn passf4(
     ido: usize,
@@ -678,7 +678,7 @@ fn passf4(
 /// Complex radix-5 butterfly pass.
 #[allow(
     clippy::too_many_arguments,
-    reason = "matches FFTPACK radix-5 signature"
+    reason = "FFT radix-5 butterfly — all params are independent array slices"
 )]
 fn passf5(
     ido: usize,
@@ -1079,7 +1079,7 @@ fn radb4(ido: usize, l1: usize, cc: &[f32], ch: &mut [f32], wa1: &[f32], wa2: &[
 /// Real forward radix-5 pass.
 #[allow(
     clippy::too_many_arguments,
-    reason = "matches FFTPACK radix-5 signature"
+    reason = "FFT radix-5 butterfly — all params are independent array slices"
 )]
 fn radf5(
     ido: usize,
@@ -1180,7 +1180,7 @@ fn radf5(
 /// Real backward radix-5 pass.
 #[allow(
     clippy::too_many_arguments,
-    reason = "matches FFTPACK radix-5 signature"
+    reason = "FFT radix-5 butterfly — all params are independent array slices"
 )]
 fn radb5(
     ido: usize,
@@ -1428,7 +1428,7 @@ fn rfftb1(
 #[allow(
     clippy::too_many_arguments,
     clippy::needless_range_loop,
-    reason = "matches FFTPACK dispatch signature and C indexing pattern"
+    reason = "FFT dispatch through radix passes — all params are independent work buffers"
 )]
 fn cfftf1(
     n: usize,

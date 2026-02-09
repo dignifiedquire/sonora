@@ -53,7 +53,10 @@ unsafe fn extract_f32_256(v: __m256, idx: i32) -> f32 {
 /// # Safety
 /// Requires AVX2+FMA support. `h.len()` must be divisible by 8.
 #[target_feature(enable = "avx2", enable = "fma")]
-#[allow(clippy::too_many_arguments, reason = "matches C++ API")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel — struct indirection would hurt performance"
+)]
 pub(super) unsafe fn matched_filter_core(
     mut x_start_index: usize,
     x2_sum_threshold: f32,
@@ -162,7 +165,10 @@ pub(super) unsafe fn matched_filter_core(
 /// Requires AVX2+FMA support. `h.len()` must be divisible by 16.
 /// `scratch_memory.len()` must be >= `h.len()`.
 #[target_feature(enable = "avx2", enable = "fma")]
-#[allow(clippy::too_many_arguments, reason = "matches C++ API")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel — struct indirection would hurt performance"
+)]
 pub(super) unsafe fn matched_filter_core_accumulated_error(
     mut x_start_index: usize,
     x2_sum_threshold: f32,
