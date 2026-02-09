@@ -29,8 +29,13 @@ jobs:
             - uses: Swatinem/rust-cache@v2
             - uses: davidB/rust-cargo-make@v1
 
-            - name: Install system dependencies
+            - name: Install system dependencies (Linux)
+              if: runner.os == 'Linux'
               run: cargo make cpp-deps
+
+            - name: Install system dependencies (macOS)
+              if: runner.os == 'macOS'
+              run: brew install meson ninja abseil protobuf pkg-config || true
 
             - name: Run C++ test suite with Rust backend
               run: cargo make cpp-validate
@@ -52,8 +57,13 @@ jobs:
             - uses: Swatinem/rust-cache@v2
             - uses: davidB/rust-cargo-make@v1
 
-            - name: Install system dependencies
+            - name: Install system dependencies (Linux)
+              if: runner.os == 'Linux'
               run: cargo make cpp-deps
+
+            - name: Install system dependencies (macOS)
+              if: runner.os == 'macOS'
+              run: brew install meson ninja abseil protobuf pkg-config || true
 
             - name: Run Rust vs C++ comparison tests
               run: cargo make cpp-test
