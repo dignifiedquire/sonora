@@ -45,7 +45,7 @@ pub(super) unsafe fn matched_filter_core(
         let x_size = x.len() as i32;
         debug_assert_eq!(0, h_size % 4);
 
-        for i in 0..y.len() {
+        for &y_i in y.iter() {
             debug_assert!((x_start_index as i32) < x_size);
             let mut x_p = x.as_ptr().add(x_start_index);
             let mut h_p = h.as_ptr();
@@ -93,8 +93,8 @@ pub(super) unsafe fn matched_filter_core(
             s_128 = _mm_add_ps(s_128, s_128_4);
             s += hsum_ps(s_128);
 
-            let e = y[i] - s;
-            let saturation = y[i] >= 32000.0 || y[i] <= -32000.0;
+            let e = y_i - s;
+            let saturation = y_i >= 32000.0 || y_i <= -32000.0;
             *error_sum += e * e;
 
             if x2_sum > x2_sum_threshold && !saturation {
@@ -165,7 +165,7 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
 
         accumulated_error.iter_mut().for_each(|v| *v = 0.0);
 
-        for i in 0..y.len() {
+        for &y_i in y.iter() {
             debug_assert!((x_start_index as i32) < x_size);
 
             let chunk1 = h_size.min(x_size - x_start_index as i32);
@@ -204,10 +204,10 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
 
                 let s_inst = _mm_mul_ps(h_k, x_k);
                 s_acum += hsum_ps(s_inst);
-                let e0 = s_acum - y[i];
+                let e0 = s_acum - y_i;
                 let s_inst_4 = _mm_mul_ps(h_k_4, x_k_4);
                 s_acum += hsum_ps(s_inst_4);
-                let e1 = s_acum - y[i];
+                let e1 = s_acum - y_i;
 
                 *a_p += e0 * e0;
                 *a_p.add(1) += e1 * e1;
@@ -220,8 +220,8 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
             x2_sum_128 = _mm_add_ps(x2_sum_128, x2_sum_128_4);
             x2_sum += hsum_ps(x2_sum_128);
 
-            let e = y[i] - s_acum;
-            let saturation = y[i] >= 32000.0 || y[i] <= -32000.0;
+            let e = y_i - s_acum;
+            let saturation = y_i >= 32000.0 || y_i <= -32000.0;
             *error_sum += e * e;
 
             if x2_sum > x2_sum_threshold && !saturation {

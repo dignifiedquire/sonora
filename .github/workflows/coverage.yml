@@ -21,7 +21,9 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
       - name: Generate coverage
-        run: cargo llvm-cov nextest --workspace --codecov --output-path rust-codecov.json
+        run: |
+          cargo llvm-cov nextest --workspace --codecov --output-path rust-codecov.json
+          cargo llvm-cov report --lcov --output-path rust-lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -29,10 +31,20 @@ jobs:
           flags: rust
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: rust-lcov.info
+          flag-name: rust
+          parallel: true
 
   cpp-rust-coverage:
     name: C++ FFI Coverage
     runs-on: ubuntu-latest
+    # Profraw generation from GCC-linked binaries with LLVM instrumentation is
+    # unreliable — the LLVM profiling runtime atexit handler may not fire.
+    # Keep the job visible but non-blocking until this is resolved.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
         with:
@@ -87,7 +99,9 @@ jobs:
           ninja -C builddir
           meson test -C builddir -v --print-errorlogs
       - name: Generate coverage report
-        run: cargo llvm-cov report --release --codecov --output-path cpp-rust-codecov.json
+        run: |
+          cargo llvm-cov report --release --codecov --output-path cpp-rust-codecov.json
+          cargo llvm-cov report --release --lcov --output-path cpp-rust-lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -95,3 +109,20 @@ jobs:
           flags: cpp-ffi
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: cpp-rust-lcov.info
+          flag-name: cpp-ffi
+          parallel: true
+
+  coveralls-finish:
+    name: Coveralls Finish
+    needs: [rust-coverage, cpp-rust-coverage]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Finish Coveralls parallel build
+        uses: coverallsapp/github-action@v2
+        with:
+          parallel-finished: true

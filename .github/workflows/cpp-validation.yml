@@ -1,69 +1,71 @@
 name: C++ Validation
 
 on:
-    push:
-        branches: [main]
-    pull_request:
-    schedule:
-        - cron: "0 6 * * 1" # Weekly on Monday
-    workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday
+  workflow_dispatch:
 
 env:
-    CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: always
 
 jobs:
-    # Run the C++ test suite with the Rust backend replacing the C++ pipeline.
-    validate:
-        name: C++ Test Suite (${{ matrix.os }})
-        runs-on: ${{ matrix.os }}
-        strategy:
-            fail-fast: false
-            matrix:
-                os: [ubuntu-latest, macos-latest]
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  submodules: true
+  # Run the C++ test suite with the Rust backend replacing the C++ pipeline.
+  validate:
+    name: C++ Test Suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
 
-            - uses: dtolnay/rust-toolchain@stable
-            - uses: Swatinem/rust-cache@v2
-            - uses: davidB/rust-cargo-make@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: davidB/rust-cargo-make@v1
 
-            - name: Install system dependencies (Linux)
-              if: runner.os == 'Linux'
-              run: cargo make cpp-deps
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: cargo make cpp-deps
 
-            - name: Install system dependencies (macOS)
-              if: runner.os == 'macOS'
-              run: brew install meson ninja abseil protobuf pkg-config || true
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install meson ninja abseil protobuf pkg-config || true
 
-            - name: Run C++ test suite with Rust backend
-              run: cargo make cpp-validate
+      - name: Run C++ test suite with Rust backend
+        run: cargo make cpp-validate
+        # Timeout: the full C++ suite can take up to 5 minutes
+        timeout-minutes: 10
 
-    # Run the Rust vs C++ comparison tests (sonora-bench).
-    compare:
-        name: Rust/C++ Comparison (${{ matrix.os }})
-        runs-on: ${{ matrix.os }}
-        strategy:
-            fail-fast: false
-            matrix:
-                os: [ubuntu-latest, macos-latest]
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  submodules: true
+  # Run the Rust vs C++ comparison tests (sonora-bench).
+  compare:
+    name: Rust/C++ Comparison (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
 
-            - uses: dtolnay/rust-toolchain@stable
-            - uses: Swatinem/rust-cache@v2
-            - uses: davidB/rust-cargo-make@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: davidB/rust-cargo-make@v1
 
-            - name: Install system dependencies (Linux)
-              if: runner.os == 'Linux'
-              run: cargo make cpp-deps
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: cargo make cpp-deps
 
-            - name: Install system dependencies (macOS)
-              if: runner.os == 'macOS'
-              run: brew install meson ninja abseil protobuf pkg-config || true
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install meson ninja abseil protobuf pkg-config || true
 
-            - name: Run Rust vs C++ comparison tests
-              run: cargo make cpp-test
+      - name: Run Rust vs C++ comparison tests
+        run: cargo make cpp-test

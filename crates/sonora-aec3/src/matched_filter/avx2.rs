@@ -72,7 +72,7 @@ pub(super) unsafe fn matched_filter_core(
         let x_size = x.len() as i32;
         debug_assert_eq!(0, h_size % 8);
 
-        for i in 0..y.len() {
+        for &y_i in y.iter() {
             debug_assert!((x_start_index as i32) < x_size);
             let mut x_p = x.as_ptr().add(x_start_index);
             let mut h_p = h.as_ptr();
@@ -117,8 +117,8 @@ pub(super) unsafe fn matched_filter_core(
             x2_sum += extract_f32_128(sum, 0);
             s += extract_f32_128(sum, 1);
 
-            let e = y[i] - s;
-            let saturation = y[i] >= 32000.0 || y[i] <= -32000.0;
+            let e = y_i - s;
+            let saturation = y_i >= 32000.0 || y_i <= -32000.0;
             *error_sum += e * e;
 
             if x2_sum > x2_sum_threshold && !saturation {
@@ -188,7 +188,7 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
 
         accumulated_error.iter_mut().for_each(|v| *v = 0.0);
 
-        for i in 0..y.len() {
+        for &y_i in y.iter() {
             debug_assert!((x_start_index as i32) < x_size);
 
             let chunk1 = h_size.min(x_size - x_start_index as i32);
@@ -233,13 +233,13 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
                 // AVX hadd layout across lanes:
                 // [0]=first4_lo, [4]=first4_hi, [1]=second4_lo, [5]=second4_hi
                 s_acum += extract_f32_256(s_inst_hadd, 0);
-                let e0 = s_acum - y[i];
+                let e0 = s_acum - y_i;
                 s_acum += extract_f32_256(s_inst_hadd, 4);
-                let e1 = s_acum - y[i];
+                let e1 = s_acum - y_i;
                 s_acum += extract_f32_256(s_inst_hadd, 1);
-                let e2 = s_acum - y[i];
+                let e2 = s_acum - y_i;
                 s_acum += extract_f32_256(s_inst_hadd, 5);
-                let e3 = s_acum - y[i];
+                let e3 = s_acum - y_i;
 
                 let acum_error = _mm_loadu_ps(a_p);
                 let e_128 = _mm_set_ps(e3, e2, e1, e0);
@@ -260,8 +260,8 @@ pub(super) unsafe fn matched_filter_core_accumulated_error(
                 + extract_f32_128(x2_sum_128, 2)
                 + extract_f32_128(x2_sum_128, 3);
 
-            let e = y[i] - s_acum;
-            let saturation = y[i] >= 32000.0 || y[i] <= -32000.0;
+            let e = y_i - s_acum;
+            let saturation = y_i >= 32000.0 || y_i <= -32000.0;
             *error_sum += e * e;
 
             if x2_sum > x2_sum_threshold && !saturation {
