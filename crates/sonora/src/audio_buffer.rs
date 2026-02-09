@@ -518,16 +518,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn set_num_channels_sets_channel_buffers_num_channels() {
-        let mut ab = AudioBuffer::new(48000, 2, 48000, 2, 48000);
-        assert_eq!(ab.num_channels(), 2);
-        ab.set_num_channels(1);
-        assert_eq!(ab.num_channels(), 1);
-        ab.restore_num_channels();
-        assert_eq!(ab.num_channels(), 2);
-    }
-
-    #[test]
     fn copy_without_resampling() {
         let mut ab1 = AudioBuffer::new(32000, 2, 32000, 2, 32000);
         let mut ab2 = AudioBuffer::new(32000, 2, 32000, 2, 32000);

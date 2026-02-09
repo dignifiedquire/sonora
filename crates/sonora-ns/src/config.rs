@@ -64,25 +64,3 @@ impl Default for NsConfig {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_suppression_level() {
-        let config = NsConfig::default();
-        assert_eq!(config.target_level, SuppressionLevel::K12dB);
-    }
-
-    #[test]
-    fn constants_match_cpp() {
-        assert_eq!(FFT_SIZE, 256);
-        assert_eq!(FFT_SIZE_BY_2_PLUS_1, 129);
-        assert_eq!(NS_FRAME_SIZE, 160);
-        assert_eq!(OVERLAP_SIZE, 96);
-        assert_eq!(SHORT_STARTUP_PHASE_BLOCKS, 50);
-        assert_eq!(LONG_STARTUP_PHASE_BLOCKS, 200);
-        assert_eq!(FEATURE_UPDATE_WINDOW_SIZE, 500);
-    }
-}

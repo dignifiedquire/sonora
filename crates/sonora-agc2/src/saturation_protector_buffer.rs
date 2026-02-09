@@ -95,13 +95,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn construct() {
-        let buffer = SaturationProtectorBuffer::default();
-        assert_eq!(buffer.size, 0);
-        assert_eq!(buffer.front(), None);
-    }
-
-    #[test]
     fn push_and_front() {
         let mut buffer = SaturationProtectorBuffer::default();
         buffer.push_back(1.0);

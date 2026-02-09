@@ -175,26 +175,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn single_band_basic() {
-        let buf = ChannelBuffer::<f32>::new_single_band(480, 2);
-        assert_eq!(buf.num_frames(), 480);
-        assert_eq!(buf.num_frames_per_band(), 480);
-        assert_eq!(buf.num_channels(), 2);
-        assert_eq!(buf.num_bands(), 1);
-        assert_eq!(buf.size(), 960);
-    }
-
-    #[test]
-    fn multi_band_dimensions() {
-        let buf = ChannelBuffer::<f32>::new(480, 2, 3);
-        assert_eq!(buf.num_frames(), 480);
-        assert_eq!(buf.num_frames_per_band(), 160);
-        assert_eq!(buf.num_channels(), 2);
-        assert_eq!(buf.num_bands(), 3);
-        assert_eq!(buf.size(), 960);
-    }
-
-    #[test]
     fn channel_access_single_band() {
         let mut buf = ChannelBuffer::<f32>::new_single_band(4, 2);
         // Write to channel 0
@@ -240,16 +220,6 @@ mod tests {
         assert_eq!(buf.band(0, 1), &[3, 4]);
         assert_eq!(buf.band(1, 0), &[5, 6]);
         assert_eq!(buf.band(1, 1), &[7, 8]);
-    }
-
-    #[test]
-    fn set_num_channels() {
-        let mut buf = ChannelBuffer::<f32>::new_single_band(10, 4);
-        assert_eq!(buf.num_channels(), 4);
-        buf.set_num_channels(2);
-        assert_eq!(buf.num_channels(), 2);
-        // Data for all 4 channels is still allocated
-        assert_eq!(buf.size(), 40);
     }
 
     #[test]

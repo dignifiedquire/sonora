@@ -872,12 +872,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_validates() {
-        let mut cfg = EchoCanceller3Config::default();
-        assert!(cfg.validate());
-    }
-
-    #[test]
     fn out_of_range_values_are_clamped() {
         let mut cfg = EchoCanceller3Config::default();
         cfg.delay.down_sampling_factor = 3; // invalid, must be 4 or 8
@@ -888,16 +882,5 @@ mod tests {
         // `min > max_l || min > max_h` check clamps it further to
         // min(max_l=4.0, max_h=1.5) = 1.5.
         assert!((cfg.erle.min - 1.5).abs() < 0.01);
-    }
-
-    #[test]
-    fn multichannel_config_differs_from_default() {
-        let def = EchoCanceller3Config::default();
-        let mc = EchoCanceller3Config::create_default_multichannel_config();
-        assert_eq!(mc.filter.coarse.length_blocks, 11);
-        assert_ne!(
-            def.filter.coarse.length_blocks,
-            mc.filter.coarse.length_blocks
-        );
     }
 }

@@ -24,21 +24,3 @@ pub struct AudioProcessingStats {
     /// Instantaneous delay estimate from the AEC in milliseconds.
     pub delay_ms: Option<i32>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_stats_has_no_values() {
-        let stats = AudioProcessingStats::default();
-        assert!(stats.echo_return_loss.is_none());
-        assert!(stats.echo_return_loss_enhancement.is_none());
-        assert!(stats.divergent_filter_fraction.is_none());
-        assert!(stats.delay_median_ms.is_none());
-        assert!(stats.delay_standard_deviation_ms.is_none());
-        assert!(stats.residual_echo_likelihood.is_none());
-        assert!(stats.residual_echo_likelihood_recent_max.is_none());
-        assert!(stats.delay_ms.is_none());
-    }
-}

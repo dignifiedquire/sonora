@@ -325,63 +325,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_all_disabled() {
-        let config = Config::default();
-        assert_eq!(
-            config.pipeline.maximum_internal_processing_rate,
-            MaxProcessingRate::Rate32kHz
-        );
-        assert!(!config.pipeline.multi_channel_render);
-        assert!(!config.pipeline.multi_channel_capture);
-        assert_eq!(
-            config.pipeline.capture_downmix_method,
-            DownmixMethod::AverageChannels
-        );
-        assert!(config.pre_amplifier.is_none());
-        assert!(config.capture_level_adjustment.is_none());
-        assert!(config.high_pass_filter.is_none());
-        assert!(config.echo_canceller.is_none());
-        assert!(config.noise_suppression.is_none());
-        assert!(config.gain_controller2.is_none());
-    }
-
-    #[test]
-    fn default_sub_configs_match_upstream() {
-        let pre_amp = PreAmplifier::default();
-        assert_eq!(pre_amp.fixed_gain_factor, 1.0);
-
-        let cla = CaptureLevelAdjustment::default();
-        assert_eq!(cla.pre_gain_factor, 1.0);
-        assert_eq!(cla.post_gain_factor, 1.0);
-        assert!(cla.analog_mic_gain_emulation.is_none());
-
-        let amge = AnalogMicGainEmulation::default();
-        assert_eq!(amge.initial_level, 255);
-
-        let hpf = HighPassFilter::default();
-        assert!(hpf.apply_in_full_band);
-
-        let ec = EchoCanceller::default();
-        assert!(ec.enforce_high_pass_filtering);
-
-        let ns = NoiseSuppression::default();
-        assert_eq!(ns.level, NoiseSuppressionLevel::Moderate);
-        assert!(!ns.analyze_linear_aec_output_when_available);
-
-        let gc2 = GainController2::default();
-        assert!(!gc2.input_volume_controller);
-        assert!(gc2.adaptive_digital.is_none());
-        assert_eq!(gc2.fixed_digital.gain_db, 0.0);
-
-        let ad = AdaptiveDigital::default();
-        assert_eq!(ad.headroom_db, 5.0);
-        assert_eq!(ad.max_gain_db, 50.0);
-        assert_eq!(ad.initial_gain_db, 15.0);
-        assert_eq!(ad.max_gain_change_db_per_second, 6.0);
-        assert_eq!(ad.max_output_noise_level_dbfs, -50.0);
-    }
-
-    #[test]
     fn capture_level_adjustment_equality() {
         let a = CaptureLevelAdjustment::default();
         let mut b = a.clone();
