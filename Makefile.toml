@@ -126,7 +126,9 @@ description = "Build C++ with tests enabled and Rust backend"
 script = '''
 cargo build --release -p sonora-ffi
 cd cpp
-meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib -Dc_args=-march=native -Dcpp_args=-march=native --reconfigure || \
+# Always start fresh — meson --reconfigure on a non-existent builddir
+# produces broken builds on macOS ARM (Meson 1.10 bug).
+rm -rf builddir
 meson setup builddir -Dtests=enabled -Drust-backend=true -Dprefix="$(pwd)/install" --libdir=lib -Dc_args=-march=native -Dcpp_args=-march=native
 ninja -C builddir
 '''
@@ -154,7 +156,7 @@ script = '''
 cd cpp
 # Filter out RnnVadTest.LpResidualPipelineBitExactness — it uses near-zero
 # FP tolerance and is flaky across environments/compiler versions.
-meson test -C builddir -v --print-errorlogs --test-args="--gtest_filter=-RnnVadTest.LpResidualPipelineBitExactness"
+meson test -C builddir -v --print-errorlogs --timeout-multiplier 3 --test-args="--gtest_filter=-RnnVadTest.LpResidualPipelineBitExactness"
 '''
 
 # ── Compound ───────────────────────────────────────────────

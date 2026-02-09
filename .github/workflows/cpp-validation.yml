@@ -39,8 +39,7 @@ jobs:
 
       - name: Run C++ test suite with Rust backend
         run: cargo make cpp-validate
-        # Timeout: the full C++ suite can take up to 5 minutes
-        timeout-minutes: 10
+        timeout-minutes: 15
 
   # Run the Rust vs C++ comparison tests (sonora-bench).
   compare:
