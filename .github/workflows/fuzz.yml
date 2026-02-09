@@ -17,7 +17,7 @@ jobs:
       matrix:
         target: [process_stream, config_changes, c_api]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-fuzz
