@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/rnn_vad/auto_correlation.cc`.
 
-use std::fmt;
-
 use super::common::{BUF_SIZE_12K_HZ, MAX_PITCH_12K_HZ, NUM_LAGS_12K_HZ};
 use sonora_fft::pffft::{FftType, Pffft, PffftBuffer};
 
@@ -12,18 +10,13 @@ const AUTO_CORRELATION_FFT_ORDER: u32 = 9;
 
 /// Class to compute the auto-correlation on the pitch buffer for a target
 /// pitch interval.
+#[derive(Debug)]
 pub(crate) struct AutoCorrelationCalculator {
     fft: Pffft,
     tmp: PffftBuffer,
     tmp2: PffftBuffer,
     x_buf: PffftBuffer,
     h_buf: PffftBuffer,
-}
-
-impl fmt::Debug for AutoCorrelationCalculator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AutoCorrelationCalculator").finish()
-    }
 }
 
 impl Default for AutoCorrelationCalculator {

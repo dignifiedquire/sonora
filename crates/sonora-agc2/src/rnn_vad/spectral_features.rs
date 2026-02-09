@@ -14,7 +14,6 @@ use super::spectral_features_internal::{
 use super::symmetric_matrix_buffer::SymmetricMatrixBuffer;
 use sonora_fft::pffft::{FftType, Pffft, PffftBuffer};
 use std::f32::consts::FRAC_PI_2;
-use std::fmt;
 
 const SILENCE_THRESHOLD: f32 = 0.04;
 
@@ -29,6 +28,7 @@ pub(crate) struct SpectralFeaturesOutput {
 }
 
 /// Spectral feature extractor for 20 ms frames at 24 kHz.
+#[derive(Debug)]
 pub(crate) struct SpectralFeaturesExtractor {
     half_window: Vec<f32>,
     fft: Pffft,
@@ -42,12 +42,6 @@ pub(crate) struct SpectralFeaturesExtractor {
     dct_table: [f32; NUM_BANDS * NUM_BANDS],
     cepstral_coeffs_ring_buf: RingBuffer<NUM_BANDS, CEPSTRAL_COEFFS_HISTORY_SIZE>,
     cepstral_diffs_buf: SymmetricMatrixBuffer<CEPSTRAL_COEFFS_HISTORY_SIZE>,
-}
-
-impl fmt::Debug for SpectralFeaturesExtractor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SpectralFeaturesExtractor").finish()
-    }
 }
 
 impl Default for SpectralFeaturesExtractor {
