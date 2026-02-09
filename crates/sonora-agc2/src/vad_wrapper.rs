@@ -17,7 +17,7 @@ const NUM_FRAMES_PER_SECOND: i32 = 100;
 ///
 /// The default implementation uses the RNN VAD. A mock can be injected for
 /// testing.
-pub trait MonoVad: Send {
+pub trait MonoVad: Send + Sync {
     /// Returns the sample rate (Hz) required for input frames.
     fn sample_rate_hz(&self) -> i32;
     /// Resets the internal state.
@@ -151,8 +151,8 @@ impl VoiceActivityDetectorWrapper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use std::sync::Arc;
+    use std::sync::Mutex;
 
     const SAMPLE_RATE_8K_HZ: i32 = 8000;
     const NO_VAD_PERIODIC_RESET: i32 = FRAME_DURATION_MS * (i32::MAX / FRAME_DURATION_MS);
@@ -172,11 +172,7 @@ mod tests {
     }
 
     impl MockVad {
-        fn new(
-            sample_rate: i32,
-            probabilities: Vec<f32>,
-            state: Arc<Mutex<MockVadState>>,
-        ) -> Self {
+        fn new(sample_rate: i32, probabilities: Vec<f32>, state: Arc<Mutex<MockVadState>>) -> Self {
             Self {
                 sample_rate,
                 probabilities,

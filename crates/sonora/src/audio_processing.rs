@@ -679,6 +679,12 @@ mod tests {
         NoiseSuppressionLevel, Pipeline, PreAmplifier,
     };
 
+    const fn send<T: Send>() {}
+    const _: () = send::<AudioProcessing>();
+
+    const fn sync<T: Sync>() {}
+    const _: () = sync::<AudioProcessing>();
+
     #[test]
     fn builder_creates_default_instance() {
         let apm = AudioProcessing::builder().build();
