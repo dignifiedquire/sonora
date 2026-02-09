@@ -21,7 +21,7 @@ crate-type = ["staticlib", "rlib"]
 sonora = { workspace = true }
 
 [build-dependencies]
-cbindgen = "0.28"
+cbindgen = "0.29"
 
 [lints]
 workspace = true
