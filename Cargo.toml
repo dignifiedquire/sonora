@@ -3,6 +3,7 @@ resolver = "3"
 exclude = ["cpp", "fuzz"]
 members = [
     "crates/sonora",
+    "crates/sonora-ffi",
     "crates/sonora-sys",
     "crates/sonora-common-audio",
     "crates/sonora-aec3",
@@ -22,6 +23,7 @@ repository = "https://github.com/dignifiedquire/sonora"
 [workspace.dependencies]
 # Internal crates
 sonora = { version = "0.1.0", path = "crates/sonora" }
+sonora-ffi = { version = "0.1.0", path = "crates/sonora-ffi" }
 sonora-sys = { version = "0.1.0", path = "crates/sonora-sys" }
 sonora-common-audio = { version = "0.1.0", path = "crates/sonora-common-audio" }
 sonora-aec3 = { version = "0.1.0", path = "crates/sonora-aec3" }

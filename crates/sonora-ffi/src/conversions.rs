@@ -1,14 +1,14 @@
 //! Bidirectional conversions between C API types and Rust types.
 
-use crate::config::{
+use sonora::config::{
     AdaptiveDigital, AnalogMicGainEmulation, CaptureLevelAdjustment, Config, DownmixMethod,
     EchoCanceller, FixedDigital, GainController2, HighPassFilter, MaxProcessingRate,
     NoiseSuppression, NoiseSuppressionLevel, Pipeline, PreAmplifier,
 };
-use crate::stats::AudioProcessingStats;
-use crate::stream_config::StreamConfig;
+use sonora::stats::AudioProcessingStats;
+use sonora::StreamConfig;
 
-use super::types::{
+use crate::types::{
     WapConfig, WapDownmixMethod, WapNoiseSuppressionLevel, WapStats, WapStreamConfig,
 };
 

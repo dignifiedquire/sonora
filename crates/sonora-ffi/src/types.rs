@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use crate::AudioProcessing;
+use sonora::AudioProcessing;
 
 // ---------------------------------------------------------------------------
 // Error codes

@@ -950,7 +950,6 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 name = "sonora"
 version = "0.1.0"
 dependencies = [
- "cbindgen",
  "criterion",
  "proptest",
  "sonora-aec3",
@@ -999,6 +998,14 @@ dependencies = [
  "derive_more",
  "sonora-simd",
  "tracing",
+]
+
+[[package]]
+name = "sonora-ffi"
+version = "0.1.0"
+dependencies = [
+ "cbindgen",
+ "sonora",
 ]
 
 [[package]]

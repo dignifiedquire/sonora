@@ -14,7 +14,8 @@ Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module.
 
 | Crate | Description | Crates.io | Documentation |
 |-------|-------------|:---------:|:-------------:|
-| [`sonora`] | Full audio processing pipeline with C API | [![crates.io](https://img.shields.io/crates/v/sonora.svg)](https://crates.io/crates/sonora) | [![docs.rs](https://docs.rs/sonora/badge.svg)](https://docs.rs/sonora) |
+| [`sonora`] | Full audio processing pipeline | [![crates.io](https://img.shields.io/crates/v/sonora.svg)](https://crates.io/crates/sonora) | [![docs.rs](https://docs.rs/sonora/badge.svg)](https://docs.rs/sonora) |
+| [`sonora-ffi`] | C API (FFI) for integration with C/C++ projects | [![crates.io](https://img.shields.io/crates/v/sonora-ffi.svg)](https://crates.io/crates/sonora-ffi) | [![docs.rs](https://docs.rs/sonora-ffi/badge.svg)](https://docs.rs/sonora-ffi) |
 | [`sonora-aec3`] | Echo Canceller 3 (AEC3) | [![crates.io](https://img.shields.io/crates/v/sonora-aec3.svg)](https://crates.io/crates/sonora-aec3) | [![docs.rs](https://docs.rs/sonora-aec3/badge.svg)](https://docs.rs/sonora-aec3) |
 | [`sonora-agc2`] | Automatic Gain Control with RNN VAD | [![crates.io](https://img.shields.io/crates/v/sonora-agc2.svg)](https://crates.io/crates/sonora-agc2) | [![docs.rs](https://docs.rs/sonora-agc2/badge.svg)](https://docs.rs/sonora-agc2) |
 | [`sonora-ns`] | Noise Suppression | [![crates.io](https://img.shields.io/crates/v/sonora-ns.svg)](https://crates.io/crates/sonora-ns) | [![docs.rs](https://docs.rs/sonora-ns/badge.svg)](https://docs.rs/sonora-ns) |
@@ -29,7 +30,7 @@ Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module.
 - **Noise Suppression** -- Wiener filter-based noise reduction with voice activity detection
 - **Automatic Gain Control (AGC2)** -- RNN VAD-based gain controller with limiter
 - **High-Pass Filter** -- DC offset removal
-- **C API** -- cbindgen-generated C header for FFI integration (feature-gated)
+- **C API** -- cbindgen-generated C header for FFI integration (via [`sonora-ffi`])
 
 ## Quick Start
 
@@ -116,6 +117,7 @@ The audio processing code in this project has a long lineage:
 [//]: # (crates)
 
 [`sonora`]: ./crates/sonora
+[`sonora-ffi`]: ./crates/sonora-ffi
 [`sonora-aec3`]: ./crates/sonora-aec3
 [`sonora-agc2`]: ./crates/sonora-agc2
 [`sonora-ns`]: ./crates/sonora-ns

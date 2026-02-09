@@ -1,0 +1,27 @@
+[package]
+name = "sonora-ffi"
+version = "0.1.0"
+description = "C API (FFI) for the sonora audio processing library"
+readme = "README.md"
+keywords = ["audio", "webrtc", "ffi", "echo-cancellation", "noise-suppression"]
+categories = ["multimedia::audio", "api-bindings"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+sonora = { workspace = true }
+
+[build-dependencies]
+cbindgen = "0.28"
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 # cbindgen configuration for sonora C API header generation.
 #
-# Run manually: cbindgen --config cbindgen.toml --crate sonora --output include/wap_audio_processing.h
+# Run manually: cbindgen --config cbindgen.toml --crate sonora-ffi --output include/wap_audio_processing.h
 # Automatic: build.rs invokes cbindgen on every build.
 
 language = "C"

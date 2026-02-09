@@ -2,8 +2,8 @@
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use sonora::ffi::functions::*;
-use sonora::ffi::types::*;
+use sonora_ffi::functions::*;
+use sonora_ffi::types::*;
 
 #[derive(Debug, Arbitrary)]
 struct FuzzInput {

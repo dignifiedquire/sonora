@@ -24,7 +24,7 @@ macro_rules! ffi_guard {
 
         match panic::catch_unwind(AssertUnwindSafe(move || { $($body)* })) {
             Ok(result) => result,
-            Err(_) => $crate::ffi::types::WapError::Internal,
+            Err(_) => $crate::types::WapError::Internal,
         }
     }};
 }
@@ -61,7 +61,7 @@ pub(crate) use ffi_guard_ptr;
 
 #[cfg(test)]
 mod tests {
-    use crate::ffi::types::WapError;
+    use crate::types::WapError;
 
     #[test]
     fn ffi_guard_returns_value_on_success() {

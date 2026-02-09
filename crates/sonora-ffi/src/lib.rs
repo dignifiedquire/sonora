@@ -1,7 +1,8 @@
 //! C-compatible FFI layer for the audio processing pipeline.
 //!
-//! This module exposes `extern "C"` functions and `#[repr(C)]` types that
-//! allow C and C++ consumers to use the Rust audio processing engine.
+//! This crate exposes `extern "C"` functions and `#[repr(C)]` types that
+//! allow C and C++ consumers to use the Rust audio processing engine
+//! provided by the [`sonora`] crate.
 //!
 //! # Symbol prefix
 //!

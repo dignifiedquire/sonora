@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 sonora = { path = "../crates/sonora" }
+sonora-ffi = { path = "../crates/sonora-ffi" }
 arbitrary = { version = "1", features = ["derive"] }
 
 [[bin]]

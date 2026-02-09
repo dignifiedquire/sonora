@@ -10,16 +10,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[lib]
-crate-type = ["rlib", "staticlib"]
-
 [features]
-default = ["ffi"]
-ffi = ["dep:cbindgen"]
 cpp-comparison = ["dep:sonora-sys"]
-
-[build-dependencies]
-cbindgen = { version = "0.28", optional = true }
 
 [dependencies]
 sonora-common-audio = { workspace = true }

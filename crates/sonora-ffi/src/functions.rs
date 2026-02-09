@@ -8,11 +8,11 @@ use std::ffi::c_char;
 use std::ptr;
 use std::slice;
 
-use crate::AudioProcessing;
-use crate::config::Config;
+use sonora::AudioProcessing;
+use sonora::Config;
 
-use super::panic_guard::{ffi_guard, ffi_guard_ptr};
-use super::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamConfig};
+use crate::panic_guard::{ffi_guard, ffi_guard_ptr};
+use crate::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamConfig};
 
 // ─── Version ─────────────────────────────────────────────────────────
 
@@ -166,17 +166,7 @@ pub unsafe extern "C" fn wap_initialize(
         let rev_in_cfg = reverse_input_config.to_rust();
         let rev_out_cfg = reverse_output_config.to_rust();
         // The C API supports distinct input/output configs per path.
-        // Update stored configs and reinitialize via the internal impl.
-        use crate::audio_processing_impl::ProcessingConfig;
-        let processing_config = ProcessingConfig {
-            input_stream: in_cfg,
-            output_stream: out_cfg,
-            reverse_input_stream: rev_in_cfg,
-            reverse_output_stream: rev_out_cfg,
-        };
-        apm.inner.capture_config = in_cfg;
-        apm.inner.render_config = rev_in_cfg;
-        apm.inner.inner.initialize_with_config(processing_config);
+        apm.inner.initialize(in_cfg, out_cfg, rev_in_cfg, rev_out_cfg);
         WapError::None
     }
 }
@@ -254,14 +244,14 @@ unsafe fn rebuild_channel_slices_mut<'a>(
     Some(slices)
 }
 
-/// Converts a [`crate::Error`] to a [`WapError`].
-fn rust_error_to_wap(err: crate::Error) -> WapError {
+/// Converts a [`sonora::Error`] to a [`WapError`].
+fn rust_error_to_wap(err: sonora::Error) -> WapError {
     match err {
-        crate::Error::InvalidSampleRate { .. } => WapError::BadSampleRate,
-        crate::Error::InvalidChannelCount { .. } | crate::Error::ChannelMismatch { .. } => {
+        sonora::Error::InvalidSampleRate { .. } => WapError::BadSampleRate,
+        sonora::Error::InvalidChannelCount { .. } | sonora::Error::ChannelMismatch { .. } => {
             WapError::BadNumberChannels
         }
-        crate::Error::StreamParameterClamped => WapError::BadStreamParameter,
+        sonora::Error::StreamParameterClamped => WapError::BadStreamParameter,
     }
 }
 
@@ -711,7 +701,7 @@ mod tests {
     use std::f32::consts::PI;
     use std::ffi::CStr;
 
-    use crate::ffi::types::WapNoiseSuppressionLevel;
+    use crate::types::WapNoiseSuppressionLevel;
 
     #[test]
     fn version_returns_non_null() {

@@ -442,6 +442,30 @@ impl AudioProcessing {
         self.inner.config()
     }
 
+    /// Reinitializes the processing pipeline with new stream configurations.
+    ///
+    /// This sets all four stream configs (capture input/output, render
+    /// input/output) at once and reinitializes internal state accordingly.
+    /// Typically used by the C API; Rust callers should prefer the builder
+    /// or the `_with_config` processing method variants.
+    pub fn initialize(
+        &mut self,
+        input: StreamConfig,
+        output: StreamConfig,
+        reverse_input: StreamConfig,
+        reverse_output: StreamConfig,
+    ) {
+        use crate::audio_processing_impl::ProcessingConfig;
+        self.capture_config = input;
+        self.render_config = reverse_input;
+        self.inner.initialize_with_config(ProcessingConfig {
+            input_stream: input,
+            output_stream: output,
+            reverse_input_stream: reverse_input,
+            reverse_output_stream: reverse_output,
+        });
+    }
+
     /// Sets the capture pre-gain as a linear factor.
     ///
     /// Applied at the next `process_capture_*` call.
