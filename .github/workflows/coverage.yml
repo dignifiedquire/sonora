@@ -41,9 +41,8 @@ jobs:
   cpp-rust-coverage:
     name: C++ FFI Coverage
     runs-on: ubuntu-latest
-    # Profraw generation from GCC-linked binaries with LLVM instrumentation is
-    # unreliable — the LLVM profiling runtime atexit handler may not fire.
-    # Keep the job visible but non-blocking until this is resolved.
+    # The LLVM profiling runtime must be force-linked (--whole-archive) into
+    # the GCC-linked test binary for .profraw generation to work.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
@@ -65,39 +64,53 @@ jobs:
           eval "$(cargo llvm-cov show-env --release)"
           cargo llvm-cov clean --workspace --release
           cargo build --release -p sonora-ffi
-      - name: Build C++ with Rust backend
+      - name: Extract LLVM profiling runtime
+        run: |
+          # The instrumented libsonora_ffi.a has weak-undefined __llvm_profile_runtime.
+          # GCC won't resolve weak symbols from archives, so we extract the LLVM
+          # profiling runtime objects into a standalone static library and force-link
+          # it via --whole-archive in LDFLAGS.
+          SYSROOT=$(rustc --print sysroot)
+          HOST=$(rustc -vV | sed -n 's/host: //p')
+          PROFILER_RLIB=$(ls "$SYSROOT"/lib/rustlib/"$HOST"/lib/libprofiler_builtins-*.rlib)
+
+          PROFILER_DIR=$(mktemp -d)
+          cd "$PROFILER_DIR"
+          ar x "$PROFILER_RLIB"
+          rm -f *.rmeta lib.rmeta
+          # Create a standalone archive that we can --whole-archive link
+          ar rcs libllvm_profiler.a *.o
+          rm -f *.o
+          cd -
+
+          echo "PROFILER_LIB=$PROFILER_DIR/libllvm_profiler.a" >> "$GITHUB_ENV"
+      - name: Build C++ with Rust backend and profiling runtime
         working-directory: cpp
         run: |
+          # Force-link the LLVM profiling runtime so __llvm_profile_runtime is
+          # defined and the atexit handler writes .profraw files.
+          export LDFLAGS="-Wl,--whole-archive $PROFILER_LIB -Wl,--no-whole-archive"
           meson setup builddir \
             -Dtests=enabled \
             -Drust-backend=true \
             -Dprefix=${{ github.workspace }}/install
           ninja -C builddir
-      - name: Inject LLVM profiling runtime and run tests
+      - name: Run C++ tests
         working-directory: cpp
         run: |
-          # The instrumented libsonora_ffi.a references __llvm_profile_runtime (undefined),
-          # which is provided by Rust's profiler_builtins. When GCC links the C++ test
-          # binary, it doesn't know about this dependency, so profraw files are never
-          # written. Fix: extract the profiling runtime objects from the rlib and append
-          # them to libsonora_ffi.a, then re-link the test binary.
-          TARGET_DIR=$(cargo metadata --format-version 1 --no-deps --manifest-path ../Cargo.toml | python3 -c "import sys,json; print(json.load(sys.stdin)['target_directory'])")
-          SYSROOT=$(rustc --print sysroot)
-          HOST=$(rustc -vV | sed -n 's/host: //p')
-          PROFILER_RLIB=$(ls "$SYSROOT"/lib/rustlib/"$HOST"/lib/libprofiler_builtins-*.rlib)
-
-          TMPDIR=$(mktemp -d)
-          cd "$TMPDIR"
-          ar x "$PROFILER_RLIB"
-          # Remove Rust metadata — only keep the InstrProfiling object files
-          rm -f *.rmeta lib.rmeta
-          ar rcs "$TARGET_DIR/release/libsonora_ffi.a" *.o
-          cd -
-          rm -rf "$TMPDIR"
-
-          # Re-link the test binary to pick up the profiling runtime
-          ninja -C builddir
           meson test -C builddir -v --print-errorlogs
+      - name: Check for profraw files
+        run: |
+          echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE"
+          echo "Looking for .profraw files in target/..."
+          find target/ -name '*.profraw' -ls 2>/dev/null || true
+          PROFRAW_COUNT=$(find target/ -name '*.profraw' 2>/dev/null | wc -l)
+          echo "Found $PROFRAW_COUNT .profraw files"
+          if [ "$PROFRAW_COUNT" -eq 0 ]; then
+            echo "::warning::No .profraw files found — profiling runtime may not have fired"
+            # Also check for profraw files elsewhere
+            find /tmp -name '*.profraw' -ls 2>/dev/null | head -5 || true
+          fi
       - name: Generate coverage report
         run: |
           cargo llvm-cov report --release --codecov --output-path cpp-rust-codecov.json
