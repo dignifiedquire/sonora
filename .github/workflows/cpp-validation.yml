@@ -37,6 +37,59 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install meson ninja abseil protobuf pkg-config || true
 
+      - name: Debug meson environment (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          # Build Rust lib first (same as cpp-build-test)
+          cargo build --release -p sonora-ffi
+
+          cd cpp
+          rm -rf builddir
+
+          echo "=== Direct meson setup (no cargo-make) ==="
+          meson setup builddir-direct -Dtests=enabled -Drust-backend=true \
+            -Dprefix="$(pwd)/install" --libdir=lib \
+            -Dc_args=-march=native -Dcpp_args=-march=native
+
+          echo "=== meson-log.txt ==="
+          cat builddir-direct/meson-logs/meson-log.txt | head -50
+
+          echo "=== Compile command for sinc_resampler.cc ==="
+          python3 -c "
+          import json
+          cmds = json.load(open('builddir-direct/compile_commands.json'))
+          for c in cmds:
+              if 'sinc_resampler.cc' in c['file'] and 'push_sinc' not in c['file']:
+                  print(c['command'])
+          "
+
+          echo "=== Build direct ==="
+          ninja -C builddir-direct 2>&1 | tail -20
+
+          echo "=== Now via cargo-make ==="
+          rm -rf builddir-direct
+          cd ..
+          cargo make cpp-build-test 2>&1 | tail -30
+
+          echo "=== cargo-make compile command for sinc_resampler.cc ==="
+          cd cpp
+          python3 -c "
+          import json
+          cmds = json.load(open('builddir/compile_commands.json'))
+          for c in cmds:
+              if 'sinc_resampler.cc' in c['file'] and 'push_sinc' not in c['file']:
+                  print(c['command'])
+          " || echo "no builddir/compile_commands.json"
+
+          echo "=== cargo-make env vars that might affect build ==="
+          cd ..
+          cargo make --print-steps cpp-build-test 2>&1 | head -50 || true
+
+          echo "=== Preprocess sinc_resampler.h arch guards ==="
+          cd cpp
+          c++ -DWEBRTC_POSIX -DWEBRTC_MAC -DWEBRTC_ARCH_ARM64 -DWEBRTC_HAS_NEON \
+            -I. -Iwebrtc -E -dM webrtc/rtc_base/system/arch.h 2>&1 | grep -i 'webrtc_arch\|webrtc_has'
+
       - name: Run C++ test suite with Rust backend
         run: cargo make cpp-validate
         timeout-minutes: 15
