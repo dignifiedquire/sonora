@@ -68,7 +68,7 @@ fn choose_coefficients(sample_rate_hz: i32) -> &'static [BiQuadCoefficients; 3] 
         16000 => &HIGH_PASS_FILTER_COEFFICIENTS_16KHZ,
         32000 => &HIGH_PASS_FILTER_COEFFICIENTS_32KHZ,
         48000 => &HIGH_PASS_FILTER_COEFFICIENTS_48KHZ,
-        _ => unreachable!("unsupported sample rate: {sample_rate_hz}"),
+        _ => panic!("unsupported sample rate: {sample_rate_hz}; expected 16000, 32000, or 48000"),
     }
 }
 

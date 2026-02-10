@@ -16,6 +16,11 @@ use crate::speech_probability_estimator::{SignalAnalysis, SpeechProbabilityEstim
 use crate::suppression_params::SuppressionParams;
 use crate::wiener_filter::WienerFilter;
 
+/// Minimum 16-bit PCM sample value as float.
+const MIN_S16: f32 = -32768.0;
+/// Maximum 16-bit PCM sample value as float.
+const MAX_S16: f32 = 32767.0;
+
 /// Hybrid Hanning + flat window for the filterbank (first half, 96 samples).
 ///
 /// Applied to both ends of the 256-sample extended frame. The middle 64
@@ -499,7 +504,7 @@ impl NoiseSuppressor {
 
         // Clamp output to valid range.
         for v in frame.iter_mut() {
-            *v = v.clamp(-32768.0, 32767.0);
+            *v = v.clamp(MIN_S16, MAX_S16);
         }
     }
 
@@ -552,7 +557,7 @@ impl NoiseSuppressor {
     /// bands after upper band processing.
     pub fn clamp_frame(frame: &mut [f32; NS_FRAME_SIZE]) {
         for v in frame.iter_mut() {
-            *v = v.clamp(-32768.0, 32767.0);
+            *v = v.clamp(MIN_S16, MAX_S16);
         }
     }
 }

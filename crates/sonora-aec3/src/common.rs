@@ -25,6 +25,9 @@ pub const BLOCK_SIZE: usize = FFT_LENGTH_BY_2;
 pub(crate) const BLOCK_SIZE_LOG2: usize = FFT_LENGTH_BY_2_LOG2;
 pub(crate) const BLOCK_SIZE_MS: usize = FFT_LENGTH_BY_2 * 1000 / 16000;
 
+/// Number of 10 ms frames per second (used by frame-level metrics).
+pub(crate) const NUM_FRAMES_PER_SECOND: i32 = 100;
+
 pub(crate) const MATCHED_FILTER_WINDOW_SIZE_SUB_BLOCKS: usize = 32;
 pub(crate) const MATCHED_FILTER_ALIGNMENT_SHIFT_SIZE_SUB_BLOCKS: usize =
     MATCHED_FILTER_WINDOW_SIZE_SUB_BLOCKS * 3 / 4;

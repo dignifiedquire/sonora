@@ -38,7 +38,7 @@ impl Jitter {
 
 /// Returns true when it's time to report metrics.
 fn time_to_report_metrics(frames_since_last_report: i32) -> bool {
-    const NUM_FRAMES_PER_SECOND: i32 = 100;
+    use crate::common::NUM_FRAMES_PER_SECOND;
     const REPORTING_INTERVAL_FRAMES: i32 = 10 * NUM_FRAMES_PER_SECOND;
     frames_since_last_report == REPORTING_INTERVAL_FRAMES
 }

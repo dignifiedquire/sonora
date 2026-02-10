@@ -461,7 +461,7 @@ impl AudioProcessing {
     ///
     /// This sets all four stream configs (capture input/output, render
     /// input/output) at once and reinitializes internal state accordingly.
-    /// Typically used by the C API; Rust callers should prefer the builder
+    /// Typically used by the FFI layer; Rust callers should prefer the builder
     /// or the `_with_config` processing method variants.
     pub fn initialize(
         &mut self,

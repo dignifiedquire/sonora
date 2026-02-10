@@ -4,7 +4,7 @@
 //! Ported from
 //! `modules/audio_processing/aec3/multi_channel_content_detector.h/cc`.
 
-const NUM_FRAMES_PER_SECOND: i32 = 100;
+use crate::common::NUM_FRAMES_PER_SECOND;
 
 /// Checks whether any sample pair across bands exceeds the detection threshold.
 fn has_stereo_content(frame: &[Vec<Vec<f32>>], detection_threshold: f32) -> bool {

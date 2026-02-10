@@ -98,9 +98,7 @@ impl EchoRemoverMetrics {
                     self.block_counter = 0;
                     self.reset_metrics();
                 }
-                _ => {
-                    debug_assert!(false, "unexpected block counter state");
-                }
+                _ => {}
             }
         }
     }

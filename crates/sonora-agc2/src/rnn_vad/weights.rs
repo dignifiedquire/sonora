@@ -69,11 +69,11 @@ pub(crate) const INPUT_DENSE_BIAS: [i8; INPUT_LAYER_OUTPUT_SIZE] = [
 // Hidden layer (GRU).
 pub(crate) const HIDDEN_LAYER_OUTPUT_SIZE: usize = 24;
 
-pub(crate) const HIDDEN_GRU_WEIGHTS: [i8; 3 * INPUT_LAYER_OUTPUT_SIZE * HIDDEN_LAYER_OUTPUT_SIZE] =
+pub(crate) const HIDDEN_GRU_WEIGHTS: [i8; 3 * HIDDEN_LAYER_OUTPUT_SIZE * HIDDEN_LAYER_OUTPUT_SIZE] =
     include!("weights_hidden_gru.inc");
 
 pub(crate) const HIDDEN_GRU_RECURRENT_WEIGHTS: [i8; 3
-    * INPUT_LAYER_OUTPUT_SIZE
+    * HIDDEN_LAYER_OUTPUT_SIZE
     * HIDDEN_LAYER_OUTPUT_SIZE] = include!("weights_hidden_gru_recurrent.inc");
 
 pub(crate) const HIDDEN_GRU_BIAS: [i8; 3 * HIDDEN_LAYER_OUTPUT_SIZE] = [

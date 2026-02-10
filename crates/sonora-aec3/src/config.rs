@@ -362,9 +362,12 @@ fn floor_limit_usize(value: &mut usize, min: usize) -> bool {
 
 // --- Sub-config structs ---
 
+/// Render buffer excess detection settings.
 #[derive(Debug, Clone)]
 pub struct Buffering {
+    /// Interval in blocks between excess render detection checks (default: 250).
     pub excess_render_detection_interval_blocks: usize,
+    /// Maximum allowed excess render blocks before triggering correction (default: 8).
     pub max_allowed_excess_render_blocks: usize,
 }
 
@@ -377,36 +380,60 @@ impl Default for Buffering {
     }
 }
 
+/// Thresholds for delay estimator convergence detection.
 #[derive(Debug, Clone)]
 pub struct DelaySelectionThresholds {
+    /// Threshold used during the initial phase before convergence (default: 5).
     pub initial: i32,
+    /// Threshold used after the delay estimator has converged (default: 20).
     pub converged: i32,
 }
 
+/// Multichannel alignment mixing strategy.
 #[derive(Debug, Clone)]
 pub struct AlignmentMixing {
+    /// Whether to downmix multiple channels to mono for alignment.
     pub downmix: bool,
+    /// Whether to adaptively select the best channel for alignment.
     pub adaptive_selection: bool,
+    /// Power threshold for considering a channel as active (default: 10000.0).
     pub activity_power_threshold: f32,
+    /// Whether to prefer the first two channels when selecting alignment reference.
     pub prefer_first_two_channels: bool,
 }
 
+/// Delay estimation and alignment parameters.
 #[derive(Debug, Clone)]
 pub struct Delay {
+    /// Default delay in blocks before estimation converges (default: 5).
     pub default_delay: usize,
+    /// Down-sampling factor for the delay estimator; must be 4 or 8 (default: 4).
     pub down_sampling_factor: usize,
+    /// Number of correlator filters used for delay estimation (default: 5).
     pub num_filters: usize,
+    /// Extra headroom in samples added to the estimated delay (default: 32).
     pub delay_headroom_samples: usize,
+    /// Hysteresis in blocks before accepting a new delay estimate (default: 1).
     pub hysteresis_limit_blocks: usize,
+    /// Fixed capture delay override in samples; 0 means use estimation (default: 0).
     pub fixed_capture_delay_samples: usize,
+    /// Smoothing factor for delay estimates in [0, 1] (default: 0.7).
     pub delay_estimate_smoothing: f32,
+    /// Smoothing factor for delay estimates after delay is found (default: 0.7).
     pub delay_estimate_smoothing_delay_found: f32,
+    /// Correlation threshold for detecting a delay candidate (default: 0.2).
     pub delay_candidate_detection_threshold: f32,
+    /// Convergence thresholds for delay selection.
     pub delay_selection_thresholds: DelaySelectionThresholds,
+    /// Whether to use an externally provided delay estimate.
     pub use_external_delay_estimator: bool,
+    /// Whether to log warnings when the delay estimate changes.
     pub log_warning_on_delay_changes: bool,
+    /// Alignment mixing settings for the render signal.
     pub render_alignment_mixing: AlignmentMixing,
+    /// Alignment mixing settings for the capture signal.
     pub capture_alignment_mixing: AlignmentMixing,
+    /// Whether to detect and compensate for pre-echo artifacts.
     pub detect_pre_echo: bool,
 }
 
@@ -445,36 +472,60 @@ impl Default for Delay {
     }
 }
 
+/// Configuration for the refined (main) adaptive filter.
 #[derive(Debug, Clone)]
 pub struct RefinedConfiguration {
+    /// Filter length in blocks (default: 13, initial: 12).
     pub length_blocks: usize,
+    /// Leakage factor when the filter has converged (default: 0.00005).
     pub leakage_converged: f32,
+    /// Leakage factor when the filter has diverged (default: 0.05).
     pub leakage_diverged: f32,
+    /// Minimum error floor to prevent division by zero (default: 0.001).
     pub error_floor: f32,
+    /// Maximum error ceiling to limit adaptation (default: 2.0).
     pub error_ceil: f32,
+    /// Power threshold below which adaptation is gated (default: 20075344.0).
     pub noise_gate: f32,
 }
 
+/// Configuration for the coarse (shadow) adaptive filter.
 #[derive(Debug, Clone)]
 pub struct CoarseConfiguration {
+    /// Filter length in blocks (default: 13, initial: 12).
     pub length_blocks: usize,
+    /// Adaptation step-size rate in [0, 1] (default: 0.7, initial: 0.9).
     pub rate: f32,
+    /// Power threshold below which adaptation is gated (default: 20075344.0).
     pub noise_gate: f32,
 }
 
+/// Adaptive filter adaptation settings.
 #[derive(Debug, Clone)]
 pub struct Filter {
+    /// Refined (main) adaptive filter configuration.
     pub refined: RefinedConfiguration,
+    /// Coarse (shadow) adaptive filter configuration.
     pub coarse: CoarseConfiguration,
+    /// Refined filter configuration used during the initial phase.
     pub refined_initial: RefinedConfiguration,
+    /// Coarse filter configuration used during the initial phase.
     pub coarse_initial: CoarseConfiguration,
+    /// Duration in blocks for transitioning between config changes (default: 250).
     pub config_change_duration_blocks: usize,
+    /// Duration in seconds of the initial adaptation phase (default: 2.5).
     pub initial_state_seconds: f32,
+    /// Hangover in blocks after a coarse filter reset (default: 25).
     pub coarse_reset_hangover_blocks: i32,
+    /// Whether to use a conservative strategy during the initial phase.
     pub conservative_initial_phase: bool,
+    /// Whether to allow using the coarse filter output for echo subtraction.
     pub enable_coarse_filter_output_usage: bool,
+    /// Whether to use the linear adaptive filter for echo removal.
     pub use_linear_filter: bool,
+    /// Whether to high-pass filter the echo reference signal.
     pub high_pass_filter_echo_reference: bool,
+    /// Whether to export the linear AEC output for external use.
     pub export_linear_aec_output: bool,
 }
 
@@ -519,14 +570,22 @@ impl Default for Filter {
     }
 }
 
+/// Echo Return Loss Enhancement (ERLE) estimation parameters.
 #[derive(Debug, Clone)]
 pub struct Erle {
+    /// Minimum ERLE value in linear scale (default: 1.0).
     pub min: f32,
+    /// Maximum ERLE for LF bands in linear scale (default: 4.0).
     pub max_l: f32,
+    /// Maximum ERLE for HF bands in linear scale (default: 1.5).
     pub max_h: f32,
+    /// Whether to use onset detection to reset ERLE estimates.
     pub onset_detection: bool,
+    /// Number of frequency sections for ERLE estimation (default: 1).
     pub num_sections: usize,
+    /// Whether to clamp the filter quality estimate at zero.
     pub clamp_quality_estimate_to_zero: bool,
+    /// Whether to clamp the filter quality estimate at one.
     pub clamp_quality_estimate_to_one: bool,
 }
 
@@ -544,14 +603,22 @@ impl Default for Erle {
     }
 }
 
+/// Echo path strength and suppression gain parameters.
 #[derive(Debug, Clone)]
 pub struct EpStrength {
+    /// Default echo path gain applied to the suppressor (default: 1.0).
     pub default_gain: f32,
+    /// Echo path tail length as a fraction in [-1, 1] (default: 0.83).
     pub default_len: f32,
+    /// Echo path tail length during dominant nearend in [-1, 1] (default: 0.83).
     pub nearend_len: f32,
+    /// Whether the echo path can introduce saturation/clipping.
     pub echo_can_saturate: bool,
+    /// Whether to bound the ERL estimate.
     pub bounded_erl: bool,
+    /// Whether to compensate ERLE onset during dominant nearend detection.
     pub erle_onset_compensation_in_dominant_nearend: bool,
+    /// Whether to use a conservative tail frequency response estimate.
     pub use_conservative_tail_frequency_response: bool,
 }
 
@@ -569,15 +636,24 @@ impl Default for EpStrength {
     }
 }
 
+/// Echo audibility detection parameters.
 #[derive(Debug, Clone)]
 pub struct EchoAudibility {
+    /// Render power threshold for low-activity detection (default: 256.0).
     pub low_render_limit: f32,
+    /// Render power threshold for normal-activity detection (default: 64.0).
     pub normal_render_limit: f32,
+    /// Minimum floor power for audibility computation (default: 128.0).
     pub floor_power: f32,
+    /// Audibility threshold for LF bands (default: 10.0).
     pub audibility_threshold_lf: f32,
+    /// Audibility threshold for mid-frequency bands (default: 10.0).
     pub audibility_threshold_mf: f32,
+    /// Audibility threshold for HF bands (default: 10.0).
     pub audibility_threshold_hf: f32,
+    /// Whether to use signal stationarity properties for audibility detection.
     pub use_stationarity_properties: bool,
+    /// Whether to use stationarity properties during the initial phase.
     pub use_stationarity_properties_at_init: bool,
 }
 
@@ -596,11 +672,16 @@ impl Default for EchoAudibility {
     }
 }
 
+/// Render signal level thresholds.
 #[derive(Debug, Clone)]
 pub struct RenderLevels {
+    /// Power threshold above which the render signal is considered active (default: 100.0).
     pub active_render_limit: f32,
+    /// Power threshold below which render excitation is considered poor (default: 150.0).
     pub poor_excitation_render_limit: f32,
+    /// Poor excitation threshold for 8x down-sampled signals (default: 20.0).
     pub poor_excitation_render_limit_ds8: f32,
+    /// Gain in dB applied to the render power estimate (default: 0.0).
     pub render_power_gain_db: f32,
 }
 
@@ -621,7 +702,7 @@ impl Default for RenderLevels {
 /// use) and reduces suppression accordingly.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TransparentModeType {
-    /// Counter-based heuristic (the C++ default without field trials).
+    /// Counter-based heuristic (the default).
     #[default]
     Legacy,
     /// Two-state Hidden Markov Model classifier.
@@ -632,23 +713,35 @@ pub enum TransparentModeType {
     Hmm,
 }
 
+/// Top-level echo removal control settings.
 #[derive(Debug, Clone, Default)]
 pub struct EchoRemovalControl {
+    /// Whether the render and capture clocks are drifting relative to each other.
     pub has_clock_drift: bool,
+    /// Whether the echo path is linear and stable (e.g. loopback scenarios).
     pub linear_and_stable_echo_path: bool,
     /// Which transparent mode algorithm to use.
     pub transparent_mode: TransparentModeType,
 }
 
+/// Echo and noise model parameters.
 #[derive(Debug, Clone)]
 pub struct EchoModel {
+    /// Number of blocks to hold the noise floor estimate (default: 50).
     pub noise_floor_hold: usize,
+    /// Minimum noise floor power level (default: 1638400.0).
     pub min_noise_floor_power: f32,
+    /// Slope of the stationarity gate function (default: 10.0).
     pub stationary_gate_slope: f32,
+    /// Power threshold for the noise gate (default: 27509.42).
     pub noise_gate_power: f32,
+    /// Slope of the noise gate transition (default: 0.3).
     pub noise_gate_slope: f32,
+    /// Number of blocks before the current block in the render window (default: 1).
     pub render_pre_window_size: usize,
+    /// Number of blocks after the current block in the render window (default: 1).
     pub render_post_window_size: usize,
+    /// Whether to model reverb in nonlinear processing mode.
     pub model_reverb_in_nonlinear_mode: bool,
 }
 
@@ -667,8 +760,10 @@ impl Default for EchoModel {
     }
 }
 
+/// Comfort noise generation settings.
 #[derive(Debug, Clone)]
 pub struct ComfortNoise {
+    /// Noise floor level in dBFS for comfort noise injection (default: -96.03).
     pub noise_floor_dbfs: f32,
 }
 
@@ -680,29 +775,46 @@ impl Default for ComfortNoise {
     }
 }
 
+/// Suppression masking thresholds based on ENR and EMR.
 #[derive(Debug, Clone)]
 pub struct MaskingThresholds {
+    /// ENR threshold below which the signal is treated as transparent (no suppression).
     pub enr_transparent: f32,
+    /// ENR threshold above which full suppression is applied.
     pub enr_suppress: f32,
+    /// EMR threshold below which the signal is treated as transparent.
     pub emr_transparent: f32,
 }
 
+/// Suppressor tuning with LF/HF masking thresholds and gain limits.
 #[derive(Debug, Clone)]
 pub struct Tuning {
+    /// Masking thresholds for LF bands.
     pub mask_lf: MaskingThresholds,
+    /// Masking thresholds for HF bands.
     pub mask_hf: MaskingThresholds,
+    /// Maximum gain increase factor per block (default: 2.0).
     pub max_inc_factor: f32,
+    /// Maximum gain decrease factor for LF bands per block (default: 0.25).
     pub max_dec_factor_lf: f32,
 }
 
+/// Dominant nearend speech detection parameters.
 #[derive(Debug, Clone)]
 pub struct DominantNearendDetection {
+    /// ENR threshold to enter nearend-dominant state (default: 0.25).
     pub enr_threshold: f32,
+    /// ENR threshold to exit nearend-dominant state (default: 10.0).
     pub enr_exit_threshold: f32,
+    /// SNR threshold for nearend detection (default: 30.0).
     pub snr_threshold: f32,
+    /// Number of blocks to hold the nearend-dominant state (default: 50).
     pub hold_duration: i32,
+    /// Number of bands that must exceed the threshold to trigger (default: 12).
     pub trigger_threshold: i32,
+    /// Whether to use nearend detection during the initial adaptation phase.
     pub use_during_initial_phase: bool,
+    /// Whether to use an unbounded echo spectrum estimate for detection.
     pub use_unbounded_echo_spectrum: bool,
 }
 
@@ -720,18 +832,27 @@ impl Default for DominantNearendDetection {
     }
 }
 
+/// A frequency subband range specified by low and high bin indices.
 #[derive(Debug, Clone)]
 pub struct SubbandRegion {
+    /// Lower frequency bin index (inclusive).
     pub low: usize,
+    /// Upper frequency bin index (inclusive).
     pub high: usize,
 }
 
+/// Subband-based nearend speech detection parameters.
 #[derive(Debug, Clone)]
 pub struct SubbandNearendDetection {
+    /// Number of blocks to average for nearend power estimation (default: 1).
     pub nearend_average_blocks: usize,
+    /// First subband region for nearend detection.
     pub subband1: SubbandRegion,
+    /// Second subband region for nearend detection.
     pub subband2: SubbandRegion,
+    /// Nearend power threshold for detection (default: 1.0).
     pub nearend_threshold: f32,
+    /// SNR threshold for subband nearend detection (default: 1.0).
     pub snr_threshold: f32,
 }
 
@@ -747,11 +868,16 @@ impl Default for SubbandNearendDetection {
     }
 }
 
+/// High-band suppression and anti-howling settings.
 #[derive(Debug, Clone)]
 pub struct HighBandsSuppression {
+    /// ENR threshold for activating high-band suppression (default: 1.0).
     pub enr_threshold: f32,
+    /// Maximum gain applied to high bands during echo (default: 1.0).
     pub max_gain_during_echo: f32,
+    /// Power threshold to activate anti-howling protection (default: 400.0).
     pub anti_howling_activation_threshold: f32,
+    /// Gain applied when anti-howling is active (default: 1.0).
     pub anti_howling_gain: f32,
 }
 
@@ -766,9 +892,12 @@ impl Default for HighBandsSuppression {
     }
 }
 
+/// HF gain limiting parameters.
 #[derive(Debug, Clone)]
 pub struct HighFrequencySuppression {
+    /// Starting band index for HF gain limiting (default: 16).
     pub limiting_gain_band: i32,
+    /// Number of bands over which HF gain limiting is applied (default: 1).
     pub bands_in_limiting_gain: i32,
 }
 
@@ -781,22 +910,38 @@ impl Default for HighFrequencySuppression {
     }
 }
 
+/// Top-level suppressor configuration.
 #[derive(Debug, Clone)]
 pub struct Suppressor {
+    /// Number of blocks to average for nearend power estimation (default: 4).
     pub nearend_average_blocks: usize,
+    /// Tuning parameters used during normal (non-nearend) operation.
     pub normal_tuning: Tuning,
+    /// Tuning parameters used during dominant nearend conditions.
     pub nearend_tuning: Tuning,
+    /// Whether to apply LF gain smoothing during the initial adaptation phase.
     pub lf_smoothing_during_initial_phase: bool,
+    /// Last band index with permanent LF gain smoothing (default: 0).
     pub last_permanent_lf_smoothing_band: i32,
+    /// Last band index with LF gain smoothing (default: 5).
     pub last_lf_smoothing_band: i32,
+    /// Last band index considered as LF (default: 5).
     pub last_lf_band: i32,
+    /// First band index considered as HF (default: 8).
     pub first_hf_band: i32,
+    /// Dominant nearend speech detection settings.
     pub dominant_nearend_detection: DominantNearendDetection,
+    /// Subband-based nearend detection settings.
     pub subband_nearend_detection: SubbandNearendDetection,
+    /// Whether to use subband nearend detection instead of dominant nearend detection.
     pub use_subband_nearend_detection: bool,
+    /// High-band suppression and anti-howling settings.
     pub high_bands_suppression: HighBandsSuppression,
+    /// HF gain limiting settings.
     pub high_frequency_suppression: HighFrequencySuppression,
+    /// Initial suppression gain floor increase step (default: 0.00001).
     pub floor_first_increase: f32,
+    /// Whether to apply conservative suppression in HF bands.
     pub conservative_hf_suppression: bool,
 }
 
@@ -848,11 +993,16 @@ impl Default for Suppressor {
     }
 }
 
+/// Multichannel and stereo content detection settings.
 #[derive(Debug, Clone)]
 pub struct MultiChannel {
+    /// Whether to detect stereo content and adapt processing accordingly.
     pub detect_stereo_content: bool,
+    /// Power difference threshold for stereo detection (default: 0.0).
     pub stereo_detection_threshold: f32,
+    /// Timeout in seconds before resetting stereo detection (default: 300).
     pub stereo_detection_timeout_threshold_seconds: i32,
+    /// Hysteresis duration in seconds for stereo detection state changes (default: 2.0).
     pub stereo_detection_hysteresis_seconds: f32,
 }
 

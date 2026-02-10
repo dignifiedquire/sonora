@@ -179,11 +179,8 @@ impl SpeechLevelEstimator {
 
     /// Resets the estimator.
     pub fn reset(&mut self) {
-        self.reset_level_estimator_state(&mut self.preliminary_state.clone());
-        let preliminary = self.make_initial_state();
-        self.preliminary_state = preliminary;
-        let reliable = self.make_initial_state();
-        self.reliable_state = reliable;
+        self.preliminary_state = self.make_initial_state();
+        self.reliable_state = self.make_initial_state();
         self.level_dbfs = self.initial_speech_level_dbfs;
         self.num_adjacent_speech_frames = 0;
     }
@@ -211,12 +208,6 @@ impl SpeechLevelEstimator {
                 denominator: 1.0,
             },
         }
-    }
-
-    fn reset_level_estimator_state(&self, state: &mut LevelEstimatorState) {
-        state.time_to_confidence_ms = LEVEL_ESTIMATOR_TIME_TO_CONFIDENCE_MS as i32;
-        state.level_dbfs.numerator = self.initial_speech_level_dbfs;
-        state.level_dbfs.denominator = 1.0;
     }
 }
 

@@ -83,9 +83,6 @@ impl RenderDelayController {
         }
     }
 
-    /// Logs a render call (no-op in production).
-    pub(crate) fn log_render_call(&self) {}
-
     /// Aligns the render buffer content with the capture signal.
     pub(crate) fn get_delay(
         &mut self,

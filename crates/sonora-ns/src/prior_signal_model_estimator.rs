@@ -128,13 +128,15 @@ impl PriorSignalModelEstimator {
 
         // Reject if weight of peaks is not large enough, or peak value too small.
         // Peak limit for spectral flatness (varies between 0 and 1).
-        let use_spec_flat = spectral_flatness_peak_weight as f32 >= 0.3 * 500.0
+        let use_spec_flat = spectral_flatness_peak_weight as f32
+            >= 0.3 * FEATURE_UPDATE_WINDOW_SIZE as f32
             && spectral_flatness_peak_position >= 0.6;
 
         // Reject if weight of peaks is not large enough or if fluctuation of the
         // LRT feature are very low, indicating a noise state.
-        let use_spec_diff =
-            spectral_diff_peak_weight as f32 >= 0.3 * 500.0 && !low_lrt_fluctuations;
+        let use_spec_diff = spectral_diff_peak_weight as f32
+            >= 0.3 * FEATURE_UPDATE_WINDOW_SIZE as f32
+            && !low_lrt_fluctuations;
 
         // Update the model.
         self.prior_model.template_diff_threshold =

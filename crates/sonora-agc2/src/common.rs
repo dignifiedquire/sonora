@@ -7,8 +7,8 @@ pub const MIN_FLOAT_S16_VALUE: f32 = -32768.0;
 pub const MAX_FLOAT_S16_VALUE: f32 = 32767.0;
 pub const MAX_ABS_FLOAT_S16_VALUE: f32 = 32768.0;
 
-/// Minimum audio level in dBFS scale for S16 samples.
-pub const MIN_LEVEL_DBFS: f32 = -90.31;
+/// Minimum audio level in dBFS scale for S16 samples (`20 * log10(1/32768)`).
+pub const MIN_LEVEL_DBFS: f32 = -90.309;
 
 pub const FRAME_DURATION_MS: i32 = 10;
 pub const SUB_FRAMES_IN_FRAME: i32 = 20;

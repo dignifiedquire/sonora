@@ -17,13 +17,13 @@ fn frame_energy(audio: &[&[f32]]) -> f32 {
 }
 
 fn energy_to_dbfs(signal_energy: f32, num_samples: i32) -> f32 {
+    use crate::common::MIN_LEVEL_DBFS;
     debug_assert!(signal_energy >= 0.0);
     let rms_square = signal_energy / num_samples as f32;
-    const MIN_DBFS: f32 = -90.309;
     if rms_square <= 1.0 {
-        return MIN_DBFS;
+        return MIN_LEVEL_DBFS;
     }
-    10.0 * rms_square.log10() + MIN_DBFS
+    10.0 * rms_square.log10() + MIN_LEVEL_DBFS
 }
 
 /// Updates the noise floor with instant decay and slow attack. This tuning is

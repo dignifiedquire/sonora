@@ -87,7 +87,7 @@ impl FilterMisadjustmentEstimator {
             if self.y2_acum > self.n_blocks as f32 * 200.0 * 200.0 * BLOCK_SIZE as f32 {
                 let update = self.e2_acum / self.y2_acum;
                 if self.e2_acum > self.n_blocks as f32 * 7500.0 * 7500.0 * BLOCK_SIZE as f32 {
-                    // Duration equal to blockSizeMs * n_blocks_ * 4.
+                    // Duration equal to block_size_ms * n_blocks * 4.
                     self.overhang = 4;
                 } else {
                     self.overhang = (self.overhang - 1).max(0);

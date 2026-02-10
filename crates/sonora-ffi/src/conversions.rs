@@ -22,7 +22,7 @@ impl WapConfig {
         Config {
             pipeline: Pipeline {
                 maximum_internal_processing_rate: if self.pipeline_maximum_internal_processing_rate
-                    == 32000
+                    == MaxProcessingRate::Rate32kHz.as_hz() as i32
                 {
                     MaxProcessingRate::Rate32kHz
                 } else {

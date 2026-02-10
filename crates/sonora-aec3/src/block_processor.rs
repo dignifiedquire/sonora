@@ -7,7 +7,7 @@
 
 use crate::block::Block;
 use crate::block_processor_metrics::BlockProcessorMetrics;
-use crate::common::{num_bands_for_rate, valid_full_band_rate};
+use crate::common::{BLOCK_SIZE_MS, num_bands_for_rate, valid_full_band_rate};
 use crate::config::EchoCanceller3Config;
 use crate::delay_estimate::DelayEstimate;
 use crate::echo_path_variability::{DelayAdjustment, EchoPathVariability};
@@ -105,11 +105,10 @@ impl BlockProcessor {
     /// Returns current echo cancellation metrics.
     pub fn get_metrics(&self) -> BlockProcessorMetricsOutput {
         let echo_metrics = self.echo_remover.get_metrics();
-        const BLOCK_SIZE_MS: i32 = 4;
         BlockProcessorMetricsOutput {
             echo_return_loss: echo_metrics.echo_return_loss,
             echo_return_loss_enhancement: echo_metrics.echo_return_loss_enhancement,
-            delay_ms: self.render_buffer.delay() as i32 * BLOCK_SIZE_MS,
+            delay_ms: self.render_buffer.delay() as i32 * BLOCK_SIZE_MS as i32,
         }
     }
 
@@ -219,9 +218,6 @@ impl BlockProcessor {
             .update_render(self.render_event != BufferingEvent::None);
 
         self.render_properly_started = true;
-        if let Some(ref dc) = self.delay_controller {
-            dc.log_render_call();
-        }
     }
 
     /// Reports whether echo leakage has been detected.

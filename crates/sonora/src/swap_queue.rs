@@ -1,4 +1,4 @@
-//! Lock-free single-producer, single-consumer swap queue.
+//! Single-threaded swap queue.
 //!
 //! A fixed-size queue where elements are moved via `std::mem::swap` rather
 //! than copy, avoiding allocations in the hot path.
@@ -8,10 +8,10 @@
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// A fixed-size, lock-free, single-producer/single-consumer queue.
+/// A fixed-size, single-threaded swap queue.
 ///
-/// Elements are moved via swap rather than copy. For each "full" T passed from
-/// producer to consumer, an "empty" T is passed back in the other direction.
+/// Elements are moved via swap rather than copy. All methods take `&mut self`,
+/// so concurrent access is prevented at compile time.
 pub(crate) struct SwapQueue<T> {
     queue: Vec<T>,
     next_write_index: usize,

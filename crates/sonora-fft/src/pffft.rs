@@ -47,10 +47,8 @@ pub enum FftType {
 /// Variable-size FFT supporting composite sizes.
 ///
 /// Scalar-only implementation based on FFTPACK. Supports sizes of the form
-/// `N = 2^a * 3^b * 5^c` where `a >= 5` for real transforms and `a >= 4`
-/// for complex transforms (when using scalar mode with `SIMD_SZ = 1`, the
-/// minimums are `a >= 1` for real and `a >= 0` for complex, but we keep
-/// the original PFFFT minimum sizes for API compatibility).
+/// `N = 2^a * 3^b * 5^c` with minimum N = 32 for real transforms and
+/// N = 16 for complex transforms.
 ///
 /// C sources: `webrtc/third_party/pffft/src/pffft.c` (algorithm),
 /// `webrtc/modules/audio_processing/utility/pffft_wrapper.cc` (C++ wrapper).
@@ -98,7 +96,7 @@ impl Pffft {
         );
 
         let n = fft_size;
-        // With SIMD_SZ=1: Ncvec = N/2 for real, N for complex
+        // Ncvec = N/2 for real, N for complex (scalar mode)
         let ncvec = match fft_type {
             FftType::Real => n / 2,
             FftType::Complex => n,
@@ -153,27 +151,22 @@ impl Pffft {
     /// (C: `pffft_is_valid_size`).
     ///
     /// Valid sizes are of the form `N = 2^a * 3^b * 5^c` where:
-    /// - Real: minimum N = 32 (effectively `a >= 1` with scalar, but kept >= 32 for compat)
+    /// - Real: minimum N = 32, must be even
     /// - Complex: minimum N = 16
-    ///
-    /// For scalar mode (`SIMD_SZ = 1`):
-    /// - Real: `N % 2 == 0`
-    /// - Complex: `N % 1 == 0` (any valid decomposition)
     pub fn is_valid_fft_size(fft_size: usize, fft_type: FftType) -> bool {
-        if fft_size == 0 {
-            return false;
-        }
-
-        // PFFFT original constraints (with SIMD_SZ=1):
-        // Real: N % (2 * SIMD_SZ * SIMD_SZ) == 0 → N % 2 == 0
-        // Complex: N % (SIMD_SZ * SIMD_SZ) == 0 → N % 1 == 0
+        // Enforce minimum sizes to guarantee internal radix passes work
+        // (passf3/passf5 require ido > 2, which fails for small N).
         match fft_type {
             FftType::Real => {
-                if !fft_size.is_multiple_of(2) {
+                if fft_size < 32 || !fft_size.is_multiple_of(2) {
                     return false;
                 }
             }
-            FftType::Complex => {}
+            FftType::Complex => {
+                if fft_size < 16 {
+                    return false;
+                }
+            }
         }
 
         // Check that N decomposes into only factors of 2, 3, 5.
