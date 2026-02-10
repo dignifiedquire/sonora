@@ -52,17 +52,20 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y meson ninja-build libabsl-dev libprotobuf-dev protobuf-compiler pkg-config
       - name: Build instrumented Rust library
         run: |
-          # Persist instrumentation env vars for subsequent steps.
-          cargo llvm-cov show-env --release 2>/dev/null | tr -d "'" >> "$GITHUB_ENV"
-          eval "$(cargo llvm-cov show-env --release)"
-          cargo llvm-cov clean --workspace --release
+          # Build with coverage instrumentation using RUSTFLAGS directly.
+          # We avoid cargo-llvm-cov's show-env/report workflow because report
+          # searches for executable object files, but sonora-ffi is a staticlib
+          # (no executables produced). Instead we use the LLVM tools directly.
+          export RUSTFLAGS="-Cinstrument-coverage"
+          export LLVM_PROFILE_FILE="$(pwd)/target/sonora-%p-%4m.profraw"
+          echo "RUSTFLAGS=$RUSTFLAGS" >> "$GITHUB_ENV"
+          echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" >> "$GITHUB_ENV"
           cargo build --release -p sonora-ffi
       - name: Extract LLVM profiling runtime
         run: |
@@ -98,7 +101,8 @@ jobs:
       - name: Run C++ tests
         working-directory: cpp
         run: |
-          meson test -C builddir -v --print-errorlogs
+          # Increase timeout — coverage instrumentation adds overhead
+          meson test -C builddir -v --print-errorlogs --timeout-multiplier 4
       - name: Check for profraw files
         run: |
           echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE"
@@ -113,8 +117,66 @@ jobs:
           fi
       - name: Generate coverage report
         run: |
-          cargo llvm-cov report --release --codecov --output-path cpp-rust-codecov.json
-          cargo llvm-cov report --release --lcov --output-path cpp-rust-lcov.info
+          # Use LLVM tools directly since cargo-llvm-cov report can't handle
+          # staticlib crates (it only searches for executables as object files).
+          SYSROOT=$(rustc --print sysroot)
+          HOST=$(rustc -vV | sed -n 's/host: //p')
+          LLVM_PROFDATA="$SYSROOT/lib/rustlib/$HOST/bin/llvm-profdata"
+          LLVM_COV="$SYSROOT/lib/rustlib/$HOST/bin/llvm-cov"
+
+          TEST_BIN=cpp/builddir/tests/apm_unit_tests
+          RUST_LIB=target/release/libsonora_ffi.a
+
+          # Diagnostics: check for coverage sections
+          echo "=== Coverage sections in test binary ==="
+          readelf -S "$TEST_BIN" 2>/dev/null | grep -i "llvm\|cov\|prof" || echo "(none in binary)"
+          echo "=== Coverage sections in Rust .a (first 10) ==="
+          readelf -S "$RUST_LIB" 2>/dev/null | grep -i "llvm_cov\|llvm_prf" | head -10 || echo "(none in .a)"
+          echo "=== GCC link flags used ==="
+          grep -r "gcc\|g++" cpp/builddir/build.ninja 2>/dev/null | grep "apm_unit_tests" | head -3 || true
+
+          # Merge profraw files into a single profdata
+          $LLVM_PROFDATA merge -sparse target/sonora-*.profraw -o target/sonora.profdata
+
+          # Extract .o files from the Rust static library — these contain
+          # the coverage mapping data that GCC's linker may strip from the
+          # final executable.
+          OBJ_DIR=$(mktemp -d)
+          (cd "$OBJ_DIR" && ar x "$OLDPWD/$RUST_LIB")
+
+          # Collect objects that have coverage mapping sections
+          COV_OBJECTS=()
+          for obj in "$OBJ_DIR"/*.o; do
+            if readelf -S "$obj" 2>/dev/null | grep -q "__llvm_covmap"; then
+              COV_OBJECTS+=("$obj")
+            fi
+          done
+          echo "Found ${#COV_OBJECTS[@]} objects with coverage data"
+
+          if [ ${#COV_OBJECTS[@]} -eq 0 ]; then
+            echo "::error::No objects with coverage data found"
+            exit 1
+          fi
+
+          # Build -object flags: first object is positional, rest use --object=
+          FIRST="${COV_OBJECTS[0]}"
+          OBJ_FLAGS=()
+          for obj in "${COV_OBJECTS[@]:1}"; do
+            OBJ_FLAGS+=("--object=$obj")
+          done
+
+          $LLVM_COV export --format=text \
+            --instr-profile=target/sonora.profdata \
+            --ignore-filename-regex='(\.cargo/registry|rustc/)' \
+            "$FIRST" "${OBJ_FLAGS[@]}" > cpp-rust-codecov.json
+
+          $LLVM_COV export --format=lcov \
+            --instr-profile=target/sonora.profdata \
+            --ignore-filename-regex='(\.cargo/registry|rustc/)' \
+            "$FIRST" "${OBJ_FLAGS[@]}" > cpp-rust-lcov.info
+
+          echo "Coverage reports generated successfully"
+          rm -rf "$OBJ_DIR"
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
