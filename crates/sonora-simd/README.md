@@ -9,7 +9,7 @@ SIMD abstraction layer for the [Sonora] audio processing library.
 
 Provides accelerated vector operations for audio processing hot paths.
 Supports SSE2 and AVX2 (x86_64), NEON (AArch64), with a scalar fallback
-for all other architectures. AVX2 is detected at runtime via [cpufeatures].
+for all other architectures. SSE2 and AVX2 are detected at runtime via [cpufeatures].
 
 Part of the [Sonora] audio processing library.
 

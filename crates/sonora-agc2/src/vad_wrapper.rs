@@ -2,8 +2,6 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/vad_wrapper.cc`.
 
-// Used by adaptive_digital_gain_controller (Step 8).
-
 use crate::common::{FRAME_DURATION_MS, VAD_RESET_PERIOD_MS};
 use crate::rnn_vad::common::{FRAME_SIZE_10MS_24K_HZ, FeatureVector, SAMPLE_RATE_24K_HZ};
 use crate::rnn_vad::features_extraction::FeaturesExtractor;

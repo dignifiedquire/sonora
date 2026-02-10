@@ -6,7 +6,7 @@
 //!
 //! C++ source: `webrtc/modules/audio_processing/ns/signal_model_estimator.cc`
 
-use crate::config::{FEATURE_UPDATE_WINDOW_SIZE, FFT_SIZE_BY_2_PLUS_1, LTR_FEATURE_THR};
+use crate::config::{FEATURE_UPDATE_WINDOW_SIZE, FFT_SIZE_BY_2_PLUS_1, LRT_FEATURE_THR};
 use crate::fast_math::{exp_approximation, log_approximation};
 use crate::histograms::Histograms;
 use crate::prior_signal_model::PriorSignalModel;
@@ -124,7 +124,7 @@ impl Default for SignalModelEstimator {
             signal_energy_sum: 0.0,
             histograms: Histograms::default(),
             histogram_analysis_counter: FEATURE_UPDATE_WINDOW_SIZE,
-            prior_model_estimator: PriorSignalModelEstimator::new(LTR_FEATURE_THR),
+            prior_model_estimator: PriorSignalModelEstimator::new(LRT_FEATURE_THR),
             features: SignalModel::default(),
         }
     }

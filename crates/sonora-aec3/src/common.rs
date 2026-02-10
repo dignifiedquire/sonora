@@ -42,6 +42,14 @@ pub const fn valid_full_band_rate(sample_rate_hz: usize) -> bool {
     matches!(sample_rate_hz, 16000 | 32000 | 48000)
 }
 
+/// Minimum render-signal power for ERLE / ERL estimation.
+///
+/// Corresponds to white Gaussian noise at -46 dBFS.
+pub(crate) const X2_BAND_ENERGY_THRESHOLD: f32 = 44015068.0;
+
+/// Number of blocks to hold an ERLE estimate before allowing decay.
+pub(crate) const BLOCKS_TO_HOLD_ERLE: i32 = 100;
+
 /// Returns the time-domain length corresponding to a filter length in blocks.
 pub(crate) const fn get_time_domain_length(filter_length_blocks: usize) -> usize {
     filter_length_blocks * FFT_LENGTH_BY_2

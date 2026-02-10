@@ -25,7 +25,7 @@ pub const LONG_STARTUP_PHASE_BLOCKS: i32 = 200;
 pub const FEATURE_UPDATE_WINDOW_SIZE: i32 = 500;
 
 /// Threshold for the LRT feature.
-pub const LTR_FEATURE_THR: f32 = 0.5;
+pub const LRT_FEATURE_THR: f32 = 0.5;
 
 /// Bin size for LRT histogram.
 pub const BIN_SIZE_LRT: f32 = 0.1;

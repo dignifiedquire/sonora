@@ -25,8 +25,7 @@ fn fast_log2f(x: f32) -> f32 {
 
 /// Fast square root approximation.
 ///
-/// Currently delegates to `f32::sqrt()` (the C++ code has a TODO for
-/// a fast implementation too).
+/// Currently delegates to `f32::sqrt()`.
 pub(crate) fn sqrt_fast_approximation(f: f32) -> f32 {
     f.sqrt()
 }
@@ -46,8 +45,7 @@ pub(crate) fn log_approximation_batch(x: &[f32], y: &mut [f32]) {
 
 /// Fast 2^x approximation.
 ///
-/// Currently delegates to `f32::exp2()` (the C++ code has a TODO for
-/// a fast implementation too).
+/// Currently delegates to `f32::exp2()`.
 pub(crate) fn pow2_approximation(p: f32) -> f32 {
     p.exp2()
 }

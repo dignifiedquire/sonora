@@ -18,7 +18,7 @@ All times are per 10 ms audio frame. Ratio < 1.0 means Rust is faster.
 | 48 kHz mono (NS only) | 16.5 us | 16.8 us | 0.98x |
 | 48 kHz mono (EC only) | 13.3 us | 10.9 us | 1.22x |
 | 48 kHz mono (all) | 17.8 us | 17.4 us | 1.02x |
-| 48 kHz stereo (AGC2 only) | 1.5 us | 2.6 us | 0.56x |
+| 48 kHz stereo (AGC2 only) | 1.5 us | 2.6 us | 0.58x |
 | 48 kHz stereo (NS only) | 32.4 us | 32.4 us | 1.00x |
 | 48 kHz stereo (EC only) | 17.9 us | 17.1 us | 1.05x |
 | 48 kHz stereo (all) | 22.3 us | 23.5 us | 0.95x |
@@ -27,9 +27,9 @@ All times are per 10 ms audio frame. Ratio < 1.0 means Rust is faster.
 
 | Benchmark | Rust | C++ | Ratio |
 |-----------|------|-----|-------|
-| 16 kHz mono (all) | 4.2 us | 4.0 us | 1.07x |
+| 16 kHz mono (all) | 4.2 us | 4.0 us | 1.05x |
 | 16 kHz mono (NS only) | 3.6 us | 3.6 us | 1.01x |
-| 16 kHz mono (EC only) | 1.4 us | 1.2 us | 1.15x |
+| 16 kHz mono (EC only) | 1.4 us | 1.2 us | 1.17x |
 | 16 kHz mono (AGC2 only) | 418 ns | 475 ns | 0.88x |
 | 48 kHz mono (all) | 13.3 us | 10.8 us | 1.24x |
 

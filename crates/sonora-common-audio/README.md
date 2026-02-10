@@ -8,8 +8,8 @@
 Audio DSP primitives for the [Sonora] audio processing library.
 
 Includes sinc resampler, push resampler, channel buffer, biquad filter,
-ring buffer, and audio format conversion utilities. These building blocks
-are shared across the echo canceller, noise suppressor, and gain controller.
+and audio format conversion utilities. These building blocks are shared
+across the echo canceller, noise suppressor, and gain controller.
 
 Part of the [Sonora] audio processing library.
 

@@ -7,6 +7,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["audio", "echo-cancellation", "aec", "webrtc", "dsp"]
+categories = ["multimedia::audio", "algorithms"]
 
 [dependencies]
 sonora-common-audio = { workspace = true }

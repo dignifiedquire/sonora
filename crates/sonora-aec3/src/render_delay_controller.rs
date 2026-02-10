@@ -21,7 +21,7 @@ fn compute_buffer_delay(
     hysteresis_limit_blocks: i32,
     estimated_delay: DelayEstimate,
 ) -> DelayEstimate {
-    // Compute the buffer delay increase required to achieve the desired latency.
+    // Compute the buffer delay in blocks from the estimated delay in samples.
     let mut new_delay_blocks = estimated_delay.delay >> BLOCK_SIZE_LOG2;
 
     // Add hysteresis.

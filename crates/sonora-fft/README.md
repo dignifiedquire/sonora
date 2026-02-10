@@ -8,7 +8,7 @@
 Pure Rust FFT implementations for the [Sonora] audio processing library.
 
 Includes Ooura 128-point and general-purpose (fft4g) FFTs, plus a Rust port
-of [PFFFT] (Pretty Fast FFT) for power-of-two real and complex transforms.
+of [PFFFT] (Pretty Fast FFT) for composite-size real and complex transforms.
 Optimized for the specific sizes used in WebRTC audio processing (128, 256, 512).
 
 Part of the [Sonora] audio processing library.

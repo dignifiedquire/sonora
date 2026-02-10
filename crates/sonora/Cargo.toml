@@ -21,7 +21,6 @@ tracing = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 sonora-fft = { workspace = true }
-sonora-common-audio = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [lints]

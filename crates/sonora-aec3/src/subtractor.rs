@@ -105,7 +105,7 @@ impl FilterMisadjustmentEstimator {
 
     fn get_misadjustment(&self) -> f32 {
         debug_assert!(self.inv_misadjustment > 0.0);
-        // Adjust half of the estimated mismatch.
+        // Compute 2 / sqrt(inv_misadjustment) as the step-size adjustment.
         2.0 / self.inv_misadjustment.sqrt()
     }
 

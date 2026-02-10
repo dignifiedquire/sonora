@@ -2,6 +2,8 @@
 //!
 //! Ported from `webrtc/modules/audio_processing/agc2/interpolated_gain_curve.h/.cc`.
 
+use std::cmp::Ordering;
+
 use crate::common::{INTERPOLATED_GAIN_CURVE_KNEE_POINTS, INTERPOLATED_GAIN_CURVE_TOTAL_POINTS};
 
 /// Defined as `DbfsToLinear(kLimiterMaxInputLevelDbFs)`.
@@ -152,7 +154,7 @@ impl InterpolatedGainCurve {
 
         // Knee and limiter regions: find the linear piece index via binary search.
         let index = match APPROXIMATION_PARAMS_X
-            .binary_search_by(|x| x.partial_cmp(&input_level).unwrap())
+            .binary_search_by(|x| x.partial_cmp(&input_level).unwrap_or(Ordering::Equal))
         {
             Ok(i) => i.saturating_sub(1),
             Err(i) => i.saturating_sub(1),

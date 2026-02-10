@@ -5,7 +5,9 @@
 //!
 //! Ported from `modules/audio_processing/aec3/signal_dependent_erle_estimator.h/cc`.
 
-use crate::common::{BLOCK_SIZE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
+use crate::common::{
+    BLOCK_SIZE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1, X2_BAND_ENERGY_THRESHOLD,
+};
 use crate::config::EchoCanceller3Config;
 use crate::render_buffer::RenderBuffer;
 
@@ -246,7 +248,6 @@ impl SignalDependentErleEstimator {
         e2: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
         converged_filters: &[bool],
     ) {
-        const X2_THRESHOLD: f32 = 44015068.0;
         const SMTH_CONSTANT_DECREASES: f32 = 0.1;
         const SMTH_CONSTANT_INCREASES: f32 = SMTH_CONSTANT_DECREASES / 2.0;
 
@@ -280,7 +281,7 @@ impl SignalDependentErleEstimator {
             let mut new_erle = [0.0f32; SUBBANDS];
             let mut is_erle_updated = [false; SUBBANDS];
             for subband in 0..SUBBANDS {
-                if x2_subbands[subband] > X2_THRESHOLD && e2_subbands[subband] > 0.0 {
+                if x2_subbands[subband] > X2_BAND_ENERGY_THRESHOLD && e2_subbands[subband] > 0.0 {
                     new_erle[subband] = y2_subbands[subband] / e2_subbands[subband];
                     debug_assert!(new_erle[subband] > 0.0);
                     is_erle_updated[subband] = true;

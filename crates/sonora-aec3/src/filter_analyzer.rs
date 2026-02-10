@@ -355,7 +355,7 @@ impl FilterAnalyzer {
         if sufficient_time_to_converge && st.consistent_estimate {
             st.gain = filter_time_domain[st.peak_index].abs();
         } else {
-            // TODO(peah): Verify whether this check against a float is ok.
+            // Comparing gain against 0.0 is intentional: only update if non-zero.
             if st.gain != 0.0 {
                 st.gain = st.gain.max(filter_time_domain[st.peak_index].abs());
             }

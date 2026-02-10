@@ -6,12 +6,12 @@
 //!
 //! Ported from `modules/audio_processing/aec3/fullband_erle_estimator.h/cc`.
 
-use crate::common::{FFT_LENGTH_BY_2_PLUS_1, fast_approx_log2f};
+use crate::common::{
+    BLOCKS_TO_HOLD_ERLE, FFT_LENGTH_BY_2_PLUS_1, X2_BAND_ENERGY_THRESHOLD, fast_approx_log2f,
+};
 use crate::config::Erle as ErleConfig;
 
 const EPSILON: f32 = 1e-3;
-const X2_BAND_ENERGY_THRESHOLD: f32 = 44015068.0;
-const BLOCKS_TO_HOLD_ERLE: i32 = 100;
 const POINTS_TO_ACCUMULATE: i32 = 6;
 
 /// Instantaneous ERLE estimator with quality tracking.

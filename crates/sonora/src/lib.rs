@@ -1,33 +1,3 @@
-//! WebRTC Audio Processing Module — Rust port.
-//!
-//! Provides echo cancellation, noise suppression, automatic gain control,
-//! and other audio processing capabilities.
-//!
-//! # Quick Start
-//!
-//! ```
-//! use sonora::{AudioProcessing, Config, StreamConfig};
-//! use sonora::config::{EchoCanceller, NoiseSuppression};
-//!
-//! let config = Config {
-//!     echo_canceller: Some(EchoCanceller::default()),
-//!     noise_suppression: Some(NoiseSuppression::default()),
-//!     ..Default::default()
-//! };
-//!
-//! let mut apm = AudioProcessing::builder()
-//!     .config(config)
-//!     .capture_config(StreamConfig::new(16000, 1))
-//!     .render_config(StreamConfig::new(16000, 1))
-//!     .build();
-//!
-//! // For each ~10 ms audio frame:
-//! // 1. Feed far-end (render) audio:
-//! // apm.process_render_f32(&src, &mut dest)?;
-//! // 2. Process near-end (capture) audio:
-//! // apm.process_capture_f32(&src, &mut dest)?;
-//! ```
-
 #![doc = include_str!("../README.md")]
 
 pub(crate) mod audio_buffer;

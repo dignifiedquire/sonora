@@ -10,7 +10,7 @@ Pure Rust implementation of [WebRTC] audio processing -- the full pipeline with
 echo cancellation (AEC3), noise suppression, automatic gain control (AGC2),
 and high-pass filtering.
 
-Provides both a Rust API and a C API (via [cbindgen], feature-gated).
+Provides a Rust API. A C API is available via the separate [`sonora-ffi`](https://crates.io/crates/sonora-ffi) crate.
 
 ## Usage
 
@@ -57,6 +57,5 @@ BSD-3-Clause. See [LICENSE] for details.
 [//]: # (general links)
 
 [WebRTC]: https://webrtc.org
-[cbindgen]: https://github.com/mozilla/cbindgen
 [workspace README]: https://github.com/dignifiedquire/sonora#readme
 [LICENSE]: https://github.com/dignifiedquire/sonora/blob/main/LICENSE

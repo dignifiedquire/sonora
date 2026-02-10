@@ -5,11 +5,10 @@
 //!
 //! Ported from `modules/audio_processing/aec3/subband_erle_estimator.h/cc`.
 
-use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
+use crate::common::{
+    BLOCKS_TO_HOLD_ERLE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1, X2_BAND_ENERGY_THRESHOLD,
+};
 use crate::config::EchoCanceller3Config;
-
-const X2_BAND_ENERGY_THRESHOLD: f32 = 44015068.0;
-const BLOCKS_TO_HOLD_ERLE: i32 = 100;
 const BLOCKS_FOR_ONSET_DETECTION: i32 = BLOCKS_TO_HOLD_ERLE + 150;
 const POINTS_TO_ACCUMULATE: i32 = 6;
 

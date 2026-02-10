@@ -16,7 +16,7 @@ const FFT_LENGTH_BY_2: usize = common::FFT_LENGTH_BY_2;
 /// Table of sqrt(2) * sin(2*pi*i/32).
 const SQRT2: f32 = consts::SQRT_2;
 
-const K_SQRT2_SIN: [f32; 32] = [
+const SQRT2_SIN: [f32; 32] = [
     0.0000000, 0.2758994, 0.5411961, 0.7856950, 1.0000000, 1.1758756, 1.3065630, 1.3870398, SQRT2,
     1.3870398, 1.3065630, 1.1758756, 1.0000000, 0.7856950, 0.5411961, 0.2758994, 0.0000000,
     -0.2758994, -0.5411961, -0.7856950, -1.0000000, -1.1758756, -1.3065630, -1.3870398, -SQRT2,
@@ -26,8 +26,8 @@ const K_SQRT2_SIN: [f32; 32] = [
 /// Computes the noise floor value that matches a WGN input of noise_floor_dbfs.
 fn get_noise_floor_factor(noise_floor_dbfs: f32) -> f32 {
     // kdBfsNormalization = 20.f*log10(32768.f).
-    const K_DBFS_NORMALIZATION: f32 = 90.308_99;
-    64.0 * 10.0f32.powf((K_DBFS_NORMALIZATION + noise_floor_dbfs) * 0.1)
+    const DBFS_NORMALIZATION: f32 = 90.308_99;
+    64.0 * 10.0f32.powf((DBFS_NORMALIZATION + noise_floor_dbfs) * 0.1)
 }
 
 /// Generates comfort noise for a single channel from the noise power spectrum.
@@ -74,10 +74,10 @@ fn generate_comfort_noise(
         // Convert to a 5-bit index.
         let i = (*seed >> 26) as usize;
 
-        // y = sqrt(2) * sin(a)
-        let x = K_SQRT2_SIN[i];
-        // x = sqrt(2) * cos(a) = sqrt(2) * sin(a + pi/2)
-        let y = K_SQRT2_SIN[(i + 8) & INDEX_MASK as usize];
+        // x = sqrt(2) * sin(a)
+        let x = SQRT2_SIN[i];
+        // y = sqrt(2) * cos(a) = sqrt(2) * sin(a + pi/2)
+        let y = SQRT2_SIN[(i + 8) & INDEX_MASK as usize];
 
         // Form low-frequency noise via spectral shaping.
         *lb_re = n_k * x;

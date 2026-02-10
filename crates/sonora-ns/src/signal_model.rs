@@ -5,7 +5,7 @@
 //!
 //! C++ source: `webrtc/modules/audio_processing/ns/signal_model.h`
 
-use crate::config::{FFT_SIZE_BY_2_PLUS_1, LTR_FEATURE_THR};
+use crate::config::{FFT_SIZE_BY_2_PLUS_1, LRT_FEATURE_THR};
 
 /// Signal model containing extracted features.
 #[derive(Debug, Clone)]
@@ -26,10 +26,10 @@ const SF_FEATURE_THR: f32 = 0.5;
 impl Default for SignalModel {
     fn default() -> Self {
         Self {
-            lrt: LTR_FEATURE_THR,
+            lrt: LRT_FEATURE_THR,
             spectral_flatness: SF_FEATURE_THR,
             spectral_diff: SF_FEATURE_THR,
-            avg_log_lrt: [LTR_FEATURE_THR; FFT_SIZE_BY_2_PLUS_1],
+            avg_log_lrt: [LRT_FEATURE_THR; FFT_SIZE_BY_2_PLUS_1],
         }
     }
 }

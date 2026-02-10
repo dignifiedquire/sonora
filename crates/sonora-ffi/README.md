@@ -18,10 +18,9 @@ auto-generates the C header at `crates/sonora-ffi/include/wap_audio_processing.h
 ```c
 #include "wap_audio_processing.h"
 
-WapAudioProcessing *apm = NULL;
 WapConfig config = wap_config_default();
 config.noise_suppression_enabled = true;
-wap_create_with_config(&config, &apm);
+WapAudioProcessing *apm = wap_create_with_config(config);
 
 WapStreamConfig stream = { .sample_rate_hz = 48000, .num_channels = 1 };
 wap_initialize(apm, stream, stream, stream, stream);
@@ -29,8 +28,8 @@ wap_initialize(apm, stream, stream, stream, stream);
 // Process 10 ms frames (48 kHz = 480 samples)
 float buf[480];
 float *channels[] = { buf };
-wap_process_stream_f32(apm, (const float *const *)channels, 1, 480,
-                       stream, stream, channels, 1);
+wap_process_stream_f32(apm, (const float *const *)channels,
+                       stream, stream, channels);
 
 wap_destroy(apm);
 ```

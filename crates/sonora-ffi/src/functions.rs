@@ -5,6 +5,8 @@
 //! All public symbols use the `wap_` prefix.
 
 use std::ffi::c_char;
+use std::panic;
+use std::panic::AssertUnwindSafe;
 use std::ptr;
 use std::slice;
 
@@ -76,7 +78,9 @@ pub unsafe extern "C" fn wap_destroy(apm: *mut WapAudioProcessing) {
     if !apm.is_null() {
         // Safety: we created this pointer via Box::into_raw in wap_create/
         // wap_create_with_config, and the caller guarantees single ownership.
-        let _ = unsafe { Box::from_raw(apm) };
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _ = unsafe { Box::from_raw(apm) };
+        }));
     }
 }
 
@@ -489,8 +493,11 @@ pub unsafe extern "C" fn wap_recommended_stream_analog_level(
     if apm.is_null() {
         return 0;
     }
-    let apm = unsafe { &*apm };
-    apm.inner.recommended_stream_analog_level()
+    panic::catch_unwind(AssertUnwindSafe(|| {
+        let apm = unsafe { &*apm };
+        apm.inner.recommended_stream_analog_level()
+    }))
+    .unwrap_or(0)
 }
 
 // ─── Stream delay ────────────────────────────────────────────────────
@@ -532,8 +539,11 @@ pub unsafe extern "C" fn wap_stream_delay_ms(apm: *const WapAudioProcessing) -> 
     if apm.is_null() {
         return 0;
     }
-    let apm = unsafe { &*apm };
-    apm.inner.stream_delay_ms()
+    panic::catch_unwind(AssertUnwindSafe(|| {
+        let apm = unsafe { &*apm };
+        apm.inner.stream_delay_ms()
+    }))
+    .unwrap_or(0)
 }
 
 // ─── Runtime settings ────────────────────────────────────────────────

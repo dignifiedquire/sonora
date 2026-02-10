@@ -566,7 +566,7 @@ impl AudioProcessing {
 
     /// Sets the delay in ms between render and capture.
     ///
-    /// The delay is clamped to `[0, 500]`. Returns `Err(BadStreamParameter)`
+    /// The delay is clamped to `[0, 500]`. Returns `Err(StreamParameterClamped)`
     /// if clamping was necessary (processing still proceeds).
     pub fn set_stream_delay_ms(&mut self, delay: i32) -> Result<(), Error> {
         self.was_stream_delay_set = true;

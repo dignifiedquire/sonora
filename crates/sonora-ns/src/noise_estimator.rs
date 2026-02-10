@@ -14,7 +14,7 @@ use crate::suppression_params::SuppressionParams;
 use core::f32::consts::LN_10;
 
 // Log(i) lookup table for i in 0..129.
-// clang-format off
+// Log(i) table formatted for readability.
 const LOG_TABLE: [f32; 129] = [
     0.0, 0.0, 0.0, 0.0, 0.0, 1.609438, 1.791759, 1.945910, 2.079442, 2.197225, LN_10, 2.397895,
     2.484907, 2.564949, 2.639057, 2.708050, 2.772589, 2.833213, 2.890372, 2.944439, 2.995732,

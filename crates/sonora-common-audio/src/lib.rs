@@ -1,6 +1,6 @@
 //! DSP primitives for WebRTC Audio Processing.
 //!
-//! Contains audio utilities, audio resamplers, and FFT wrappers.
+//! Contains audio utilities, audio resamplers, and biquad filters.
 
 #![deny(unsafe_code)]
 

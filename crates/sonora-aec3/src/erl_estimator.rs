@@ -6,7 +6,9 @@
 //!
 //! Ported from `modules/audio_processing/aec3/erl_estimator.h/cc`.
 
-use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_MINUS_1, FFT_LENGTH_BY_2_PLUS_1};
+use crate::common::{
+    FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_MINUS_1, FFT_LENGTH_BY_2_PLUS_1, X2_BAND_ENERGY_THRESHOLD,
+};
 
 const MIN_ERL: f32 = 0.01;
 const MAX_ERL: f32 = 1000.0;
@@ -48,9 +50,6 @@ impl ErlEstimator {
     ) {
         let num_capture_channels = converged_filters.len();
         debug_assert_eq!(capture_spectra.len(), num_capture_channels);
-
-        // Corresponds to WGN of power -46 dBFS.
-        const X2_MIN: f32 = 44015068.0;
 
         let first_converged = converged_filters.iter().position(|&c| c);
         let any_filter_converged = first_converged.is_some();
@@ -94,7 +93,7 @@ impl ErlEstimator {
 
         // Update the estimates in a maximum statistics manner.
         for k in 1..FFT_LENGTH_BY_2 {
-            if x2[k] > X2_MIN {
+            if x2[k] > X2_BAND_ENERGY_THRESHOLD {
                 let new_erl = y2[k] / x2[k];
                 if new_erl < self.erl[k] {
                     self.hold_counters[k - 1] = 1000;
@@ -118,7 +117,7 @@ impl ErlEstimator {
 
         // Compute ERL over all frequency bins.
         let x2_sum: f32 = x2.iter().sum();
-        if x2_sum > X2_MIN * FFT_LENGTH_BY_2_PLUS_1 as f32 {
+        if x2_sum > X2_BAND_ENERGY_THRESHOLD * FFT_LENGTH_BY_2_PLUS_1 as f32 {
             let y2_sum: f32 = y2.iter().sum();
             let new_erl = y2_sum / x2_sum;
             if new_erl < self.erl_time_domain {

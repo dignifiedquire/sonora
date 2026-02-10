@@ -7,7 +7,7 @@
 //! | S16       | `i16`   | \[-32768, 32767\]              |
 //! | Float     | `f32`   | \[-1.0, 1.0\]                  |
 //! | FloatS16  | `f32`   | \[-32768.0, 32768.0\]          |
-//! | Dbfs      | `f32`   | \[-90.31, 0\] (approx)         |
+//! | Dbfs      | `f32`   | typically \[-90.31, 0\], can exceed 0 for loud signals |
 
 /// Absolute highest acceptable sample rate (Hz).
 pub const MAX_SAMPLE_RATE_HZ: u32 = 384_000;

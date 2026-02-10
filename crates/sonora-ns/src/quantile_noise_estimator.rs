@@ -1,7 +1,7 @@
 //! Quantile-based noise spectrum estimation.
 //!
 //! Tracks noise level using a quantile estimator with multiple simultaneous
-//! estimates at different update rates, providing robust noise floor tracking
+//! estimates at different update rates for reliable noise floor tracking
 //! even during speech.
 //!
 //! C++ source: `webrtc/modules/audio_processing/ns/quantile_noise_estimator.cc`
@@ -90,10 +90,10 @@ impl QuantileNoiseEstimator {
 
                 // Update density estimate.
                 const WIDTH: f32 = 0.01;
-                const ONE_BY_WIDTH_PLUS_2: f32 = 1.0 / (2.0 * WIDTH);
+                const ONE_OVER_TWO_WIDTH: f32 = 1.0 / (2.0 * WIDTH);
                 if (log_spec_i - self.log_quantile[j]).abs() < WIDTH {
                     self.density[j] = (self.counter[s] as f32 * self.density[j]
-                        + ONE_BY_WIDTH_PLUS_2)
+                        + ONE_OVER_TWO_WIDTH)
                         * one_by_counter_plus_1;
                 }
             }

@@ -182,6 +182,7 @@ impl SpeechLevelEstimator {
         self.preliminary_state = self.make_initial_state();
         self.reliable_state = self.make_initial_state();
         self.level_dbfs = self.initial_speech_level_dbfs;
+        self.is_confident = false;
         self.num_adjacent_speech_frames = 0;
     }
 

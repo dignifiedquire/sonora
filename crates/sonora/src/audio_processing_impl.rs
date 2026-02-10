@@ -935,7 +935,7 @@ impl AudioProcessingImpl {
                     }
                 }
                 RuntimeSetting::PlayoutAudioDeviceChange(_info) => {
-                    // TODO: forward to render pre-processor when implemented.
+                    // No render pre-processor in the Rust port.
                 }
             }
         }
@@ -952,7 +952,7 @@ impl AudioProcessingImpl {
                     );
                 }
                 RuntimeSetting::PlayoutVolumeChange(_) => {
-                    // TODO: forward to render pre-processor when implemented.
+                    // No render pre-processor in the Rust port.
                 }
                 _ => {}
             }
@@ -1232,7 +1232,7 @@ impl AudioProcessingImpl {
             self.config.pre_amplifier.is_some() || self.config.capture_level_adjustment.is_some();
         self.submodule_states.update(
             self.config.high_pass_filter.is_some(),
-            self.submodules.noise_suppressors.is_empty().not_(),
+            !self.submodules.noise_suppressors.is_empty(),
             self.config.gain_controller2.is_some(),
             gain_adjustment,
             need_echo_controller,
@@ -1487,17 +1487,6 @@ fn map_ns_level(level: NoiseSuppressionLevel) -> SuppressionLevel {
 /// Multi-band splitting is only meaningful above the band-split rate (16 kHz).
 fn sample_rate_supports_multi_band(sample_rate_hz: u32) -> bool {
     sample_rate_hz > BAND_SPLIT_RATE as u32
-}
-
-/// Helper trait to negate booleans of `is_empty()` result.
-trait NotEmpty {
-    fn not_(&self) -> bool;
-}
-
-impl NotEmpty for bool {
-    fn not_(&self) -> bool {
-        !self
-    }
 }
 
 #[cfg(test)]

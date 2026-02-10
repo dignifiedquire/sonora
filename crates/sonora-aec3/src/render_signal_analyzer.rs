@@ -3,6 +3,8 @@
 //!
 //! Ported from `modules/audio_processing/aec3/render_signal_analyzer.h/cc`.
 
+use std::cmp::Ordering;
+
 use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
 use crate::config::EchoCanceller3Config;
 use crate::render_buffer::RenderBuffer;
@@ -58,7 +60,7 @@ fn identify_strong_narrow_band_component(
         let peak_bin = x2_latest
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
             .map(|(i, _)| i)
             .unwrap_or(0);
 

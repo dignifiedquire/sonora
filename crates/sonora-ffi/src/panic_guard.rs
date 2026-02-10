@@ -9,7 +9,7 @@
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// extern "C" fn wap_do_thing(ptr: *mut WapAudioProcessing) -> WapError {
 ///     ffi_guard! {
 ///         // ... body ...
@@ -35,7 +35,7 @@ macro_rules! ffi_guard {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// extern "C" fn wap_create() -> *mut WapAudioProcessing {
 ///     ffi_guard_ptr! {
 ///         // ... body ...

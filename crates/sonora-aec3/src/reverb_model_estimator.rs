@@ -70,13 +70,13 @@ impl ReverbModelEstimator {
     /// Returns the reverb decay. The parameter `mild` indicates which
     /// exponential decay to return.
     pub(crate) fn reverb_decay(&self, mild: bool) -> f32 {
-        // TODO(peah): Correct to properly support multiple channels.
+        // Upstream limitation: only channel 0 reverb data is returned.
         self.reverb_decay_estimators[0].decay(mild)
     }
 
     /// Returns the frequency response of the reverberant echo.
     pub(crate) fn get_reverb_frequency_response(&self) -> &[f32; FFT_LENGTH_BY_2_PLUS_1] {
-        // TODO(peah): Correct to properly support multiple channels.
+        // Upstream limitation: only channel 0 reverb data is returned.
         self.reverb_frequency_responses[0].frequency_response()
     }
 }

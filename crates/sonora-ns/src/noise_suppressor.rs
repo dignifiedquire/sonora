@@ -23,8 +23,8 @@ const MAX_S16: f32 = 32767.0;
 
 /// Hybrid Hanning + flat window for the filterbank (first half, 96 samples).
 ///
-/// Applied to both ends of the 256-sample extended frame. The middle 64
-/// samples (indices 96..160) are left unwindowed (gain = 1.0).
+/// Applied to both ends of the 256-sample extended frame. The middle 65
+/// samples (indices 96..=160) are left unwindowed (gain = 1.0).
 const BLOCKS_160W256_FIRST_HALF: [f32; 96] = [
     0.00000000, 0.01636173, 0.03271908, 0.04906767, 0.06540313, 0.08172107, 0.09801714, 0.11428696,
     0.13052619, 0.14673047, 0.16289547, 0.17901686, 0.19509032, 0.21111155, 0.22707626, 0.24298018,
@@ -45,7 +45,7 @@ fn apply_filterbank_window(x: &mut [f32; FFT_SIZE]) {
     for i in 0..OVERLAP_SIZE {
         x[i] *= BLOCKS_160W256_FIRST_HALF[i];
     }
-    // x[96..160] are left as-is (window = 1.0).
+    // x[96..=160] are left as-is (window = 1.0).
     // x[161..256] = 95 elements, window indices 95 down to 1 (k != 0 in C++).
     for i in 0..(FFT_SIZE - NS_FRAME_SIZE - 1) {
         x[NS_FRAME_SIZE + 1 + i] *= BLOCKS_160W256_FIRST_HALF[OVERLAP_SIZE - 1 - i];

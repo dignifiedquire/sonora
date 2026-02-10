@@ -2,6 +2,8 @@
 //!
 //! Ported from `modules/audio_processing/aec3/reverb_decay_estimator.h/cc`.
 
+use std::cmp::Ordering;
+
 use crate::common::{FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_LOG2, fast_approx_log2f};
 use crate::config::EchoCanceller3Config;
 
@@ -47,7 +49,7 @@ fn block_energy_peak(h: &[f32], peak_block: usize) -> f32 {
     let peak_value = h[start..end]
         .iter()
         .copied()
-        .max_by(|a, b| (a * a).partial_cmp(&(b * b)).unwrap())
+        .max_by(|a, b| (a * a).partial_cmp(&(b * b)).unwrap_or(Ordering::Equal))
         .unwrap_or(0.0);
     peak_value * peak_value
 }

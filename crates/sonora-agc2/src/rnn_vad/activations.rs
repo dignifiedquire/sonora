@@ -70,8 +70,8 @@ pub(crate) fn sigmoid_approximated(x: f32) -> f32 {
     0.5 + 0.5 * tansig_approximated(0.5 * x)
 }
 
-#[cfg(test)]
 /// Rectified linear unit: `max(0, x)`.
+#[cfg(test)]
 #[inline]
 pub(crate) fn rectified_linear_unit(x: f32) -> f32 {
     if x < 0.0 { 0.0 } else { x }
