@@ -15,12 +15,17 @@ pub(crate) const FFT_LENGTH_BY_2_MINUS_1: usize = FFT_LENGTH_BY_2 - 1;
 pub(crate) const FFT_LENGTH: usize = 2 * FFT_LENGTH_BY_2;
 pub(crate) const FFT_LENGTH_BY_2_LOG2: usize = 6;
 
+/// Maximum number of queued render frames before the oldest is dropped.
 pub const RENDER_TRANSFER_QUEUE_SIZE_FRAMES: usize = 100;
 
+/// Maximum number of frequency bands (48 kHz → 3 bands of 16 kHz each).
 pub const MAX_NUM_BANDS: usize = 3;
+/// Number of samples in one 10 ms frame at 16 kHz.
 pub const FRAME_SIZE: usize = 160;
+/// Number of samples in one sub-frame (half a frame).
 pub const SUB_FRAME_LENGTH: usize = FRAME_SIZE / 2;
 
+/// Number of samples in one processing block (64 = FFT_LENGTH / 2).
 pub const BLOCK_SIZE: usize = FFT_LENGTH_BY_2;
 pub(crate) const BLOCK_SIZE_LOG2: usize = FFT_LENGTH_BY_2_LOG2;
 pub(crate) const BLOCK_SIZE_MS: usize = FFT_LENGTH_BY_2 * 1000 / 16000;

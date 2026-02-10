@@ -400,6 +400,29 @@ impl AudioProcessingBuilder {
 /// Audio processing engine providing echo cancellation, noise suppression,
 /// automatic gain control, and other audio processing capabilities.
 ///
+/// The engine operates on two audio streams on a frame-by-frame basis.
+/// Frames of the **capture** (near-end / microphone) stream, on which all
+/// processing is applied, are passed to `process_capture_*`. Frames of the
+/// **render** (far-end / playback) stream are passed to `process_render_*`.
+/// The engine should be placed in the signal chain as close to the audio
+/// hardware abstraction layer (HAL) as possible.
+///
+/// # Frame size
+///
+/// All processing operates on ~10 ms chunks of linear PCM audio.
+/// Sample rates from 8 kHz to 384 kHz are accepted. The float interfaces
+/// use deinterleaved data (`&[&[f32]]` per channel, range `[-1, 1]`), while
+/// the i16 interfaces use interleaved data.
+///
+/// # Thread safety
+///
+/// `AudioProcessing` is `Send + Sync`. However, for lowest overhead, the
+/// recommended usage pattern is:
+/// - Call stream setters (`set_stream_analog_level`, `set_stream_delay_ms`)
+///   and `process_capture_*` from the same thread.
+/// - Call `apply_config` from any thread, but never concurrently with
+///   `config()`.
+///
 /// # Usage
 ///
 /// 1. Create an instance via [`AudioProcessing::builder()`] or
@@ -565,6 +588,18 @@ impl AudioProcessing {
     // ─── Stream delay ────────────────────────────────────────────
 
     /// Sets the delay in ms between render and capture.
+    ///
+    /// This must be called if echo cancellation is enabled. On the client-side
+    /// the delay can be expressed as:
+    ///
+    /// ```text
+    /// delay = (t_render - t_analyze) + (t_process - t_capture)
+    /// ```
+    ///
+    /// where `t_analyze` is the time a frame is passed to `process_render_*`,
+    /// `t_render` is the time its first sample is rendered by the audio hardware,
+    /// `t_capture` is the time a frame's first sample is captured, and
+    /// `t_process` is the time it is passed to `process_capture_*`.
     ///
     /// The delay is clamped to `[0, 500]`. Returns `Err(StreamParameterClamped)`
     /// if clamping was necessary (processing still proceeds).

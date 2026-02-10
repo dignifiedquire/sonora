@@ -35,8 +35,11 @@ pub struct BlockProcessor {
 /// Metrics output from the block processor.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BlockProcessorMetricsOutput {
+    /// Echo Return Loss in dB: `ERL = 10 log10(P_far / P_echo)`.
     pub echo_return_loss: f64,
+    /// Echo Return Loss Enhancement in dB: `ERLE = 10 log10(P_echo / P_out)`.
     pub echo_return_loss_enhancement: f64,
+    /// Instantaneous delay estimate in milliseconds.
     pub delay_ms: i32,
 }
 
