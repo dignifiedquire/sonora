@@ -35,8 +35,6 @@ const BAND_SPLIT_RATE: usize = 16000;
 /// Maximum number of frames to buffer in render queues.
 const MAX_NUM_FRAMES_TO_BUFFER: usize = 100;
 
-// ─── ProcessingConfig ────────────────────────────────────────────────
-
 /// Describes the four audio streams handled by the processing pipeline.
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessingConfig {
@@ -58,8 +56,6 @@ impl Default for ProcessingConfig {
     }
 }
 
-// ─── Submodules ──────────────────────────────────────────────────────
-
 /// Container for all optional submodule instances.
 #[derive(Debug)]
 struct Submodules {
@@ -70,8 +66,6 @@ struct Submodules {
     capture_levels_adjuster: Option<CaptureLevelsAdjuster>,
     echo_detector: Option<ResidualEchoDetector>,
 }
-
-// ─── Capture State ───────────────────────────────────────────────────
 
 #[derive(Debug)]
 struct CaptureState {
@@ -126,15 +120,11 @@ impl Default for CaptureNonlocked {
     }
 }
 
-// ─── Render State ────────────────────────────────────────────────────
-
 #[derive(Debug, Default)]
 struct RenderState {
     render_audio: Option<AudioBuffer>,
     render_converter: Option<AudioConverter>,
 }
-
-// ─── Format State ────────────────────────────────────────────────────
 
 #[derive(Debug)]
 struct FormatState {
@@ -150,8 +140,6 @@ impl Default for FormatState {
         }
     }
 }
-
-// ─── AudioProcessingImpl ─────────────────────────────────────────────
 
 /// The core audio processing engine.
 ///
@@ -330,8 +318,6 @@ impl AudioProcessingImpl {
         self.capture.was_stream_delay_set = true;
         self.capture.stream_delay_ms = delay_ms;
     }
-
-    // ─── Processing ──────────────────────────────────────────────
 
     /// Processes a capture audio frame.
     ///
@@ -1028,8 +1014,6 @@ impl AudioProcessingImpl {
         self.capture.recommended_input_volume = self.capture.applied_input_volume;
     }
 
-    // ─── Processing rate helpers ─────────────────────────────────
-
     /// The capture processing sample rate.
     pub(crate) fn proc_sample_rate_hz(&self) -> usize {
         self.capture_nonlocked
@@ -1063,8 +1047,6 @@ impl AudioProcessingImpl {
     fn num_output_channels(&self) -> usize {
         self.formats.api_format.output_stream.num_channels() as usize
     }
-
-    // ─── Initialization internals ────────────────────────────────
 
     fn initialize_locked(&mut self) {
         self.update_active_submodule_states();
@@ -1444,8 +1426,6 @@ impl AudioProcessingImpl {
         }
     }
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────
 
 /// Choose a suitable internal processing rate.
 fn suitable_process_rate(

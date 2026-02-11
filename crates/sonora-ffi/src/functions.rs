@@ -15,9 +15,6 @@ use sonora::Config;
 
 use crate::panic_guard::{ffi_guard, ffi_guard_ptr};
 use crate::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamConfig};
-
-// ─── Version ─────────────────────────────────────────────────────────
-
 /// Returns a pointer to a static null-terminated version string.
 ///
 /// The returned pointer is valid for the lifetime of the process.
@@ -26,9 +23,6 @@ pub extern "C" fn wap_version() -> *const c_char {
     // Safety: the byte string is a static literal with a trailing NUL.
     c"0.1.0".as_ptr()
 }
-
-// ─── Lifecycle ───────────────────────────────────────────────────────
-
 /// Returns a default-initialized configuration.
 #[unsafe(no_mangle)]
 pub extern "C" fn wap_config_default() -> WapConfig {
@@ -83,9 +77,6 @@ pub unsafe extern "C" fn wap_destroy(apm: *mut WapAudioProcessing) {
         }));
     }
 }
-
-// ─── Configuration ───────────────────────────────────────────────────
-
 /// Applies a new configuration to the audio processing instance.
 ///
 /// Returns `WapError::NullPointer` if `apm` is null.
@@ -137,9 +128,6 @@ pub unsafe extern "C" fn wap_get_config(
         WapError::None
     }
 }
-
-// ─── Initialization ──────────────────────────────────────────────────
-
 /// Initializes the processing pipeline with explicit stream configurations.
 ///
 /// Sets sample rates and channel counts for all four audio paths (capture
@@ -174,9 +162,6 @@ pub unsafe extern "C" fn wap_initialize(
         WapError::None
     }
 }
-
-// ─── Processing (float, deinterleaved) ──────────────────────────────
-
 /// Maximum number of channels accepted to prevent unreasonable allocations.
 const MAX_CHANNELS: usize = 8;
 
@@ -358,9 +343,6 @@ pub unsafe extern "C" fn wap_process_reverse_stream_f32(
         }
     }
 }
-
-// ─── Processing (int16, interleaved) ─────────────────────────────────
-
 /// Processes a capture audio frame (int16, interleaved).
 ///
 /// - `src`: pointer to `num_frames * num_channels` interleaved i16 samples.
@@ -450,9 +432,6 @@ pub unsafe extern "C" fn wap_process_reverse_stream_i16(
         }
     }
 }
-
-// ─── Analog level (for AGC) ──────────────────────────────────────────
-
 /// Sets the applied input volume (e.g. from the OS mixer).
 ///
 /// Must be called before [`wap_process_stream_f32()`] if the input volume
@@ -499,9 +478,6 @@ pub unsafe extern "C" fn wap_recommended_stream_analog_level(
     }))
     .unwrap_or(0)
 }
-
-// ─── Stream delay ────────────────────────────────────────────────────
-
 /// Sets the delay in ms between render and capture.
 ///
 /// The delay is clamped to `[0, 500]`. Returns `WapError::BadStreamParameter`
@@ -545,9 +521,6 @@ pub unsafe extern "C" fn wap_stream_delay_ms(apm: *const WapAudioProcessing) -> 
     }))
     .unwrap_or(0)
 }
-
-// ─── Runtime settings ────────────────────────────────────────────────
-
 /// Sets the capture pre-gain factor via runtime setting.
 ///
 /// # Safety
@@ -674,9 +647,6 @@ pub unsafe extern "C" fn wap_set_capture_output_used(
         WapError::None
     }
 }
-
-// ─── Statistics ──────────────────────────────────────────────────────
-
 /// Retrieves current processing statistics.
 ///
 /// Returns `WapError::NullPointer` if `apm` or `stats_out` is null.
@@ -702,9 +672,6 @@ pub unsafe extern "C" fn wap_get_statistics(
         WapError::None
     }
 }
-
-// ─── Tests ───────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,8 +802,6 @@ mod tests {
         assert_eq!(err, WapError::NullPointer);
         unsafe { wap_destroy(apm) };
     }
-
-    // ─── Processing tests ────────────────────────────────────────
 
     #[test]
     fn process_stream_f32_null_apm() {
@@ -1057,8 +1022,6 @@ mod tests {
         unsafe { wap_destroy(apm) };
     }
 
-    // ─── Analog level tests ─────────────────────────────────────
-
     #[test]
     fn set_and_get_analog_level() {
         let apm = wap_create();
@@ -1081,8 +1044,6 @@ mod tests {
             0
         );
     }
-
-    // ─── Stream delay tests ──────────────────────────────────────
 
     #[test]
     fn set_and_get_delay() {
@@ -1126,8 +1087,6 @@ mod tests {
         assert_eq!(err, WapError::NullPointer);
         assert_eq!(unsafe { wap_stream_delay_ms(ptr::null()) }, 0);
     }
-
-    // ─── Runtime settings tests ──────────────────────────────────
 
     #[test]
     fn runtime_settings_null_safety() {
@@ -1174,8 +1133,6 @@ mod tests {
             wap_destroy(apm);
         }
     }
-
-    // ─── Statistics tests ────────────────────────────────────────
 
     #[test]
     fn get_statistics_null_safety() {
@@ -1225,8 +1182,6 @@ mod tests {
         unsafe { wap_destroy(apm) };
     }
 
-    // ─── Processing error tests (continued) ──────────────────────
-
     #[test]
     fn process_stream_f32_bad_rate() {
         let apm = wap_create();
@@ -1247,8 +1202,6 @@ mod tests {
         assert_eq!(err, WapError::BadSampleRate);
         unsafe { wap_destroy(apm) };
     }
-
-    // ─── End-to-end integration tests ────────────────────────────
 
     /// Helper: generates a simple sine tone at the given frequency.
     fn generate_sine(num_frames: usize, freq_hz: f32, sample_rate: f32) -> Vec<f32> {

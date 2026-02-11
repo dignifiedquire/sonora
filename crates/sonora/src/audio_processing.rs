@@ -13,9 +13,6 @@ use crate::audio_processing_impl::AudioProcessingImpl;
 use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
 use crate::stats::AudioProcessingStats;
 use crate::stream_config::StreamConfig;
-
-// ─── Error ───────────────────────────────────────────────────────────
-
 /// Errors returned by audio processing operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -64,9 +61,6 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {}
-
-// ─── Format validation ──────────────────────────────────────────────
-
 /// Maximum supported sample rate.
 const MAX_SAMPLE_RATE: u32 = 384_000;
 
@@ -294,9 +288,6 @@ fn handle_unsupported_formats_i16(
 
     Err(error)
 }
-
-// ─── AudioProcessingBuilder ─────────────────────────────────────────
-
 /// Builder for constructing an [`AudioProcessing`] instance.
 ///
 /// # Example
@@ -396,9 +387,6 @@ impl AudioProcessingBuilder {
         }
     }
 }
-
-// ─── AudioProcessing ────────────────────────────────────────────────
-
 /// Audio processing engine providing echo cancellation, noise suppression,
 /// automatic gain control, and other audio processing capabilities.
 ///
@@ -456,8 +444,6 @@ impl AudioProcessing {
     pub fn builder() -> AudioProcessingBuilder {
         AudioProcessingBuilder::default()
     }
-
-    // ─── Configuration ─────────────────────────────────────────
 
     /// Applies a new processing configuration at runtime.
     ///
@@ -552,8 +538,6 @@ impl AudioProcessing {
         self.inner.get_statistics()
     }
 
-    // ─── Analog level (for AGC) ──────────────────────────────────
-
     /// Sets the applied input volume (e.g. from the OS mixer).
     ///
     /// Must be called before [`process_capture_f32()`](Self::process_capture_f32) if the input
@@ -576,8 +560,6 @@ impl AudioProcessing {
             .or_else(|| self.inner.applied_input_volume())
             .unwrap_or(FALLBACK_INPUT_VOLUME)
     }
-
-    // ─── Stream delay ────────────────────────────────────────────
 
     /// Sets the delay in ms between render and capture.
     ///
@@ -621,14 +603,10 @@ impl AudioProcessing {
         self.stream_delay_ms
     }
 
-    // ─── Processing rate info ────────────────────────────────────
-
     /// The internal capture processing sample rate.
     pub fn proc_sample_rate_hz(&self) -> usize {
         self.inner.proc_sample_rate_hz()
     }
-
-    // ─── Float (deinterleaved) processing ────────────────────────
 
     /// Processes a capture audio frame (float, deinterleaved).
     ///
@@ -684,8 +662,6 @@ impl AudioProcessing {
             .process_reverse_stream(src, input_config, output_config, dest);
         Ok(())
     }
-
-    // ─── Int16 (interleaved) processing ──────────────────────────
 
     /// Processes a capture audio frame (int16, interleaved).
     ///
@@ -920,8 +896,6 @@ mod tests {
         );
     }
 
-    // ─── Format handling tests ─────────────────────────────────────
-
     #[test]
     fn format_handling_f32_error_and_silence_rate_mismatch() {
         // When input rate is unsupported (< 8000), output gets silence.
@@ -1087,8 +1061,6 @@ mod tests {
             FormatValidity::ValidButUnsupportedRate
         );
     }
-
-    // ─── End-to-end tests ────────────────────────────────────────
 
     /// Helper: generate a ~10ms frame of sawtooth at the given rate.
     fn sawtooth_frame(sample_rate_hz: usize, num_channels: usize) -> Vec<f32> {
