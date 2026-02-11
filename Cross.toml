@@ -1,0 +1,14 @@
+# Use up-to-date cross images with a modern Android NDK that includes libunwind.
+# The default 0.2.5 images ship NDK 4.9.x which is too old for current Rust.
+
+[target.aarch64-linux-android]
+image = "ghcr.io/cross-rs/aarch64-linux-android:main"
+
+[target.armv7-linux-androideabi]
+image = "ghcr.io/cross-rs/armv7-linux-androideabi:main"
+
+[target.x86_64-linux-android]
+image = "ghcr.io/cross-rs/x86_64-linux-android:main"
+
+[target.i686-linux-android]
+image = "ghcr.io/cross-rs/i686-linux-android:main"
