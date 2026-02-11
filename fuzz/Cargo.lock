@@ -449,7 +449,6 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 name = "sonora"
 version = "0.1.0"
 dependencies = [
- "cbindgen",
  "sonora-aec3",
  "sonora-agc2",
  "sonora-common-audio",
@@ -465,7 +464,6 @@ dependencies = [
  "sonora-common-audio",
  "sonora-fft",
  "sonora-simd",
- "tracing",
 ]
 
 [[package]]
@@ -486,7 +484,14 @@ version = "0.1.0"
 dependencies = [
  "derive_more",
  "sonora-simd",
- "tracing",
+]
+
+[[package]]
+name = "sonora-ffi"
+version = "0.1.0"
+dependencies = [
+ "cbindgen",
+ "sonora",
 ]
 
 [[package]]
@@ -500,6 +505,7 @@ dependencies = [
  "arbitrary",
  "libfuzzer-sys",
  "sonora",
+ "sonora-ffi",
 ]
 
 [[package]]
@@ -507,7 +513,6 @@ name = "sonora-ns"
 version = "0.1.0"
 dependencies = [
  "sonora-fft",
- "tracing",
 ]
 
 [[package]]

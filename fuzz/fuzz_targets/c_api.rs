@@ -40,6 +40,15 @@ fn sample_rate(idx: u8) -> i32 {
     }
 }
 
+/// Clamp to valid audio range [-1, 1], replacing NaN/inf with 0.
+fn sanitize_sample(s: f32) -> f32 {
+    if s.is_finite() {
+        s.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 fuzz_target!(|input: FuzzInput| {
     let rate = sample_rate(input.sample_rate_idx);
     let channels = ((input.channels % 2) as i32) + 1;
@@ -60,15 +69,20 @@ fuzz_target!(|input: FuzzInput| {
         num_channels: channels,
     };
 
-    // Prepare audio buffers
-    let src_data: Vec<f32> = input.samples[..frames].to_vec();
-    let mut dest_data = vec![0.0f32; frames];
+    // Prepare per-channel audio buffers with sanitized data
+    let sanitized: Vec<f32> = input.samples.iter().copied().map(sanitize_sample).collect();
+    let channel_bufs: Vec<Vec<f32>> = (0..channels as usize)
+        .map(|ch| sanitized[ch * frames..(ch + 1) * frames].to_vec())
+        .collect();
+    let src_ptrs: Vec<*const f32> = channel_bufs.iter().map(|b| b.as_ptr()).collect();
+    let mut dest_bufs: Vec<Vec<f32>> = (0..channels as usize)
+        .map(|_| vec![0.0f32; frames])
+        .collect();
+    let dest_ptrs: Vec<*mut f32> = dest_bufs.iter_mut().map(|b| b.as_mut_ptr()).collect();
 
     for op in &input.operations {
         match op {
             FuzzOp::ProcessF32 => {
-                let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
-                let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
                 let _ = unsafe {
                     wap_process_stream_f32(
                         apm,
@@ -80,7 +94,10 @@ fuzz_target!(|input: FuzzInput| {
                 };
             }
             FuzzOp::ProcessI16 => {
-                let src_i16: Vec<i16> = src_data.iter().map(|&s| (s * 16384.0) as i16).collect();
+                let src_i16: Vec<i16> = sanitized[..total]
+                    .iter()
+                    .map(|&s| (s * 16384.0) as i16)
+                    .collect();
                 let mut dest_i16 = vec![0i16; total];
                 let _ = unsafe {
                     wap_process_stream_i16(
@@ -95,8 +112,6 @@ fuzz_target!(|input: FuzzInput| {
                 };
             }
             FuzzOp::ProcessReverseF32 => {
-                let src_ptrs: [*const f32; 1] = [src_data.as_ptr()];
-                let dest_ptrs: [*mut f32; 1] = [dest_data.as_mut_ptr()];
                 let _ = unsafe {
                     wap_process_reverse_stream_f32(
                         apm,

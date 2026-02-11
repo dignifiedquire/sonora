@@ -5,6 +5,10 @@
 *.stamp
 .DS_Store
 
+# Fuzzing
+fuzz/artifacts/
+fuzz/corpus/
+
 # Coverage
 lcov.info
 *.profraw

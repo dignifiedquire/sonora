@@ -2,7 +2,7 @@ name: Fuzzing
 
 on:
   schedule:
-    - cron: "0 6 * * 3" # Weekly on Wednesday
+    - cron: "0 6 * * *" # Daily at 06:00 UTC
   workflow_dispatch:
 
 env:
@@ -24,3 +24,5 @@ jobs:
         run: cargo install cargo-fuzz
       - name: Run fuzzer
         run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=300
+        env:
+          RUSTUP_TOOLCHAIN: nightly
