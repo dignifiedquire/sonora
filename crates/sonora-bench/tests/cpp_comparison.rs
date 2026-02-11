@@ -9,7 +9,10 @@
 //! LLVM and GCC. The tolerances below accommodate this.
 
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression, TransparentModeType};
-use sonora::internals::{self, FULL_BAND_SIZE, NUM_BANDS, SPLIT_BAND_SIZE};
+use sonora::high_pass_filter::HighPassFilter;
+use sonora::three_band_filter_bank::{
+    FULL_BAND_SIZE, NUM_BANDS, SPLIT_BAND_SIZE, ThreeBandFilterBank,
+};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora_bench::comparison::compare_f32;
 
@@ -34,7 +37,7 @@ fn gen_signal(len: usize) -> Vec<f32> {
 
 #[test]
 fn filter_bank_analysis_matches_cpp() {
-    let mut rust_bank = internals::ThreeBandFilterBank::new();
+    let mut rust_bank = ThreeBandFilterBank::new();
     let mut cpp_bank = sonora_sys::create_filter_bank();
 
     let input = gen_signal(FULL_BAND_SIZE);
@@ -62,7 +65,7 @@ fn filter_bank_analysis_matches_cpp() {
 
 #[test]
 fn filter_bank_synthesis_matches_cpp() {
-    let mut rust_bank = internals::ThreeBandFilterBank::new();
+    let mut rust_bank = ThreeBandFilterBank::new();
     let mut cpp_bank = sonora_sys::create_filter_bank();
 
     // Generate band data (3×160 samples).
@@ -93,7 +96,7 @@ fn filter_bank_synthesis_matches_cpp() {
 
 #[test]
 fn filter_bank_roundtrip_matches_cpp() {
-    let mut rust_bank = internals::ThreeBandFilterBank::new();
+    let mut rust_bank = ThreeBandFilterBank::new();
     let mut cpp_bank = sonora_sys::create_filter_bank();
 
     let input = gen_signal(FULL_BAND_SIZE);
@@ -120,7 +123,7 @@ fn filter_bank_roundtrip_matches_cpp() {
         // Synthesis (use Rust analysis output for both to isolate synthesis comparison)
         let rust_packed: Vec<f32> = rust_bands.iter().flatten().copied().collect();
 
-        let mut rust_synth_bank = internals::ThreeBandFilterBank::new();
+        let mut rust_synth_bank = ThreeBandFilterBank::new();
         let mut cpp_synth_bank = sonora_sys::create_filter_bank();
 
         let mut rust_out = [0.0f32; FULL_BAND_SIZE];
@@ -143,7 +146,7 @@ fn filter_bank_roundtrip_matches_cpp() {
 fn hpf_matches_cpp() {
     for &sample_rate in &[16000i32, 32000, 48000] {
         let frame_size = sample_rate as usize / 100;
-        let mut rust_hpf = internals::HighPassFilter::new(sample_rate, 1);
+        let mut rust_hpf = HighPassFilter::new(sample_rate, 1);
         let mut cpp_hpf = sonora_sys::create_hpf(sample_rate, 1);
 
         let input = gen_signal(frame_size);

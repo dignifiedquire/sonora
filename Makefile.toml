@@ -19,6 +19,7 @@ script = '''
 cargo check --workspace
 cargo check --manifest-path crates/sonora-sys/Cargo.toml
 cargo check --manifest-path crates/sonora-bench/Cargo.toml
+RUSTUP_TOOLCHAIN=nightly cargo check --manifest-path fuzz/Cargo.toml
 '''
 
 [tasks.fmt]
@@ -28,6 +29,7 @@ script = '''
 cargo fmt --all -- --check
 cargo fmt --manifest-path crates/sonora-sys/Cargo.toml -- --check
 cargo fmt --manifest-path crates/sonora-bench/Cargo.toml -- --check
+cargo fmt --manifest-path fuzz/Cargo.toml -- --check
 '''
 
 [tasks.fmt-fix]
@@ -36,6 +38,7 @@ script = '''
 cargo fmt --all
 cargo fmt --manifest-path crates/sonora-sys/Cargo.toml
 cargo fmt --manifest-path crates/sonora-bench/Cargo.toml
+cargo fmt --manifest-path fuzz/Cargo.toml
 '''
 
 [tasks.clippy]
@@ -46,6 +49,7 @@ script = '''
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --manifest-path crates/sonora-sys/Cargo.toml --all-targets -- -D warnings
 cargo clippy --manifest-path crates/sonora-bench/Cargo.toml --all-targets -- -D warnings
+RUSTUP_TOOLCHAIN=nightly cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings
 '''
 
 [tasks.test]
