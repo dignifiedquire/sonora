@@ -43,7 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     # The LLVM profiling runtime must be force-linked (--whole-archive) into
     # the GCC-linked test binary for .profraw generation to work.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
         with:
@@ -196,7 +195,6 @@ jobs:
     needs: [rust-coverage, cpp-rust-coverage]
     if: always()
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Finish Coveralls parallel build
         uses: coverallsapp/github-action@v2
