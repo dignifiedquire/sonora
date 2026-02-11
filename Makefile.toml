@@ -17,6 +17,7 @@ description = "Type-check workspace + excluded crates"
 env = { "PKG_CONFIG_PATH" = "${CPP_PKG_CONFIG}" }
 script = '''
 cargo check --workspace
+cargo check -p sonora --all-targets --features examples
 cargo check --manifest-path crates/sonora-sys/Cargo.toml
 cargo check --manifest-path crates/sonora-bench/Cargo.toml
 RUSTUP_TOOLCHAIN=nightly cargo check --manifest-path fuzz/Cargo.toml
@@ -47,6 +48,7 @@ description = "Lint workspace + excluded crates (lib, tests, benches, examples)"
 env = { "PKG_CONFIG_PATH" = "${CPP_PKG_CONFIG}" }
 script = '''
 cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p sonora --all-targets --features examples -- -D warnings
 cargo clippy --manifest-path crates/sonora-sys/Cargo.toml --all-targets -- -D warnings
 cargo clippy --manifest-path crates/sonora-bench/Cargo.toml --all-targets -- -D warnings
 RUSTUP_TOOLCHAIN=nightly cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings

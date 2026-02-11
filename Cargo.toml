@@ -38,6 +38,12 @@ bytemuck = { version = "1", features = ["derive"] }
 proptest = "1.9"
 test-strategy = "0.4"
 criterion = { version = "0.8", features = ["html_reports"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+cpal = "0.15"
+ctrlc = { version = "3", features = ["termination"] }
+hound = "3"
+ringbuf = "0.4"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "deny", check-cfg = ["cfg(docsrs)"] }

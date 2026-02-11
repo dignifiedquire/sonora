@@ -28,7 +28,9 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p sonora --all-targets --features examples -- -D warnings
 
   test-linux:
     name: Test (Linux)

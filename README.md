@@ -34,28 +34,25 @@ Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module.
 
 ## Quick Start
 
-```rust
-use sonora::{AudioProcessing, Config, StreamConfig};
-use sonora::config::{EchoCanceller, NoiseSuppression, GainController2};
+Run the minimal echo cancellation demo:
 
-let config = Config {
-    echo_canceller: Some(EchoCanceller::default()),
-    noise_suppression: Some(NoiseSuppression::default()),
-    gain_controller2: Some(GainController2::default()),
-    ..Default::default()
-};
-
-let mut apm = AudioProcessing::builder()
-    .config(config)
-    .capture_config(StreamConfig::new(48000, 1))
-    .render_config(StreamConfig::new(48000, 1))
-    .build();
-
-// Process 10ms frames (48kHz * 10ms = 480 samples)
-let src = vec![0.0f32; 480];
-let mut dest = vec![0.0f32; 480];
-apm.process_capture_f32(&[&src], &mut [&mut dest]).unwrap();
+```bash
+cargo run -p sonora --example simple
 ```
+
+More examples in [`crates/sonora/examples/`](crates/sonora/examples/):
+
+| Example | Description | Command |
+|---------|-------------|---------|
+| [`simple`](crates/sonora/examples/simple.rs) | Synthetic AEC round-trip | `cargo run -p sonora --example simple` |
+| [`karaoke`](crates/sonora/examples/karaoke.rs) | Mic loopback with echo cancellation | `cargo run -p sonora --features examples --example karaoke` |
+| [`recording`](crates/sonora/examples/recording.rs) | Record & process to WAV | `cargo run -p sonora --features examples --example recording -- --duration 5 --ns --agc` |
+
+The `karaoke` and `recording` examples require the `examples` feature which pulls in [cpal], [hound], and other audio I/O dependencies. These examples are based on the [tonarino/webrtc-audio-processing examples][tonarino-examples], ported from PortAudio to cpal.
+
+[cpal]: https://crates.io/crates/cpal
+[hound]: https://crates.io/crates/hound
+[tonarino-examples]: https://github.com/tonarino/webrtc-audio-processing/tree/main/examples
 
 ## Supported Platforms
 
@@ -116,6 +113,12 @@ The minimum supported Rust version is **1.91**.
 ## License
 
 All crates in this repository are licensed under [BSD-3-Clause](LICENSE).
+
+## Related Projects
+
+- **[tonarino/webrtc-audio-processing]** -- Rust bindings to the C++ WebRTC AudioProcessing module. Sonora's examples are based on theirs. If you need the battle-tested C++ implementation with a Rust wrapper, use tonarino; if you want a pure-Rust solution with no C++ dependency, use sonora.
+
+[tonarino/webrtc-audio-processing]: https://github.com/tonarino/webrtc-audio-processing
 
 ## History
 

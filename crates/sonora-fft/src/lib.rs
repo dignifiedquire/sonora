@@ -1,5 +1,4 @@
 #![doc = include_str!("../README.md")]
-
 // SIMD modules require unsafe for intrinsics; safe wrappers are provided.
 #![deny(unsafe_op_in_unsafe_fn)]
 
