@@ -30,10 +30,32 @@ fn get_noise_floor_factor(noise_floor_dbfs: f32) -> f32 {
     64.0 * 10.0f32.powf((DBFS_NORMALIZATION + noise_floor_dbfs) * 0.1)
 }
 
-/// Generates comfort noise for a single channel from the noise power spectrum.
+/// Pre-computes random sin-table indices from the seed, so the same indices
+/// can be reused identically across all channels.
+fn generate_random_sin_table_indices(
+    seed: &mut u32,
+    re_indices: &mut [usize; FFT_LENGTH_BY_2 - 1],
+    im_indices: &mut [usize; FFT_LENGTH_BY_2 - 1],
+) {
+    const SEED_MASK: u32 = 0x8000_0000 - 1;
+    const IM_INDEX_MASK: usize = 32 - 1;
+
+    for k in 0..re_indices.len() {
+        // Generate a random 31-bit integer.
+        *seed = seed.wrapping_mul(69069).wrapping_add(1) & SEED_MASK;
+        // Convert to a 5-bit index.
+        let re_idx = (*seed >> 26) as usize;
+        re_indices[k] = re_idx;
+        im_indices[k] = (re_idx + 8) & IM_INDEX_MASK;
+    }
+}
+
+/// Generates comfort noise for a single channel from the noise power spectrum,
+/// using pre-computed random indices (identical across all channels).
 fn generate_comfort_noise(
     n2: &[f32; FFT_LENGTH_BY_2_PLUS_1],
-    seed: &mut u32,
+    re_indices: &[usize; FFT_LENGTH_BY_2 - 1],
+    im_indices: &[usize; FFT_LENGTH_BY_2 - 1],
     lower_band_noise: &mut FftData,
     upper_band_noise: &mut FftData,
     vector_math: &VectorMath,
@@ -57,9 +79,7 @@ fn generate_comfort_noise(
     upper_band_noise.re[0] = 0.0;
     upper_band_noise.re[FFT_LENGTH_BY_2] = 0.0;
 
-    const INDEX_MASK: u32 = 32 - 1;
-
-    for (((lb_re, lb_im), (ub_re, ub_im)), &n_k) in lower_band_noise.re[1..FFT_LENGTH_BY_2]
+    for (k, (((lb_re, lb_im), (ub_re, ub_im)), &n_k)) in lower_band_noise.re[1..FFT_LENGTH_BY_2]
         .iter_mut()
         .zip(lower_band_noise.im[1..FFT_LENGTH_BY_2].iter_mut())
         .zip(
@@ -68,16 +88,12 @@ fn generate_comfort_noise(
                 .zip(upper_band_noise.im[1..FFT_LENGTH_BY_2].iter_mut()),
         )
         .zip(n[1..FFT_LENGTH_BY_2].iter())
+        .enumerate()
     {
-        // Generate a random 31-bit integer.
-        *seed = seed.wrapping_mul(69069).wrapping_add(1) & (0x8000_0000 - 1);
-        // Convert to a 5-bit index.
-        let i = (*seed >> 26) as usize;
-
         // x = sqrt(2) * sin(a)
-        let x = SQRT2_SIN[i];
+        let x = SQRT2_SIN[re_indices[k]];
         // y = sqrt(2) * cos(a) = sqrt(2) * sin(a + pi/2)
-        let y = SQRT2_SIN[(i + 8) & INDEX_MASK as usize];
+        let y = SQRT2_SIN[im_indices[k]];
 
         // Form low-frequency noise via spectral shaping.
         *lb_re = n_k * x;
@@ -178,6 +194,12 @@ impl ComfortNoiseGenerator {
             }
         }
 
+        // Generate random indices once so comfort noise is identical across
+        // all channels.
+        let mut re_indices = [0usize; FFT_LENGTH_BY_2 - 1];
+        let mut im_indices = [0usize; FFT_LENGTH_BY_2 - 1];
+        generate_random_sin_table_indices(&mut self.seed, &mut re_indices, &mut im_indices);
+
         // Choose N2 estimate to use.
         for (ch, (lb, ub)) in lower_band_noise
             .iter_mut()
@@ -189,7 +211,7 @@ impl ComfortNoiseGenerator {
             } else {
                 &self.n2[ch]
             };
-            generate_comfort_noise(n2_ch, &mut self.seed, lb, ub, &self.vector_math);
+            generate_comfort_noise(n2_ch, &re_indices, &im_indices, lb, ub, &self.vector_math);
         }
     }
 

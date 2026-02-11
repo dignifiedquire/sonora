@@ -67,6 +67,55 @@ fn signal_transition(from: &[f32], to: &[f32], out: &mut [f32]) {
     }
 }
 
+/// Returns whether the refined filter output is more appropriate than the
+/// coarse filter output for a single channel.
+fn use_refined_filter_output(subtractor_output: &SubtractorOutput) -> bool {
+    // As the output of the refined adaptive filter generally should be better
+    // than the coarse filter output, add a margin and threshold for when
+    // choosing the coarse filter output.
+    if subtractor_output.e2_coarse_sum < 0.9 * subtractor_output.e2_refined_sum
+        && subtractor_output.y2 > 30.0 * 30.0 * BLOCK_SIZE as f32
+        && (subtractor_output.s2_refined > 60.0 * 60.0 * BLOCK_SIZE as f32
+            || subtractor_output.s2_coarse > 60.0 * 60.0 * BLOCK_SIZE as f32)
+    {
+        return false;
+    }
+
+    // If the refined filter is diverged, choose the filter output that has
+    // the lowest power.
+    if subtractor_output.e2_coarse_sum < subtractor_output.e2_refined_sum
+        && subtractor_output.y2 < subtractor_output.e2_refined_sum
+    {
+        return false;
+    }
+    true
+}
+
+/// Forms the linear filter output by smoothly transitioning between the
+/// refined and coarse filter outputs.
+fn form_linear_filter_output(
+    refined_filter_output_last_selected: bool,
+    use_refined_output: bool,
+    subtractor_output: &SubtractorOutput,
+    output: &mut [f32; FFT_LENGTH_BY_2],
+) {
+    debug_assert_eq!(subtractor_output.e_refined.len(), output.len());
+    debug_assert_eq!(subtractor_output.e_coarse.len(), output.len());
+
+    let from = if refined_filter_output_last_selected {
+        &subtractor_output.e_refined
+    } else {
+        &subtractor_output.e_coarse
+    };
+    let to = if use_refined_output {
+        &subtractor_output.e_refined
+    } else {
+        &subtractor_output.e_coarse
+    };
+
+    signal_transition(from, to, output);
+}
+
 /// Computes a windowed (sqrt-Hanning) padded FFT and updates the related memory.
 fn windowed_padded_fft(
     fft: &Aec3Fft,
@@ -235,9 +284,24 @@ impl EchoRemover {
             &mut subtractor_output,
         );
 
+        // Decide refined vs coarse once across all channels.
+        let use_refined_output = if self.use_coarse_filter_output {
+            // If any channel favors the refined filter, use it for all.
+            subtractor_output[..num_capture_channels]
+                .iter()
+                .any(use_refined_filter_output)
+        } else {
+            true
+        };
+
         // Compute spectra.
         for ch in 0..num_capture_channels {
-            self.form_linear_filter_output(&subtractor_output[ch], &mut e[ch]);
+            form_linear_filter_output(
+                self.refined_filter_output_last_selected,
+                use_refined_output,
+                &subtractor_output[ch],
+                &mut e[ch],
+            );
             windowed_padded_fft(
                 &self.fft,
                 capture.view(0, ch),
@@ -249,6 +313,7 @@ impl EchoRemover {
             y_fft[ch].spectrum(&mut y2[ch]);
             e_fft[ch].spectrum(&mut e2[ch]);
         }
+        self.refined_filter_output_last_selected = use_refined_output;
         // Optionally return the linear filter output.
         if let Some(linear_out) = linear_output {
             debug_assert!(linear_out.num_bands() <= 1);
@@ -386,52 +451,6 @@ impl EchoRemover {
         self.capture_output_used = capture_output_used;
     }
 
-    /// Selects which of the coarse and refined linear filter outputs is most
-    /// appropriate and forms the output by smoothly transitioning between them.
-    fn form_linear_filter_output(
-        &mut self,
-        subtractor_output: &SubtractorOutput,
-        output: &mut [f32; FFT_LENGTH_BY_2],
-    ) {
-        debug_assert_eq!(subtractor_output.e_refined.len(), output.len());
-        debug_assert_eq!(subtractor_output.e_coarse.len(), output.len());
-
-        let mut use_refined_output = true;
-        if self.use_coarse_filter_output {
-            // As the output of the refined adaptive filter generally should be
-            // better than the coarse filter output, add a margin and threshold
-            // for when choosing the coarse filter output.
-            if subtractor_output.e2_coarse_sum < 0.9 * subtractor_output.e2_refined_sum
-                && subtractor_output.y2 > 30.0 * 30.0 * BLOCK_SIZE as f32
-                && (subtractor_output.s2_refined > 60.0 * 60.0 * BLOCK_SIZE as f32
-                    || subtractor_output.s2_coarse > 60.0 * 60.0 * BLOCK_SIZE as f32)
-            {
-                use_refined_output = false;
-            } else {
-                // If the refined filter is diverged, choose the filter output
-                // that has the lowest power.
-                if subtractor_output.e2_coarse_sum < subtractor_output.e2_refined_sum
-                    && subtractor_output.y2 < subtractor_output.e2_refined_sum
-                {
-                    use_refined_output = false;
-                }
-            }
-        }
-
-        let from = if self.refined_filter_output_last_selected {
-            &subtractor_output.e_refined
-        } else {
-            &subtractor_output.e_coarse
-        };
-        let to = if use_refined_output {
-            &subtractor_output.e_refined
-        } else {
-            &subtractor_output.e_coarse
-        };
-
-        signal_transition(from, to, output);
-        self.refined_filter_output_last_selected = use_refined_output;
-    }
 }
 
 #[cfg(test)]
@@ -439,10 +458,11 @@ mod tests {
     use super::*;
     use crate::block::Block;
     use crate::block_buffer::BlockBuffer;
-    use crate::common::num_bands_for_rate;
+    use crate::common::{num_bands_for_rate, BLOCK_SIZE};
     use crate::echo_path_variability::DelayAdjustment;
     use crate::fft_buffer::FftBuffer;
     use crate::render_buffer::RenderBuffer;
+    use crate::render_delay_buffer::RenderDelayBuffer;
     use crate::spectrum_buffer::SpectrumBuffer;
 
     #[test]
@@ -548,6 +568,165 @@ mod tests {
         // After transition, should be exactly 1.0.
         for &v in &out[30..] {
             assert_eq!(v, 1.0);
+        }
+    }
+
+    /// Simple delay buffer that produces a delayed copy of its input.
+    /// Ported from `test/echo_canceller_test_tools.h`.
+    struct DelayBuffer {
+        buffer: Vec<f32>,
+        next_insert_index: usize,
+    }
+
+    impl DelayBuffer {
+        fn new(delay_samples: usize) -> Self {
+            Self {
+                buffer: vec![0.0; delay_samples],
+                next_insert_index: 0,
+            }
+        }
+
+        fn delay(&mut self, input: &[f32], output: &mut [f32]) {
+            assert_eq!(input.len(), output.len());
+            if self.buffer.is_empty() {
+                output.copy_from_slice(input);
+            } else {
+                for (k, &x) in input.iter().enumerate() {
+                    output[k] = self.buffer[self.next_insert_index];
+                    self.buffer[self.next_insert_index] = x;
+                    self.next_insert_index = (self.next_insert_index + 1) % self.buffer.len();
+                }
+            }
+        }
+    }
+
+    /// Simple LCG random number generator matching WebRTC's `Random` class
+    /// behaviour for `Rand<float>()` (uniform [0, 1)).
+    struct SimpleRng {
+        state: u64,
+    }
+
+    impl SimpleRng {
+        fn new(seed: u32) -> Self {
+            Self { state: seed as u64 }
+        }
+
+        fn next_f32(&mut self) -> f32 {
+            // Simple xorshift64-style PRNG — good enough for test signal generation.
+            self.state ^= self.state << 13;
+            self.state ^= self.state >> 7;
+            self.state ^= self.state << 17;
+            (self.state & 0x7FFF_FFFF) as f32 / 0x8000_0000u32 as f32
+        }
+
+        fn randomize_samples(&mut self, v: &mut [f32]) {
+            let amplitude = 32767.0f32;
+            for s in v.iter_mut() {
+                *s = 2.0 * amplitude * self.next_f32() - amplitude;
+            }
+        }
+    }
+
+    /// Sanity check that the echo remover can properly remove echoes.
+    /// Ported from `EchoRemover.BasicEchoRemoval` in
+    /// `echo_remover_unittest.cc`.
+    #[test]
+    fn basic_echo_removal() {
+        const NUM_BLOCKS: usize = 500;
+        let mut rng = SimpleRng::new(42);
+
+        for num_channels in [1, 2, 4] {
+            for &rate in &[16000, 32000, 48000] {
+                let num_bands = num_bands_for_rate(rate);
+                for delay_samples in [0, 64, 150, 200, 301] {
+                    let config = EchoCanceller3Config::default();
+                    let mut remover = EchoRemover::new(
+                        sonora_simd::SimdBackend::Scalar,
+                        &config,
+                        rate,
+                        num_channels,
+                        num_channels,
+                    );
+                    let mut render_delay_buffer =
+                        RenderDelayBuffer::new(&config, rate, num_channels);
+                    render_delay_buffer.align_from_delay(delay_samples / BLOCK_SIZE);
+
+                    // Create per-band, per-channel delay buffers.
+                    let mut delay_buffers: Vec<Vec<DelayBuffer>> = (0..num_bands)
+                        .map(|_| {
+                            (0..num_channels)
+                                .map(|_| DelayBuffer::new(delay_samples))
+                                .collect()
+                        })
+                        .collect();
+
+                    let mut x = Block::new(num_bands, num_channels);
+                    let mut y = Block::new(num_bands, num_channels);
+
+                    let delay_estimate: Option<DelayEstimate> = None;
+
+                    let mut input_energy = 0.0f32;
+                    let mut output_energy = 0.0f32;
+
+                    for k in 0..NUM_BLOCKS {
+                        let silence = k < 100 || (k % 100 >= 10);
+
+                        for (band, band_delays) in
+                            delay_buffers.iter_mut().enumerate()
+                        {
+                            for (channel, db) in band_delays.iter_mut().enumerate() {
+                                if silence {
+                                    x.view_mut(band, channel).fill(0.0);
+                                } else {
+                                    rng.randomize_samples(x.view_mut(band, channel));
+                                }
+                                let x_view = x.view(band, channel).to_vec();
+                                db.delay(&x_view, y.view_mut(band, channel));
+                            }
+                        }
+
+                        // Accumulate input energy over the second half.
+                        if k > NUM_BLOCKS / 2 {
+                            for &s in y.view(0, 0) {
+                                input_energy += s * s;
+                            }
+                        }
+
+                        render_delay_buffer.insert(&x);
+                        render_delay_buffer.prepare_capture_processing();
+
+                        let render_buffer = render_delay_buffer.get_render_buffer();
+                        remover.process_capture(
+                            EchoPathVariability::new(
+                                false,
+                                DelayAdjustment::None,
+                                false,
+                            ),
+                            false,
+                            &delay_estimate,
+                            &render_buffer,
+                            None,
+                            &mut y,
+                        );
+
+                        // Accumulate output energy over the second half.
+                        if k > NUM_BLOCKS / 2 {
+                            for &s in y.view(0, 0) {
+                                output_energy += s * s;
+                            }
+                        }
+                    }
+
+                    assert!(
+                        input_energy > 10.0 * output_energy,
+                        "Echo not sufficiently removed: rate={rate}, \
+                         channels={num_channels}, delay={delay_samples}, \
+                         input_energy={input_energy}, output_energy={output_energy}, \
+                         ratio={:.1}",
+                        input_energy / output_energy.max(f32::EPSILON),
+                    );
+                }
+            }
         }
     }
 }

@@ -95,8 +95,8 @@ impl Default for Pipeline {
     fn default() -> Self {
         Self {
             maximum_internal_processing_rate: MaxProcessingRate::Rate32kHz,
-            multi_channel_render: false,
-            multi_channel_capture: false,
+            multi_channel_render: true,
+            multi_channel_capture: true,
             capture_downmix_method: DownmixMethod::AverageChannels,
         }
     }
