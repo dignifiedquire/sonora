@@ -61,8 +61,8 @@ The `karaoke` and `recording` examples require the `examples` feature which pull
 | Linux (Ubuntu) | x86_64 | SSE2, AVX2 | Build, test, clippy, fmt, docs |
 | macOS | ARM64 (Apple Silicon) | NEON | Build, test |
 | Windows | x86_64 | SSE2, AVX2 | Build, test |
-| Android | aarch64 | NEON | Cross-compile check |
-| Android | x86_64 | SSE2, AVX2 | Cross-compile check |
+| Android | aarch64, armv7, x86_64, i686 | NEON / SSE2 | Build, test (via [cross]) |
+| iOS | aarch64 | NEON | Build, test (via simulator) |
 
 Runtime feature detection is used for AVX2 on x86_64. SSE2 is assumed available on all x86_64 targets. NEON is used on AArch64. A scalar fallback is provided for all other architectures.
 
@@ -157,4 +157,5 @@ All crates in this repository are licensed under [BSD-3-Clause](LICENSE).
 [WebRTC]: https://webrtc.org
 [webrtc-src]: https://webrtc.googlesource.com/src/
 [pulseaudio-wap]: https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing/
+[cross]: https://github.com/cross-rs/cross
 [tonarino/webrtc-audio-processing]: https://github.com/tonarino/webrtc-audio-processing

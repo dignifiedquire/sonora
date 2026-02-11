@@ -84,20 +84,45 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps
 
-  cross-android:
-    name: Cross-compile (Android)
+  test-android:
+    name: Test (Android ${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         target:
           - aarch64-linux-android
+          - armv7-linux-androideabi
           - x86_64-linux-android
+          - i686-linux-android
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: taiki-e/install-action@cross
+      - run: cross test --workspace --target ${{ matrix.target }}
+
+  test-ios:
+    name: Test (iOS)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-      - run: cargo check --workspace --target ${{ matrix.target }}
+          key: ios
+      - uses: taiki-e/install-action@nextest
+      - name: Check (aarch64-apple-ios)
+        run: cargo check --workspace --target aarch64-apple-ios
+      - name: Boot iOS Simulator
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes iOS -j | jq -r '.runtimes[-1].identifier')
+          UDID=$(xcrun simctl create test-iphone com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
+          xcrun simctl boot "$UDID"
+      - name: Test (aarch64-apple-ios-sim)
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER: xcrun simctl spawn booted
+        run: cargo nextest run --workspace --target aarch64-apple-ios-sim
