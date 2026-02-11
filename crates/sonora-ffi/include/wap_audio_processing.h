@@ -23,6 +23,23 @@ typedef int32_t WapDownmixMethod;
 #endif // __cplusplus
 
 /**
+ * Noise suppression aggressiveness level.
+ */
+enum WapNoiseSuppressionLevel
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+  Low = 0,
+  Moderate = 1,
+  High = 2,
+  VeryHigh = 3,
+};
+#ifndef __cplusplus
+typedef int32_t WapNoiseSuppressionLevel;
+#endif // __cplusplus
+
+/**
  * Error codes returned by C API functions.
  *
  * `0` = success, negative = error.
@@ -63,23 +80,6 @@ enum WapError
 };
 #ifndef __cplusplus
 typedef int32_t WapError;
-#endif // __cplusplus
-
-/**
- * Noise suppression aggressiveness level.
- */
-enum WapNoiseSuppressionLevel
-#ifdef __cplusplus
-  : int32_t
-#endif // __cplusplus
- {
-  Low = 0,
-  Moderate = 1,
-  High = 2,
-  VeryHigh = 3,
-};
-#ifndef __cplusplus
-typedef int32_t WapNoiseSuppressionLevel;
 #endif // __cplusplus
 
 /**

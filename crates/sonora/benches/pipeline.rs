@@ -2,7 +2,9 @@
 
 use std::slice;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora_common_audio::sinc_resampler::{SincResampler, SincResamplerCallback};

@@ -10,7 +10,9 @@
 //!   cargo bench -p sonora --features cpp-comparison --bench cpp_comparison
 //! ```
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use std::slice;
