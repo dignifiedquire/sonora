@@ -2,6 +2,7 @@
 
 [![CI][ci-image]][ci-link]
 [![C++ Validation][cpp-image]][cpp-link]
+[![Coverage][codecov-image]][codecov-link]
 ![BSD-3-Clause licensed][license-image]
 ![Rust Version][rustc-image]
 
@@ -134,6 +135,8 @@ The audio processing code in this project has a long lineage:
 [ci-link]: https://github.com/dignifiedquire/sonora/actions/workflows/ci.yml?query=branch:main
 [cpp-image]: https://github.com/dignifiedquire/sonora/actions/workflows/cpp-validation.yml/badge.svg?branch=main
 [cpp-link]: https://github.com/dignifiedquire/sonora/actions/workflows/cpp-validation.yml?query=branch:main
+[codecov-image]: https://codecov.io/gh/dignifiedquire/sonora/branch/main/graph/badge.svg
+[codecov-link]: https://app.codecov.io/gh/dignifiedquire/sonora/tree/main/crates
 [license-image]: https://img.shields.io/badge/license-BSD--3--Clause-blue.svg
 [rustc-image]: https://img.shields.io/badge/rustc-1.91+-blue.svg
 
