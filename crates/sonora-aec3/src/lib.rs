@@ -1,8 +1,4 @@
-//! WebRTC Echo Canceller 3 (AEC3) — Rust port.
-//!
-//! This crate provides a pure-Rust implementation of WebRTC's modern echo
-//! canceller (AEC3), ported from the C++ source at
-//! `modules/audio_processing/aec3/`.
+#![doc = include_str!("../README.md")]
 pub(crate) mod adaptive_fir_filter;
 pub(crate) mod adaptive_fir_filter_erl;
 pub(crate) mod aec3_fft;

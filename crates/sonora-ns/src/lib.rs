@@ -1,9 +1,4 @@
-//! Noise Suppression for WebRTC Audio Processing.
-//!
-//! Implements Wiener filtering based on noise estimation with
-//! configurable suppression levels.
-//!
-//! C++ source: `webrtc/modules/audio_processing/ns/`
+#![doc = include_str!("../README.md")]
 
 pub mod config;
 pub(crate) mod fast_math;

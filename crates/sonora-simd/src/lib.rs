@@ -1,16 +1,4 @@
-//! SIMD abstraction layer for WebRTC Audio Processing.
-//!
-//! Provides a portable interface over SSE2, AVX2+FMA, and NEON intrinsics
-//! with runtime CPU feature detection and scalar fallback.
-//!
-//! # Design
-//!
-//! Rather than exposing low-level intrinsics, this crate exposes
-//! **high-level operations** that audio processing algorithms need.
-//! Each backend implements these operations using platform-specific
-//! intrinsics, ensuring bit-exact compatibility with the C++ code.
-//!
-//! Operations are added incrementally as porting phases require them.
+#![doc = include_str!("../README.md")]
 
 mod fallback;
 

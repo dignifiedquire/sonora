@@ -1,8 +1,4 @@
-//! Automatic Gain Control 2 (AGC2) for WebRTC Audio Processing.
-//!
-//! Contains adaptive digital gain control with RNN-based voice activity
-//! detection, limiter, and clipping prediction. This is the modern AGC
-//! used by the default audio processing pipeline.
+#![doc = include_str!("../README.md")]
 
 pub mod adaptive_digital_gain_controller;
 pub mod biquad_filter;

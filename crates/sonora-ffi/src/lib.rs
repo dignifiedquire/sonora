@@ -1,18 +1,4 @@
-//! C-compatible FFI layer for the audio processing pipeline.
-//!
-//! This crate exposes `extern "C"` functions and `#[repr(C)]` types that
-//! allow C and C++ consumers to use the Rust audio processing engine
-//! provided by the [`sonora`] crate.
-//!
-//! # Symbol prefix
-//!
-//! - Functions: `wap_*`
-//! - Types: `Wap*`
-//!
-//! # Thread safety
-//!
-//! **NOT thread-safe.** All calls on the same `WapAudioProcessing` handle
-//! must be serialized by the caller, matching the C++ API contract.
+#![doc = include_str!("../README.md")]
 
 pub mod types;
 

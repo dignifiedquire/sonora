@@ -1,6 +1,4 @@
-//! DSP primitives for WebRTC Audio Processing.
-//!
-//! Contains audio utilities, audio resamplers, and biquad filters.
+#![doc = include_str!("../README.md")]
 
 #![deny(unsafe_code)]
 
