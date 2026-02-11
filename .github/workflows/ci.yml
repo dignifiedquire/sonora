@@ -88,6 +88,7 @@ jobs:
     name: Test (Android ${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target:
           - aarch64-linux-android

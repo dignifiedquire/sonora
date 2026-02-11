@@ -14,7 +14,7 @@ repository.workspace = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
-[dependencies]
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
 cpufeatures = { workspace = true }
 
 [lints]
