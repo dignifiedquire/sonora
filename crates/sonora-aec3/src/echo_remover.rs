@@ -450,7 +450,6 @@ impl EchoRemover {
     pub(crate) fn set_capture_output_usage(&mut self, capture_output_used: bool) {
         self.capture_output_used = capture_output_used;
     }
-
 }
 
 #[cfg(test)]
@@ -458,7 +457,7 @@ mod tests {
     use super::*;
     use crate::block::Block;
     use crate::block_buffer::BlockBuffer;
-    use crate::common::{num_bands_for_rate, BLOCK_SIZE};
+    use crate::common::{BLOCK_SIZE, num_bands_for_rate};
     use crate::echo_path_variability::DelayAdjustment;
     use crate::fft_buffer::FftBuffer;
     use crate::render_buffer::RenderBuffer;
@@ -671,9 +670,7 @@ mod tests {
                     for k in 0..NUM_BLOCKS {
                         let silence = k < 100 || (k % 100 >= 10);
 
-                        for (band, band_delays) in
-                            delay_buffers.iter_mut().enumerate()
-                        {
+                        for (band, band_delays) in delay_buffers.iter_mut().enumerate() {
                             for (channel, db) in band_delays.iter_mut().enumerate() {
                                 if silence {
                                     x.view_mut(band, channel).fill(0.0);
@@ -697,11 +694,7 @@ mod tests {
 
                         let render_buffer = render_delay_buffer.get_render_buffer();
                         remover.process_capture(
-                            EchoPathVariability::new(
-                                false,
-                                DelayAdjustment::None,
-                                false,
-                            ),
+                            EchoPathVariability::new(false, DelayAdjustment::None, false),
                             false,
                             &delay_estimate,
                             &render_buffer,
