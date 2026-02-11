@@ -8,6 +8,7 @@ const MIN_FLOAT_S16_VALUE: f32 = -32768.0;
 const MAX_FLOAT_S16_VALUE: f32 = 32767.0;
 
 /// Applies a gain to audio samples with linear ramping over one frame.
+#[derive(Debug)]
 pub(crate) struct AudioSamplesScaler {
     previous_gain: f32,
     target_gain: f32,

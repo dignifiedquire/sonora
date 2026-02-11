@@ -35,6 +35,7 @@ pub(crate) struct Levels {
 }
 
 /// Computes RMS level in dBFS following RFC 6465.
+#[derive(Debug)]
 pub(crate) struct RmsLevel {
     sum_square: f32,
     sample_count: usize,

@@ -12,6 +12,7 @@ use sonora_common_audio::push_sinc_resampler::PushSincResampler;
 ///
 /// The source and destination chunks have the same duration in time; specifying
 /// the number of frames is equivalent to specifying the sample rates.
+#[derive(Debug)]
 pub(crate) struct AudioConverter {
     src_channels: usize,
     src_frames: usize,
@@ -20,6 +21,7 @@ pub(crate) struct AudioConverter {
     kind: ConverterKind,
 }
 
+#[derive(Debug)]
 enum ConverterKind {
     /// Same channels, same frames — just copy.
     Copy,

@@ -6,6 +6,7 @@
 const DECAY_FACTOR: f32 = 0.99;
 
 /// Tracks the maximum value within a sliding window.
+#[derive(Debug)]
 pub(crate) struct MovingMax {
     max_value: f32,
     counter: usize,

@@ -152,6 +152,7 @@ fn synthesis_qmf(
 // TwoBandsStates
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 struct TwoBandsStates {
     analysis_state1: [f32; QMF_STATE_SIZE],
     analysis_state2: [f32; QMF_STATE_SIZE],
@@ -174,6 +175,7 @@ impl TwoBandsStates {
 // SplittingFilter
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 enum FilterState {
     TwoBand(Vec<TwoBandsStates>),
     ThreeBand(Vec<ThreeBandFilterBank>),
@@ -183,6 +185,7 @@ enum FilterState {
 ///
 /// For each block, call [`analysis`] to split into bands, then [`synthesis`]
 /// to merge them back.
+#[derive(Debug)]
 pub(crate) struct SplittingFilter {
     num_bands: usize,
     state: FilterState,

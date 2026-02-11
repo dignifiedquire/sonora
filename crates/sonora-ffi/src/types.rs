@@ -2,8 +2,6 @@
 //!
 //! All types here are `#[repr(C)]` and are safe to pass across FFI boundaries.
 
-use std::fmt;
-
 use sonora::AudioProcessing;
 
 // ---------------------------------------------------------------------------
@@ -164,12 +162,7 @@ pub struct WapStats {
 /// Destroyed via `wap_destroy()`.
 ///
 /// **NOT thread-safe**: all calls on the same handle must be serialized.
+#[derive(Debug)]
 pub struct WapAudioProcessing {
     pub(crate) inner: AudioProcessing,
-}
-
-impl fmt::Debug for WapAudioProcessing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WapAudioProcessing").finish_non_exhaustive()
-    }
 }

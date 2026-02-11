@@ -29,6 +29,7 @@ pub(crate) struct EchoDetectorMetrics {
 }
 
 /// Residual echo detector that estimates echo likelihood from render/capture signals.
+#[derive(Debug)]
 pub(crate) struct ResidualEchoDetector {
     first_process_call: bool,
     render_buffer: CircularBuffer,

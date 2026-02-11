@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 ///
 /// Elements are moved via swap rather than copy. All methods take `&mut self`,
 /// so concurrent access is prevented at compile time.
+#[derive(Debug)]
 pub(crate) struct SwapQueue<T> {
     queue: Vec<T>,
     next_write_index: usize,

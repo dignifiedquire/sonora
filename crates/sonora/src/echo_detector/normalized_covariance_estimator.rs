@@ -8,6 +8,7 @@
 const ALPHA: f32 = 0.001;
 
 /// Iteratively estimates the normalized covariance between two signals.
+#[derive(Debug)]
 pub(crate) struct NormalizedCovarianceEstimator {
     normalized_cross_correlation: f32,
     covariance: f32,

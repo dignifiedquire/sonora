@@ -27,6 +27,7 @@ fn compute_pre_gain(
 }
 
 /// Adjusts capture signal levels with pre-gain, emulated analog mic gain, and post-gain.
+#[derive(Debug)]
 pub(crate) struct CaptureLevelsAdjuster {
     emulated_analog_mic_gain_enabled: bool,
     emulated_analog_mic_gain_level: i32,

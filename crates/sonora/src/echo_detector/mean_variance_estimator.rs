@@ -6,6 +6,7 @@
 const ALPHA: f32 = 0.001;
 
 /// Iteratively estimates the mean and variance of a signal.
+#[derive(Debug)]
 pub(crate) struct MeanVarianceEstimator {
     mean: f32,
     variance: f32,

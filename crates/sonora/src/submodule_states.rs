@@ -7,6 +7,7 @@
 //! require reinitialization.
 
 /// Tracks the enabled/disabled state of each audio processing submodule.
+#[derive(Debug)]
 pub(crate) struct SubmoduleStates {
     high_pass_filter_enabled: bool,
     noise_suppressor_enabled: bool,

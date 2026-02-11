@@ -24,6 +24,7 @@ fn num_bands_from_frames_per_channel(num_frames: usize) -> usize {
 ///
 /// Handles resampling between input/buffer/output rates, downmixing from
 /// multi-channel to mono, and frequency band splitting for sub-band processing.
+#[derive(Debug)]
 pub(crate) struct AudioBuffer {
     input_num_frames: usize,
     input_num_channels: usize,

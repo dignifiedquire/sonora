@@ -3,6 +3,7 @@
 //! Ported from `modules/audio_processing/echo_detector/circular_buffer.h/cc`.
 
 /// Ring buffer containing floating point values.
+#[derive(Debug)]
 pub(crate) struct CircularBuffer {
     buffer: Vec<f32>,
     next_insertion_index: usize,

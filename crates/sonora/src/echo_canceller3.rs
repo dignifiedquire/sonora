@@ -36,6 +36,7 @@ const SPLIT_BAND_SIZE: usize = 160;
 /// Applies a fixed delay to the split-band audio in an `AudioBuffer`.
 ///
 /// Ported from `modules/audio_processing/aec3/block_delay_buffer.h/cc`.
+#[derive(Debug)]
 struct BlockDelayBuffer {
     frame_length: usize,
     delay: usize,
@@ -98,6 +99,7 @@ impl BlockDelayBuffer {
 
 /// Copies split-band render audio into the render transfer queue, optionally
 /// applying a high-pass filter to the echo reference.
+#[derive(Debug)]
 struct RenderWriter {
     num_bands: usize,
     num_channels: usize,
@@ -272,6 +274,7 @@ fn fill_sub_frame_from_render_frame(
 // ---------------------------------------------------------------------------
 
 /// Top-level echo canceller coordinating render/capture processing.
+#[derive(Debug)]
 pub(crate) struct EchoCanceller3 {
     sample_rate_hz: usize,
     num_bands: usize,

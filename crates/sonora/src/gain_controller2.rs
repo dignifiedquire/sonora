@@ -121,6 +121,7 @@ fn write_back_channels(audio: &mut AudioBuffer, channel_data: &[Vec<f32>]) {
 
 /// Gain Controller 2 aims to automatically adjust levels by acting on the
 /// microphone gain and/or applying digital gain.
+#[derive(Debug)]
 pub(crate) struct GainController2 {
     fixed_gain_applier: GainApplier,
     noise_level_estimator: Option<NoiseLevelEstimator>,

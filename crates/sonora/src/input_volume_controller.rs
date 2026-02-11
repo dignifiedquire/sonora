@@ -135,6 +135,7 @@ impl Default for InputVolumeControllerConfig {
 }
 
 /// Per-channel input volume controller.
+#[derive(Debug)]
 pub(crate) struct MonoInputVolumeController {
     min_input_volume: i32,
     min_input_volume_after_clipping: i32,
@@ -344,6 +345,7 @@ impl MonoInputVolumeController {
 ///
 /// Coordinates per-channel [`MonoInputVolumeController`] instances and handles
 /// clipping detection/prediction at the multi-channel level.
+#[derive(Debug)]
 pub(crate) struct InputVolumeController {
     num_capture_channels: usize,
     min_input_volume: i32,

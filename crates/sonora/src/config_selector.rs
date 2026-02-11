@@ -42,6 +42,7 @@ fn compatible_configs(
 }
 
 /// Selects between mono and multichannel AEC3 configs.
+#[derive(Debug)]
 pub(crate) struct ConfigSelector {
     config: EchoCanceller3Config,
     multichannel_config: Option<EchoCanceller3Config>,

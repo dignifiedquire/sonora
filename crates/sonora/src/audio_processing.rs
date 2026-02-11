@@ -324,11 +324,8 @@ pub struct AudioProcessingBuilder {
     echo_detector: bool,
 }
 
-/// Default stream config: 16 kHz mono.
-const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig::new(16000, 1);
-
-impl AudioProcessingBuilder {
-    fn new() -> Self {
+impl Default for AudioProcessingBuilder {
+    fn default() -> Self {
         Self {
             config: Config::default(),
             capture_config: DEFAULT_STREAM_CONFIG,
@@ -336,7 +333,12 @@ impl AudioProcessingBuilder {
             echo_detector: false,
         }
     }
+}
 
+/// Default stream config: 16 kHz mono.
+const DEFAULT_STREAM_CONFIG: StreamConfig = StreamConfig::new(16000, 1);
+
+impl AudioProcessingBuilder {
     /// Set the initial processing configuration.
     pub fn config(mut self, config: Config) -> Self {
         self.config = config;
@@ -435,23 +437,13 @@ impl AudioProcessingBuilder {
 /// 3. Apply configuration changes via [`apply_config()`](AudioProcessing::apply_config).
 ///
 /// Both f32 (deinterleaved) and i16 (interleaved) interfaces are provided.
+#[derive(Debug)]
 pub struct AudioProcessing {
     pub(crate) inner: AudioProcessingImpl,
     pub(crate) capture_config: StreamConfig,
     pub(crate) render_config: StreamConfig,
     stream_delay_ms: i32,
     was_stream_delay_set: bool,
-}
-
-impl fmt::Debug for AudioProcessing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AudioProcessing")
-            .field("capture_config", &self.capture_config)
-            .field("render_config", &self.render_config)
-            .field("stream_delay_ms", &self.stream_delay_ms)
-            .field("was_stream_delay_set", &self.was_stream_delay_set)
-            .finish_non_exhaustive()
-    }
 }
 
 impl AudioProcessing {
@@ -462,7 +454,7 @@ impl AudioProcessing {
 
     /// Returns a builder for constructing an instance with custom configuration.
     pub fn builder() -> AudioProcessingBuilder {
-        AudioProcessingBuilder::new()
+        AudioProcessingBuilder::default()
     }
 
     // ─── Configuration ─────────────────────────────────────────

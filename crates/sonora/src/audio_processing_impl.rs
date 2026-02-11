@@ -61,6 +61,7 @@ impl Default for ProcessingConfig {
 // ─── Submodules ──────────────────────────────────────────────────────
 
 /// Container for all optional submodule instances.
+#[derive(Debug)]
 struct Submodules {
     high_pass_filter: Option<HighPassFilter>,
     echo_controller: Option<EchoCanceller3>,
@@ -72,6 +73,7 @@ struct Submodules {
 
 // ─── Capture State ───────────────────────────────────────────────────
 
+#[derive(Debug)]
 struct CaptureState {
     capture_audio: Option<AudioBuffer>,
     capture_fullband_audio: Option<AudioBuffer>,
@@ -111,6 +113,7 @@ impl Default for CaptureState {
 }
 
 /// State for capture-side values not guarded by the capture lock.
+#[derive(Debug)]
 struct CaptureNonlocked {
     capture_processing_format: StreamConfig,
 }
@@ -125,7 +128,7 @@ impl Default for CaptureNonlocked {
 
 // ─── Render State ────────────────────────────────────────────────────
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct RenderState {
     render_audio: Option<AudioBuffer>,
     render_converter: Option<AudioConverter>,
@@ -133,6 +136,7 @@ struct RenderState {
 
 // ─── Format State ────────────────────────────────────────────────────
 
+#[derive(Debug)]
 struct FormatState {
     api_format: ProcessingConfig,
     render_processing_format: StreamConfig,
@@ -154,6 +158,7 @@ impl Default for FormatState {
 /// Coordinates echo cancellation (AEC3), noise suppression (NS),
 /// automatic gain control (AGC2), high-pass filtering, and level
 /// adjustment across the capture and render audio paths.
+#[derive(Debug)]
 pub(crate) struct AudioProcessingImpl {
     config: Config,
     submodule_states: SubmoduleStates,
