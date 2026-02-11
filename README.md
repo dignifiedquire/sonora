@@ -110,27 +110,25 @@ See `Makefile.toml` for the full list of tasks.
 
 The minimum supported Rust version is **1.91**.
 
+## Related Projects
+
+- **[tonarino/webrtc-audio-processing]** -- Rust bindings to the C++ WebRTC AudioProcessing module. Sonora's examples are based on theirs. If you need the battle-tested C++ implementation with a Rust wrapper, use tonarino; if you want a pure-Rust solution with no C++ dependency, use sonora.
+- **[pulseaudio-wap]** -- The original extracted C++ code
+
+## History
+
+1. **Google's libwebrtc** -- The original AudioProcessing module is developed as part of the [WebRTC Native Code][webrtc-src] project at Google.
+
+2. **PulseAudio's webrtc-audio-processing** -- [Arun Raghavan](https://github.com/arunraghavan) and contributors extracted the AudioProcessing module into a [standalone library][pulseaudio-wap] with a Meson build system, making it usable outside of the full WebRTC stack. This packaging is used by PulseAudio, PipeWire, and other Linux audio projects.
+
+3. **M145 upgrade and test expansion** -- The C++ codebase was updated to WebRTC M145 (branch-heads/7632), the full upstream test suite (2400+ tests) was ported, and the build was upgraded to C++20. (AI assisted)
+
+4. **Sonora:Rust port** -- The C++ implementation was ported to pure Rust, producing this set of crates. The port includes the full SIMD (SSE2, AVX2, NEON) optimizations and the FFTs, as well as a C API for FFI integration. The full C++ test suite passes against this Rust version. (AI assisted)
+
 ## License
 
 All crates in this repository are licensed under [BSD-3-Clause](LICENSE).
 
-## Related Projects
-
-- **[tonarino/webrtc-audio-processing]** -- Rust bindings to the C++ WebRTC AudioProcessing module. Sonora's examples are based on theirs. If you need the battle-tested C++ implementation with a Rust wrapper, use tonarino; if you want a pure-Rust solution with no C++ dependency, use sonora.
-
-[tonarino/webrtc-audio-processing]: https://github.com/tonarino/webrtc-audio-processing
-
-## History
-
-The audio processing code in this project has a long lineage:
-
-1. **Google's libwebrtc** -- The original AudioProcessing module was developed as part of the [WebRTC Native Code][webrtc-src] project at Google, providing production-grade echo cancellation, noise suppression, and gain control for real-time communication.
-
-2. **PulseAudio's webrtc-audio-processing** -- [Arun Raghavan](https://github.com/arunraghavan) and contributors extracted the AudioProcessing module into a [standalone library][pulseaudio-wap] with a Meson build system, making it usable outside of the full WebRTC stack. This packaging is used by PulseAudio, PipeWire, and other Linux audio projects.
-
-3. **M145 upgrade and test expansion** -- With AI assistance (Claude, Anthropic), the C++ codebase was updated to WebRTC M145 (branch-heads/7632), the full upstream test suite (2400+ tests) was ported, and the build was upgraded to C++20 with modern abseil-cpp.
-
-4. **Sonora: AI-assisted Rust port** -- The C++ implementation was ported to pure Rust with the assistance of Claude (Anthropic), producing this crate. The port includes hand-written SIMD (SSE2, AVX2, NEON), a pure-Rust FFT, and a C API for FFI integration. The Rust implementation is validated against the C++ reference via property-based testing.
 
 [//]: # (badges)
 
@@ -159,3 +157,4 @@ The audio processing code in this project has a long lineage:
 [WebRTC]: https://webrtc.org
 [webrtc-src]: https://webrtc.googlesource.com/src/
 [pulseaudio-wap]: https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing/
+[tonarino/webrtc-audio-processing]: https://github.com/tonarino/webrtc-audio-processing
