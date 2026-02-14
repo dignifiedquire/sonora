@@ -40,7 +40,7 @@ test-strategy = "0.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-cpal = "0.15"
+cpal = "0.17"
 ctrlc = { version = "3", features = ["termination"] }
 hound = "3"
 ringbuf = "0.4"
