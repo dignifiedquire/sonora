@@ -71,11 +71,11 @@ fn main() -> Result<()> {
     let input_device = host
         .default_input_device()
         .context("no input device available")?;
-    println!("Recording from: {}", input_device.name()?);
+    println!("Recording from: {}", input_device.description()?.name());
 
     let cpal_config = cpal::StreamConfig {
         channels: NUM_CHANNELS,
-        sample_rate: cpal::SampleRate(SAMPLE_RATE),
+        sample_rate: SAMPLE_RATE,
         buffer_size: cpal::BufferSize::Default,
     };
 
