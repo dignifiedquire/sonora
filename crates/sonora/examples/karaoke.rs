@@ -43,12 +43,12 @@ fn main() -> Result<()> {
         .default_output_device()
         .context("no output device available")?;
 
-    println!("Input:  {}", input_device.name()?);
-    println!("Output: {}", output_device.name()?);
+    println!("Input:  {}", input_device.description()?.name());
+    println!("Output: {}", output_device.description()?.name());
 
     let cpal_config = cpal::StreamConfig {
         channels: NUM_CHANNELS,
-        sample_rate: cpal::SampleRate(SAMPLE_RATE),
+        sample_rate: SAMPLE_RATE,
         buffer_size: cpal::BufferSize::Default,
     };
 
