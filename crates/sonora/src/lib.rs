@@ -26,4 +26,7 @@ pub mod three_band_filter_bank;
 pub use audio_processing::{AudioProcessing, AudioProcessingBuilder, Error};
 pub use config::Config;
 pub use stats::AudioProcessingStats;
-pub use stream_config::StreamConfig;
+pub use stream_config::{
+    CheckedStreamConfig, MAX_SAMPLE_RATE_HZ, MIN_SAMPLE_RATE_HZ, SampleRate, StreamConfig,
+    StreamConfigError,
+};

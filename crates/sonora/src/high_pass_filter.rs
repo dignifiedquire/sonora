@@ -63,12 +63,38 @@ const HIGH_PASS_FILTER_COEFFICIENTS_48KHZ: [BiQuadCoefficients; 3] = [
     },
 ];
 
-fn choose_coefficients(sample_rate_hz: i32) -> &'static [BiQuadCoefficients; 3] {
+
+/// Error returned when creating a high-pass filter with an unsupported sample rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HighPassFilterError {
+    sample_rate_hz: i32,
+}
+
+impl HighPassFilterError {
+    /// The unsupported sample rate that was requested.
+    pub const fn sample_rate_hz(self) -> i32 {
+        self.sample_rate_hz
+    }
+}
+
+impl std::fmt::Display for HighPassFilterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "unsupported sample rate: {}; expected 16000, 32000, or 48000",
+            self.sample_rate_hz
+        )
+    }
+}
+
+impl std::error::Error for HighPassFilterError {}
+
+fn choose_coefficients(sample_rate_hz: i32) -> Option<&'static [BiQuadCoefficients; 3]> {
     match sample_rate_hz {
-        16000 => &HIGH_PASS_FILTER_COEFFICIENTS_16KHZ,
-        32000 => &HIGH_PASS_FILTER_COEFFICIENTS_32KHZ,
-        48000 => &HIGH_PASS_FILTER_COEFFICIENTS_48KHZ,
-        _ => panic!("unsupported sample rate: {sample_rate_hz}; expected 16000, 32000, or 48000"),
+        16000 => Some(&HIGH_PASS_FILTER_COEFFICIENTS_16KHZ),
+        32000 => Some(&HIGH_PASS_FILTER_COEFFICIENTS_32KHZ),
+        48000 => Some(&HIGH_PASS_FILTER_COEFFICIENTS_48KHZ),
+        _ => None,
     }
 }
 
@@ -80,15 +106,27 @@ pub struct HighPassFilter {
 }
 
 impl HighPassFilter {
+    /// Creates a high-pass filter and panics for unsupported sample rates.
+    ///
+    /// For fallible construction, use [`Self::try_new`].
     pub fn new(sample_rate_hz: i32, num_channels: usize) -> Self {
-        let coefficients = choose_coefficients(sample_rate_hz);
+        Self::try_new(sample_rate_hz, num_channels).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Creates a high-pass filter for 16/32/48 kHz streams.
+    pub fn try_new(
+        sample_rate_hz: i32,
+        num_channels: usize,
+    ) -> Result<Self, HighPassFilterError> {
+        let coefficients = choose_coefficients(sample_rate_hz)
+            .ok_or(HighPassFilterError { sample_rate_hz })?;
         let filters = (0..num_channels)
             .map(|_| CascadedBiQuadFilter::new(coefficients))
             .collect();
-        Self {
+        Ok(Self {
             sample_rate_hz,
             filters,
-        }
+        })
     }
 
     /// Process audio through the high-pass filter using an AudioBuffer.
@@ -128,6 +166,25 @@ impl HighPassFilter {
 mod tests {
     use super::*;
     use crate::stream_config::StreamConfig;
+
+    #[test]
+    fn try_new_rejects_unsupported_rate() {
+        let err = HighPassFilter::try_new(8000, 1).unwrap_err();
+        assert_eq!(err.sample_rate_hz(), 8000);
+        assert_eq!(
+            err.to_string(),
+            "unsupported sample rate: 8000; expected 16000, 32000, or 48000"
+        );
+    }
+
+    #[test]
+    fn try_new_accepts_supported_rates() {
+        for rate in [16000, 32000, 48000] {
+            let hpf = HighPassFilter::try_new(rate, 2).unwrap();
+            assert_eq!(hpf.sample_rate_hz(), rate);
+            assert_eq!(hpf.num_channels(), 2);
+        }
+    }
 
     fn process_one_frame_as_audio_buffer(
         frame_input: &[f32],
