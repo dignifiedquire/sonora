@@ -6,7 +6,7 @@ This document captures a deeper review of the current Rust API surface and a con
 
 1. **Typed, validated configuration paths are needed for public APIs**
    - Legacy constructors such as `StreamConfig::new(...)` allow invalid values (e.g. zero channels).
-   - **Action taken:** added `CheckedStreamConfig` with `NonZeroU16` channels plus sample-rate validation (`8000..=384000`, 10ms-aligned) and explicit `StreamConfigError`.
+   - **Action taken:** added `CheckedStreamConfig` with `NonZeroU16` channels and a `SampleRate` enum (`8/16/32/48 kHz`) plus explicit `StreamConfigError`.
    - Added integration points in `AudioProcessingBuilder` and `AudioProcessing::initialize_checked(...)` so callers can choose a type-safe path.
 
 2. **Public API panic path in `high_pass_filter`**

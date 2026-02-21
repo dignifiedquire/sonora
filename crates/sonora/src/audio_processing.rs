@@ -778,8 +778,14 @@ mod tests {
     fn builder_accepts_checked_stream_configs() {
         use std::num::NonZeroU16;
 
-        let capture = CheckedStreamConfig::new(16_000, NonZeroU16::new(1).unwrap()).unwrap();
-        let render = CheckedStreamConfig::new(48_000, NonZeroU16::new(2).unwrap()).unwrap();
+        let capture = CheckedStreamConfig::new(
+            crate::stream_config::SampleRate::Hz16000,
+            NonZeroU16::new(1).unwrap(),
+        );
+        let render = CheckedStreamConfig::new(
+            crate::stream_config::SampleRate::Hz48000,
+            NonZeroU16::new(2).unwrap(),
+        );
 
         let _apm = AudioProcessing::builder()
             .capture_config_checked(capture)
@@ -792,7 +798,10 @@ mod tests {
         use std::num::NonZeroU16;
 
         let mut apm = AudioProcessing::new();
-        let stream = CheckedStreamConfig::new(16_000, NonZeroU16::new(1).unwrap()).unwrap();
+        let stream = CheckedStreamConfig::new(
+            crate::stream_config::SampleRate::Hz16000,
+            NonZeroU16::new(1).unwrap(),
+        );
         apm.initialize_checked(stream, stream, stream, stream);
 
         let src_data = [0.0f32; 160];
