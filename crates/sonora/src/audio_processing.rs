@@ -12,7 +12,7 @@ use std::fmt;
 use crate::audio_processing_impl::AudioProcessingImpl;
 use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
 use crate::stats::AudioProcessingStats;
-use crate::stream_config::StreamConfig;
+use crate::stream_config::{CheckedStreamConfig, StreamConfig};
 /// Errors returned by audio processing operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -344,11 +344,23 @@ impl AudioProcessingBuilder {
         self
     }
 
+    /// Set the capture stream format using a validated config.
+    pub fn capture_config_checked(mut self, config: CheckedStreamConfig) -> Self {
+        self.capture_config = config.into();
+        self
+    }
+
     /// Set the render (far-end / playback) stream format.
     ///
     /// Used as both input and output config for render processing.
     pub fn render_config(mut self, config: StreamConfig) -> Self {
         self.render_config = config;
+        self
+    }
+
+    /// Set the render stream format using a validated config.
+    pub fn render_config_checked(mut self, config: CheckedStreamConfig) -> Self {
+        self.render_config = config.into();
         self
     }
 
@@ -480,6 +492,22 @@ impl AudioProcessing {
             reverse_input_stream: reverse_input,
             reverse_output_stream: reverse_output,
         });
+    }
+
+    /// Reinitializes the processing pipeline with validated stream configurations.
+    pub fn initialize_checked(
+        &mut self,
+        input: CheckedStreamConfig,
+        output: CheckedStreamConfig,
+        reverse_input: CheckedStreamConfig,
+        reverse_output: CheckedStreamConfig,
+    ) {
+        self.initialize(
+            input.into(),
+            output.into(),
+            reverse_input.into(),
+            reverse_output.into(),
+        );
     }
 
     /// Sets the capture pre-gain as a linear factor.
@@ -744,6 +772,40 @@ mod tests {
             ..Default::default()
         };
         let _apm = AudioProcessing::builder().config(config).build();
+    }
+
+    #[test]
+    fn builder_accepts_checked_stream_configs() {
+        use std::num::NonZeroU16;
+
+        let capture = CheckedStreamConfig::new(16_000, NonZeroU16::new(1).unwrap()).unwrap();
+        let render = CheckedStreamConfig::new(48_000, NonZeroU16::new(2).unwrap()).unwrap();
+
+        let _apm = AudioProcessing::builder()
+            .capture_config_checked(capture)
+            .render_config_checked(render)
+            .build();
+    }
+
+    #[test]
+    fn initialize_checked_accepts_validated_configs() {
+        use std::num::NonZeroU16;
+
+        let mut apm = AudioProcessing::new();
+        let stream = CheckedStreamConfig::new(16_000, NonZeroU16::new(1).unwrap()).unwrap();
+        apm.initialize_checked(stream, stream, stream, stream);
+
+        let src_data = [0.0f32; 160];
+        let src: &[&[f32]] = &[&src_data];
+        let mut dest_data = [1.0f32; 160];
+        let dest: &mut [&mut [f32]] = &mut [&mut dest_data];
+        let result = apm.process_capture_f32_with_config(
+            src,
+            &stream.into_stream_config(),
+            &stream.into_stream_config(),
+            dest,
+        );
+        assert!(result.is_ok());
     }
 
     #[test]

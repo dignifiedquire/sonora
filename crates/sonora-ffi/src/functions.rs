@@ -20,8 +20,9 @@ use crate::types::{WapAudioProcessing, WapConfig, WapError, WapStats, WapStreamC
 /// The returned pointer is valid for the lifetime of the process.
 #[unsafe(no_mangle)]
 pub extern "C" fn wap_version() -> *const c_char {
-    // Safety: the byte string is a static literal with a trailing NUL.
-    c"0.1.0".as_ptr()
+    // Keep the exported C API version in sync with the crate version.
+    // Safety: the concatenated string is static and explicitly NUL-terminated.
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 /// Returns a default-initialized configuration.
 #[unsafe(no_mangle)]
@@ -686,7 +687,7 @@ mod tests {
         assert!(!ptr.is_null());
         // Safety: wap_version returns a static NUL-terminated string.
         let cstr = unsafe { CStr::from_ptr(ptr) };
-        assert_eq!(cstr.to_str().unwrap(), "0.1.0");
+        assert_eq!(cstr.to_str().unwrap(), env!("CARGO_PKG_VERSION"));
     }
 
     #[test]
