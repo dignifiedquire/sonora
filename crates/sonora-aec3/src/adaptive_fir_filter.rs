@@ -132,7 +132,12 @@ pub(crate) fn apply_filter(
 // ---------------------------------------------------------------------------
 
 /// Clears filter partitions in range [old_size, new_size).
+/// When old_size >= new_size (filter shrinking), this is a no-op — matching
+/// the C++ behaviour where the equivalent `for` loop simply does not execute.
 fn zero_filter(old_size: usize, new_size: usize, h: &mut [Vec<FftData>]) {
+    if old_size >= new_size {
+        return;
+    }
     for h_p in &mut h[old_size..new_size] {
         for ch_data in h_p {
             ch_data.clear();
@@ -445,6 +450,20 @@ mod tests {
         let mut filter = AdaptiveFirFilter::new(SimdBackend::Scalar, 10, 5, 2, 1);
         filter.set_size_partitions(8, true);
         assert_eq!(filter.size_partitions(), 8);
+    }
+
+    /// Regression test for https://github.com/dignifiedquire/sonora/issues/14
+    /// Shrinking the filter with immediate_effect must not panic.
+    #[test]
+    fn filter_size_shrink_immediate_does_not_panic() {
+        let mut filter = AdaptiveFirFilter::new(SimdBackend::Scalar, 20, 13, 2, 1);
+        // Shrink from 13 → 12 partitions (the exact case from the bug report).
+        filter.set_size_partitions(12, true);
+        assert_eq!(filter.size_partitions(), 12);
+
+        // Also verify shrinking by more than one partition.
+        filter.set_size_partitions(5, true);
+        assert_eq!(filter.size_partitions(), 5);
     }
 
     #[test]
