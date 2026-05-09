@@ -43,7 +43,7 @@ clap = { version = "4", features = ["derive"] }
 cpal = "0.17"
 ctrlc = { version = "3", features = ["termination"] }
 hound = "3"
-ringbuf = "0.4"
+ringbuf = "0.5"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "deny", check-cfg = ["cfg(docsrs)"] }
