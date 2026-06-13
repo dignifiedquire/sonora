@@ -25,7 +25,7 @@ jobs:
           cargo llvm-cov nextest --workspace --codecov --output-path rust-codecov.json
           cargo llvm-cov report --lcov --output-path rust-lcov.info
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: rust-codecov.json
           flags: rust
@@ -177,7 +177,7 @@ jobs:
           echo "Coverage reports generated successfully"
           rm -rf "$OBJ_DIR"
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: cpp-rust-codecov.json
           flags: cpp-ffi
