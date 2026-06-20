@@ -13,7 +13,7 @@ jobs:
     name: Rust Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -44,7 +44,7 @@ jobs:
     # The LLVM profiling runtime must be force-linked (--whole-archive) into
     # the GCC-linked test binary for .profraw generation to work.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
