@@ -413,6 +413,17 @@ impl AudioProcessingBuilder {
 /// - Call `apply_config` from any thread, but never concurrently with
 ///   `config()`.
 ///
+/// # Floating-point environment
+///
+/// Like upstream WebRTC, each `process_*` call sets hardware flush-to-zero
+/// for its duration on x86/x86_64 (MXCSR FTZ and DAZ) and aarch64 (FPCR.FZ),
+/// and restores the calling thread's previous setting before it returns,
+/// also when it panics. While a call runs, subnormal input samples are read
+/// as zero, and any code the call reaches on this thread runs in that mode
+/// too: `tracing` subscribers, the global allocator and the panic hook.
+/// Other targets (32-bit ARM, `arm64ec`, wasm) do not flush; there, near-silent
+/// input can make processing slower on hardware with a subnormal penalty.
+///
 /// # Usage
 ///
 /// 1. Create an instance via [`AudioProcessing::builder()`] or
