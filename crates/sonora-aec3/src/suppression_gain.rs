@@ -621,6 +621,11 @@ impl SuppressionGain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aec_state::AecStateUpdate;
+    use crate::common::{NUM_BLOCKS_PER_SECOND, num_bands_for_rate};
+    use crate::render_delay_buffer::RenderDelayBuffer;
+    use crate::subtractor::Subtractor;
+    use crate::subtractor_output::SubtractorOutput;
 
     #[test]
     fn initial_gain_is_transparent() {
@@ -662,6 +667,220 @@ mod tests {
 
         assert_eq!(suppression_gain.nearend_params.max_inc_factor, 3.0);
         assert_eq!(suppression_gain.normal_params.max_dec_factor_lf, 0.3);
+    }
+
+    /// Spectra and state that `get_gain` reads, mirroring the setup of the C++
+    /// `SuppressionGainTest.BasicGainComputation`.
+    struct GainTestSetup {
+        config: EchoCanceller3Config,
+        e2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+        s2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+        y2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+        r2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+        r2_unbounded: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+        n2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+        output: Vec<SubtractorOutput>,
+        x: Block,
+        aec_state: AecState,
+        subtractor: Subtractor,
+        render_delay_buffer: RenderDelayBuffer,
+        analyzer: RenderSignalAnalyzer,
+    }
+
+    impl GainTestSetup {
+        const NUM_RENDER_CHANNELS: usize = 1;
+        const NUM_CAPTURE_CHANNELS: usize = 2;
+        const SAMPLE_RATE_HZ: usize = 16000;
+
+        fn new() -> Self {
+            let config = EchoCanceller3Config::default();
+            let n = Self::NUM_CAPTURE_CHANNELS;
+            Self {
+                e2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; n],
+                s2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; n],
+                y2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; n],
+                r2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; n],
+                r2_unbounded: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; n],
+                n2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; n],
+                output: (0..n).map(|_| SubtractorOutput::default()).collect(),
+                x: Block::new(
+                    num_bands_for_rate(Self::SAMPLE_RATE_HZ),
+                    Self::NUM_RENDER_CHANNELS,
+                ),
+                aec_state: AecState::new(&config, n),
+                subtractor: Subtractor::new(
+                    sonora_simd::detect_backend(),
+                    &config,
+                    Self::NUM_RENDER_CHANNELS,
+                    n,
+                ),
+                render_delay_buffer: RenderDelayBuffer::new(
+                    &config,
+                    Self::SAMPLE_RATE_HZ,
+                    Self::NUM_RENDER_CHANNELS,
+                ),
+                analyzer: RenderSignalAnalyzer::new(&config),
+                config,
+            }
+        }
+
+        fn update_aec_state(&mut self) {
+            let render_buffer = self.render_delay_buffer.get_render_buffer();
+            self.aec_state.update(&AecStateUpdate {
+                external_delay: &None,
+                adaptive_filter_frequency_responses: self.subtractor.filter_frequency_responses(),
+                adaptive_filter_impulse_responses: self.subtractor.filter_impulse_responses(),
+                render_buffer: &render_buffer,
+                e2_refined: &self.e2,
+                y2: &self.y2,
+                subtractor_output: &self.output,
+            });
+        }
+
+        fn get_gain(
+            &self,
+            suppression_gain: &mut SuppressionGain,
+            suppressor_config: &Suppressor,
+            config_changed: bool,
+            g: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
+        ) {
+            let mut high_bands_gain = 0.0f32;
+            suppression_gain.get_gain(
+                suppressor_config,
+                config_changed,
+                &SuppressionInput {
+                    nearend_spectrum: &self.e2,
+                    echo_spectrum: &self.s2,
+                    residual_echo_spectrum: &self.r2,
+                    residual_echo_spectrum_unbounded: &self.r2_unbounded,
+                    comfort_noise_spectrum: &self.n2,
+                    render_signal_analyzer: &self.analyzer,
+                    aec_state: &self.aec_state,
+                    render: &self.x,
+                    clock_drift: false,
+                },
+                &mut high_bands_gain,
+                g,
+            );
+        }
+    }
+
+    /// Port of C++ `SuppressionGainTest.BasicGainComputation`: strong noise or
+    /// nearend masks weak echo (gain 1), and strong echo on one of two capture
+    /// channels is suppressed on the shared gain (gain 0).
+    #[test]
+    fn basic_gain_computation() {
+        let mut t = GainTestSetup::new();
+        let mut suppression_gain = SuppressionGain::new(
+            &t.config,
+            GainTestSetup::SAMPLE_RATE_HZ,
+            GainTestSetup::NUM_CAPTURE_CHANNELS,
+        );
+        let suppressor = t.config.suppressor.clone();
+        let mut g = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+
+        // Ensure that a strong noise is detected to mask any echoes.
+        for ch in 0..GainTestSetup::NUM_CAPTURE_CHANNELS {
+            t.e2[ch].fill(10.0);
+            t.y2[ch].fill(10.0);
+            t.r2[ch].fill(0.1);
+            t.r2_unbounded[ch].fill(0.1);
+            t.n2[ch].fill(100.0);
+        }
+
+        // Ensure that the gain is no longer forced to zero.
+        for _ in 0..=NUM_BLOCKS_PER_SECOND / 5 + 1 {
+            t.update_aec_state();
+        }
+
+        for _ in 0..100 {
+            t.update_aec_state();
+            t.get_gain(&mut suppression_gain, &suppressor, false, &mut g);
+        }
+        for &a in &g {
+            assert!((a - 1.0).abs() <= 0.001, "gain {a} not near 1");
+        }
+
+        // Ensure that a strong nearend is detected to mask any echoes.
+        for ch in 0..GainTestSetup::NUM_CAPTURE_CHANNELS {
+            t.e2[ch].fill(100.0);
+            t.y2[ch].fill(100.0);
+            t.r2[ch].fill(0.1);
+            t.r2_unbounded[ch].fill(0.1);
+            t.s2[ch].fill(0.1);
+            t.n2[ch].fill(0.0);
+        }
+
+        for _ in 0..100 {
+            t.update_aec_state();
+            t.get_gain(&mut suppression_gain, &suppressor, false, &mut g);
+        }
+        for &a in &g {
+            assert!((a - 1.0).abs() <= 0.001, "gain {a} not near 1");
+        }
+
+        // Add a strong echo to one of the channels and ensure that it is
+        // suppressed.
+        t.e2[1].fill(1_000_000_000.0);
+        t.r2[1].fill(10_000_000_000_000.0);
+        t.r2_unbounded[1].fill(10_000_000_000_000.0);
+
+        for _ in 0..10 {
+            t.get_gain(&mut suppression_gain, &suppressor, false, &mut g);
+        }
+        for &a in &g {
+            assert!(a.abs() <= 0.001, "gain {a} not near 0");
+        }
+    }
+
+    /// `get_gain` must apply the config it is given when `config_changed` is
+    /// set, and only then. This is how the echo remover switches suppressor
+    /// tunings on the fly (upstream e10cd19640) without re-creating the
+    /// suppressor; a dropped update would keep the old tuning in effect.
+    #[test]
+    fn get_gain_applies_config_only_when_changed() {
+        let mut t = GainTestSetup::new();
+        let mut suppression_gain = SuppressionGain::new(
+            &t.config,
+            GainTestSetup::SAMPLE_RATE_HZ,
+            GainTestSetup::NUM_CAPTURE_CHANNELS,
+        );
+        let mut g = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        let old_max_inc_factor = t.config.suppressor.nearend_tuning.max_inc_factor;
+        let old_max_dec_factor_lf = t.config.suppressor.normal_tuning.max_dec_factor_lf;
+
+        let mut new_suppressor = t.config.suppressor.clone();
+        new_suppressor.nearend_tuning.max_inc_factor = old_max_inc_factor + 1.0;
+        new_suppressor.normal_tuning.max_dec_factor_lf = old_max_dec_factor_lf + 0.1;
+        new_suppressor.nearend_average_blocks = 1;
+
+        t.update_aec_state();
+
+        // Without the flag, the stored state stays as constructed.
+        t.get_gain(&mut suppression_gain, &new_suppressor, false, &mut g);
+        assert_eq!(
+            suppression_gain.nearend_params.max_inc_factor,
+            old_max_inc_factor
+        );
+        assert_eq!(
+            suppression_gain.normal_params.max_dec_factor_lf,
+            old_max_dec_factor_lf
+        );
+
+        // With the flag, the new tuning and averaging window take effect.
+        t.get_gain(&mut suppression_gain, &new_suppressor, true, &mut g);
+        assert_eq!(
+            suppression_gain.nearend_params.max_inc_factor,
+            new_suppressor.nearend_tuning.max_inc_factor
+        );
+        assert_eq!(
+            suppression_gain.normal_params.max_dec_factor_lf,
+            new_suppressor.normal_tuning.max_dec_factor_lf
+        );
+        let new = [1.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        let mut out = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        suppression_gain.nearend_smoothers[0].average(&new, &mut out);
+        assert_eq!(out, new);
     }
 
     /// A config switch without re-creating the suppressor must also resize
