@@ -9,7 +9,7 @@
 Pure Rust implementation of [WebRTC] audio processing, providing echo cancellation,
 noise suppression, and automatic gain control.
 
-Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module.
+Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module, plus 15 later upstream fixes up to M156 (listed in `cpp/NEWS`).
 
 ## Crates
 
@@ -68,7 +68,7 @@ Runtime feature detection is used for AVX2 on x86_64. SSE2 is assumed available 
 
 ### C++ Integration
 
-The C++ reference test suite (WebRTC M145, 2400+ tests) is validated on Ubuntu x86_64 with the Rust backend linked via the `sonora-sys` FFI bridge.
+The C++ reference test suite (WebRTC M145 plus the same upstream fixes, 2400+ tests) is validated on Ubuntu x86_64 with the Rust backend linked via the `sonora-sys` FFI bridge.
 
 ## Benchmarks
 

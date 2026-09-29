@@ -2,7 +2,7 @@
 
 ## 0.1.0 (unreleased)
 
-Initial release. Pure Rust port of WebRTC Audio Processing (M145).
+Initial release. Pure Rust port of WebRTC Audio Processing (M145, plus 15 later upstream fixes up to M156).
 
 - Echo cancellation (AEC3) with SIMD acceleration (SSE2, AVX2, NEON)
 - Noise suppression with multi-band Wiener filtering
