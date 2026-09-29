@@ -1,0 +1,78 @@
+# Temporary: measures issue #34 (silent-render slowdown) on real x86_64 hardware.
+# Each job benchmarks the same tree twice on the same runner: once with the
+# four DenormalDisabler guards removed ("before") and once as committed
+# ("after"), so runner-to-runner variance cannot skew the comparison.
+# Delete this branch once the numbers are recorded.
+name: Issue 34 timing
+
+on:
+  push:
+    branches: [ci/issue-34-timing]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  timing:
+    name: Timing (${{ matrix.os }}, run ${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        run: [1, 2]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: CPU
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            lscpu | grep -E 'Model name|Vendor ID|^CPU\(s\)'
+            grep -m1 -o -w -E 'avx2|fma' /proc/cpuinfo | sort -u | tr '\n' ' '; echo
+          else
+            powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Format-List Name,Manufacturer,NumberOfLogicalProcessors"
+          fi
+
+      - name: Before (guards removed)
+        run: |
+          f=crates/sonora/src/audio_processing_impl.rs
+          guard='let _denormal_disabler = unsafe { DenormalDisabler::new() };'
+          test "$(grep -cF "$guard" "$f")" = 4
+          cp "$f" "$f.orig"
+          grep -vF "$guard" "$f.orig" > "$f"
+          test "$(grep -cF 'DenormalDisabler::new()' "$f")" = 0
+          cargo bench -p sonora --bench pipeline -- aec3_render \
+            --save-baseline before --warm-up-time 3 --measurement-time 15
+          mv "$f.orig" "$f"
+          git diff --exit-code
+
+      - name: After (guards in place)
+        run: |
+          cargo bench -p sonora --bench pipeline -- aec3_render \
+            --baseline before --warm-up-time 3 --measurement-time 15
+
+      - name: Summary
+        run: |
+          py=$(command -v python3 || command -v python)
+          "$py" - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          root = pathlib.Path("target/criterion/aec3_render")
+          def mean_us(case, run):
+              est = json.loads((root / case / run / "estimates.json").read_text())
+              return est["mean"]["point_estimate"] / 1000.0
+          t = {(c, r): mean_us(c, r)
+               for c in ("48k_mono_active", "48k_mono_silent")
+               for r in ("before", "new")}
+          print("| | active (us) | silent (us) | silent/active |")
+          print("|---|---|---|---|")
+          for label, r in (("before (no guard)", "before"), ("after (guard)", "new")):
+              a, s = t[("48k_mono_active", r)], t[("48k_mono_silent", r)]
+              print(f"| {label} | {a:.1f} | {s:.1f} | {s / a:.2f} |")
+          b, n = t[("48k_mono_silent", "before")], t[("48k_mono_silent", "new")]
+          print(f"\nSilent speed-up: {b / n:.2f}x")
+          EOF
