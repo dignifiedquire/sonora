@@ -112,6 +112,67 @@ fn bench_process_stream(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Issue #34: AEC3 with a silent render reference
+// ---------------------------------------------------------------------------
+
+/// Render+capture pair cost with an active and with an exact-zero render
+/// reference. Without hardware flush-to-zero the recursive filters settle in
+/// the subnormal range once render goes silent and stay there, which costs a
+/// microcode assist per operation on x86 (10-50x per the report). The
+/// silent/active ratio is the figure to watch; it should stay near 1.
+fn bench_aec3_silent_render(c: &mut Criterion) {
+    let mut group = c.benchmark_group("aec3_render");
+    let stream = StreamConfig::new(48000, 1);
+    let n = stream.num_frames();
+    let speech: Vec<f32> = (0..n).map(|i| (i as f32 * 0.01).sin() * 0.1).collect();
+    let echo: Vec<f32> = speech.iter().map(|x| 0.5 * x).collect();
+    let silence = vec![0.0f32; n];
+    // About -60 dBFS deterministic noise on the capture side.
+    let noise: Vec<f32> = (0..n)
+        .map(|i| ((i * 7919 % 101) as f32 / 101.0 - 0.5) * 2e-3)
+        .collect();
+    let mut out = vec![0.0f32; n];
+    let mut render_out = vec![0.0f32; n];
+
+    for (name, render, capture) in [
+        ("48k_mono_active", &speech, &echo),
+        ("48k_mono_silent", &silence, &noise),
+    ] {
+        let config = Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            ..Default::default()
+        };
+        let mut apm = AudioProcessing::builder()
+            .config(config)
+            .capture_config(stream)
+            .render_config(stream)
+            .build();
+        // 1 s with active render and echo, then 1 s of the measured
+        // condition so the filter states have settled before timing.
+        for _ in 0..100 {
+            apm.process_render_f32(&[&speech], &mut [&mut render_out])
+                .unwrap();
+            apm.process_capture_f32(&[&echo], &mut [&mut out]).unwrap();
+        }
+        for _ in 0..100 {
+            apm.process_render_f32(&[render], &mut [&mut render_out])
+                .unwrap();
+            apm.process_capture_f32(&[capture], &mut [&mut out])
+                .unwrap();
+        }
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                apm.process_render_f32(&[black_box(render)], &mut [&mut render_out])
+                    .unwrap();
+                apm.process_capture_f32(&[black_box(capture)], &mut [&mut out])
+                    .unwrap();
+            });
+        });
+    }
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Component benchmarks
 // ---------------------------------------------------------------------------
 
@@ -204,6 +265,7 @@ fn bench_sinc_resampler(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_process_stream,
+    bench_aec3_silent_render,
     bench_noise_suppressor,
     bench_pffft,
     bench_sinc_resampler,
