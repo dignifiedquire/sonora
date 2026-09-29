@@ -8,7 +8,7 @@
 //! an enum that dispatches to one of two concrete implementations.
 
 use crate::common::FFT_LENGTH_BY_2_PLUS_1;
-use crate::config::{DominantNearendDetection, SubbandNearendDetection};
+use crate::config::{DominantNearendDetection, SubbandNearendDetection, Suppressor};
 use crate::moving_average::MovingAverage;
 
 /// Nearend detector dispatching to either dominant or subband variant.
@@ -45,18 +45,21 @@ impl NearendDetector {
             Self::Subband(s) => s.update(nearend_spectrum, comfort_noise_spectrum),
         }
     }
+
+    /// Sets the configuration (C++ `NearendDetector::SetConfig`).
+    pub(crate) fn set_config(&mut self, config: &Suppressor) {
+        match self {
+            Self::Dominant(d) => d.set_config(config),
+            Self::Subband(s) => s.set_config(config),
+        }
+    }
 }
 
 /// Dominant nearend detector — uses low-frequency energy comparison with
 /// trigger/hold counters.
 #[derive(Debug)]
 pub(crate) struct DominantNearendDetector {
-    enr_threshold: f32,
-    enr_exit_threshold: f32,
-    snr_threshold: f32,
-    hold_duration: i32,
-    trigger_threshold: i32,
-    use_during_initial_phase: bool,
+    config: DominantNearendDetection,
     num_capture_channels: usize,
     nearend_state: bool,
     trigger_counters: Vec<i32>,
@@ -66,12 +69,7 @@ pub(crate) struct DominantNearendDetector {
 impl DominantNearendDetector {
     pub(crate) fn new(config: &DominantNearendDetection, num_capture_channels: usize) -> Self {
         Self {
-            enr_threshold: config.enr_threshold,
-            enr_exit_threshold: config.enr_exit_threshold,
-            snr_threshold: config.snr_threshold,
-            hold_duration: config.hold_duration,
-            trigger_threshold: config.trigger_threshold,
-            use_during_initial_phase: config.use_during_initial_phase,
+            config: config.clone(),
             num_capture_channels,
             nearend_state: false,
             trigger_counters: vec![0; num_capture_channels],
@@ -102,16 +100,16 @@ impl DominantNearendDetector {
 
             // Detect strong active nearend if the nearend is sufficiently
             // stronger than the echo and the nearend noise.
-            if (!initial_state || self.use_during_initial_phase)
-                && echo_sum < self.enr_threshold * ne_sum
-                && ne_sum > self.snr_threshold * noise_sum
+            if (!initial_state || self.config.use_during_initial_phase)
+                && echo_sum < self.config.enr_threshold * ne_sum
+                && ne_sum > self.config.snr_threshold * noise_sum
             {
                 self.trigger_counters[ch] += 1;
-                if self.trigger_counters[ch] >= self.trigger_threshold {
+                if self.trigger_counters[ch] >= self.config.trigger_threshold {
                     // After a period of strong active nearend activity, flag
                     // nearend mode.
-                    self.hold_counters[ch] = self.hold_duration;
-                    self.trigger_counters[ch] = self.trigger_threshold;
+                    self.hold_counters[ch] = self.config.hold_duration;
+                    self.trigger_counters[ch] = self.config.trigger_threshold;
                 }
             } else {
                 // Forget previously detected strong active nearend activity.
@@ -119,8 +117,8 @@ impl DominantNearendDetector {
             }
 
             // Exit nearend-state early at strong echo.
-            if echo_sum > self.enr_exit_threshold * ne_sum
-                && echo_sum > self.snr_threshold * noise_sum
+            if echo_sum > self.config.enr_exit_threshold * ne_sum
+                && echo_sum > self.config.snr_threshold * noise_sum
             {
                 self.hold_counters[ch] = 0;
             }
@@ -129,6 +127,11 @@ impl DominantNearendDetector {
             self.hold_counters[ch] = (self.hold_counters[ch] - 1).max(0);
             self.nearend_state = self.nearend_state || self.hold_counters[ch] > 0;
         }
+    }
+
+    /// Sets the configuration (C++ `DominantNearendDetector::SetConfig`).
+    pub(crate) fn set_config(&mut self, config: &Suppressor) {
+        self.config = config.dominant_nearend_detection.clone();
     }
 }
 
@@ -206,6 +209,24 @@ impl SubbandNearendDetector {
                     && nearend_power_subband1 > self.snr_threshold * noise_power);
         }
     }
+
+    /// Sets the configuration (C++ `SubbandNearendDetector::SetConfig`).
+    pub(crate) fn set_config(&mut self, config: &Suppressor) {
+        let config = &config.subband_nearend_detection;
+        self.nearend_threshold = config.nearend_threshold;
+        self.snr_threshold = config.snr_threshold;
+        self.subband1_low = config.subband1.low;
+        self.subband1_high = config.subband1.high;
+        self.subband2_low = config.subband2.low;
+        self.subband2_high = config.subband2.high;
+        self.one_over_subband_length1 =
+            1.0 / (config.subband1.high - config.subband1.low + 1) as f32;
+        self.one_over_subband_length2 =
+            1.0 / (config.subband2.high - config.subband2.low + 1) as f32;
+        for smoother in &mut self.nearend_smoothers {
+            smoother.update_memory_length(config.nearend_average_blocks);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -247,5 +268,36 @@ mod tests {
         let config = SubbandNearendDetection::default();
         let det = SubbandNearendDetector::new(&config, 1);
         assert!(!det.is_nearend_state());
+    }
+
+    /// A suppressor config switch at runtime must change the detector's
+    /// thresholds without re-creating it.
+    #[test]
+    fn dominant_set_config_takes_effect() {
+        let mut nearend = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
+        let mut echo = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
+        let mut noise = [[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; 1];
+        for k in 0..16 {
+            nearend[0][k] = 1000.0;
+            echo[0][k] = 0.01;
+            noise[0][k] = 0.01;
+        }
+
+        let suppressor = Suppressor::default();
+        assert!(suppressor.dominant_nearend_detection.trigger_threshold > 1);
+
+        // With the default trigger threshold, one strong block is not enough.
+        let mut unchanged = DominantNearendDetector::new(&suppressor.dominant_nearend_detection, 1);
+        unchanged.update(&nearend, &echo, &noise, false);
+        assert!(!unchanged.is_nearend_state());
+
+        // After switching to a trigger threshold of 1, it is.
+        let mut switched = DominantNearendDetector::new(&suppressor.dominant_nearend_detection, 1);
+        let mut new_suppressor = suppressor.clone();
+        new_suppressor.dominant_nearend_detection.trigger_threshold = 1;
+        new_suppressor.dominant_nearend_detection.hold_duration = 2;
+        switched.set_config(&new_suppressor);
+        switched.update(&nearend, &echo, &noise, false);
+        assert!(switched.is_nearend_state());
     }
 }

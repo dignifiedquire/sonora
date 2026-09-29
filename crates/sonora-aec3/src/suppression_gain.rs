@@ -5,7 +5,9 @@
 use crate::aec_state::AecState;
 use crate::block::Block;
 use crate::common::{BLOCK_SIZE, FFT_LENGTH_BY_2, FFT_LENGTH_BY_2_PLUS_1};
-use crate::config::{EchoCanceller3Config, Suppressor, Tuning};
+use crate::config::{
+    EchoAudibility, EchoCanceller3Config, HighFrequencySuppression, Suppressor, Tuning,
+};
 use crate::moving_average::MovingAverage;
 use crate::nearend_detector::{DominantNearendDetector, NearendDetector, SubbandNearendDetector};
 use crate::render_signal_analyzer::RenderSignalAnalyzer;
@@ -33,9 +35,13 @@ fn limit_low_frequency_gains(gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
 
 /// Limits the high frequency gains to avoid echo leakage due to an imperfect
 /// filter.
-fn limit_high_frequency_gains(config: &Suppressor, gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
-    let limiting_gain_band = config.high_frequency_suppression.limiting_gain_band as usize;
-    let bands_in_limiting_gain = config.high_frequency_suppression.bands_in_limiting_gain as usize;
+fn limit_high_frequency_gains(
+    high_frequency_suppression: &HighFrequencySuppression,
+    conservative_hf_suppression: bool,
+    gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
+) {
+    let limiting_gain_band = high_frequency_suppression.limiting_gain_band as usize;
+    let bands_in_limiting_gain = high_frequency_suppression.bands_in_limiting_gain as usize;
     if bands_in_limiting_gain > 0 {
         debug_assert!(limiting_gain_band + bands_in_limiting_gain <= gain.len());
         let mut min_upper_gain = 1.0f32;
@@ -48,7 +54,7 @@ fn limit_high_frequency_gains(config: &Suppressor, gain: &mut [f32; FFT_LENGTH_B
     }
     gain[FFT_LENGTH_BY_2] = gain[FFT_LENGTH_BY_2 - 1];
 
-    if config.conservative_hf_suppression {
+    if conservative_hf_suppression {
         // Limits the gain in the frequencies for which the adaptive filter has
         // not converged.
         const K_UPPER_ACCURATE_BAND_PLUS_1: usize = 29;
@@ -65,7 +71,7 @@ fn limit_high_frequency_gains(config: &Suppressor, gain: &mut [f32; FFT_LENGTH_B
 
 /// Scales the echo according to assessed audibility at the other end.
 fn weight_echo_for_audibility(
-    config: &EchoCanceller3Config,
+    echo_audibility: &EchoAudibility,
     echo: &[f32; FFT_LENGTH_BY_2_PLUS_1],
     weighted_echo: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
 ) {
@@ -88,17 +94,16 @@ fn weight_echo_for_audibility(
         }
     };
 
-    let mut threshold =
-        config.echo_audibility.floor_power * config.echo_audibility.audibility_threshold_lf;
-    let mut normalizer = 1.0 / (threshold - config.echo_audibility.floor_power);
+    let mut threshold = echo_audibility.floor_power * echo_audibility.audibility_threshold_lf;
+    let mut normalizer = 1.0 / (threshold - echo_audibility.floor_power);
     weigh(threshold, normalizer, 0, 3, echo, weighted_echo);
 
-    threshold = config.echo_audibility.floor_power * config.echo_audibility.audibility_threshold_mf;
-    normalizer = 1.0 / (threshold - config.echo_audibility.floor_power);
+    threshold = echo_audibility.floor_power * echo_audibility.audibility_threshold_mf;
+    normalizer = 1.0 / (threshold - echo_audibility.floor_power);
     weigh(threshold, normalizer, 3, 7, echo, weighted_echo);
 
-    threshold = config.echo_audibility.floor_power * config.echo_audibility.audibility_threshold_hf;
-    normalizer = 1.0 / (threshold - config.echo_audibility.floor_power);
+    threshold = echo_audibility.floor_power * echo_audibility.audibility_threshold_hf;
+    normalizer = 1.0 / (threshold - echo_audibility.floor_power);
     weigh(
         threshold,
         normalizer,
@@ -121,10 +126,23 @@ struct GainParameters {
 
 impl GainParameters {
     fn new(last_lf_band: i32, first_hf_band: i32, tuning: &Tuning) -> Self {
-        let mut enr_transparent = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let mut enr_suppress = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        let mut emr_transparent = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        let mut params = Self {
+            max_inc_factor: 0.0,
+            max_dec_factor_lf: 0.0,
+            enr_transparent: [0.0; FFT_LENGTH_BY_2_PLUS_1],
+            enr_suppress: [0.0; FFT_LENGTH_BY_2_PLUS_1],
+            emr_transparent: [0.0; FFT_LENGTH_BY_2_PLUS_1],
+        };
+        params.set_config(last_lf_band, first_hf_band, tuning);
+        params
+    }
 
+    /// Recomputes the parameters from the tuning config (C++
+    /// `GainParameters::SetConfig`).
+    fn set_config(&mut self, last_lf_band: i32, first_hf_band: i32, tuning: &Tuning) {
+        self.max_inc_factor = tuning.max_inc_factor;
+        self.max_dec_factor_lf = tuning.max_dec_factor_lf;
+        // Compute per-band masking thresholds.
         debug_assert!(last_lf_band < first_hf_band);
 
         let lf = &tuning.mask_lf;
@@ -138,17 +156,9 @@ impl GainParameters {
             } else {
                 1.0f32
             };
-            enr_transparent[k] = (1.0 - a) * lf.enr_transparent + a * hf.enr_transparent;
-            enr_suppress[k] = (1.0 - a) * lf.enr_suppress + a * hf.enr_suppress;
-            emr_transparent[k] = (1.0 - a) * lf.emr_transparent + a * hf.emr_transparent;
-        }
-
-        Self {
-            max_inc_factor: tuning.max_inc_factor,
-            max_dec_factor_lf: tuning.max_dec_factor_lf,
-            enr_transparent,
-            enr_suppress,
-            emr_transparent,
+            self.enr_transparent[k] = (1.0 - a) * lf.enr_transparent + a * hf.enr_transparent;
+            self.enr_suppress[k] = (1.0 - a) * lf.enr_suppress + a * hf.enr_suppress;
+            self.emr_transparent[k] = (1.0 - a) * lf.emr_transparent + a * hf.emr_transparent;
         }
     }
 }
@@ -191,19 +201,17 @@ impl LowNoiseRenderDetector {
 #[derive(Debug)]
 pub(crate) struct SuppressionGain {
     vector_math: VectorMath,
-    config: EchoCanceller3Config,
     num_capture_channels: usize,
-    state_change_duration_blocks: i32,
+    echo_audibility_config: EchoAudibility,
+    use_subband_nearend_detection: bool,
     last_gain: [f32; FFT_LENGTH_BY_2_PLUS_1],
     last_nearend: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
     last_echo: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
     low_render_detector: LowNoiseRenderDetector,
     initial_state: bool,
-    initial_state_change_counter: i32,
     nearend_smoothers: Vec<MovingAverage>,
     nearend_params: GainParameters,
     normal_params: GainParameters,
-    use_unbounded_echo_spectrum: bool,
     dominant_nearend_detector: NearendDetector,
 }
 
@@ -214,8 +222,6 @@ impl SuppressionGain {
         num_capture_channels: usize,
     ) -> Self {
         let _ = sample_rate_hz; // unused in C++ too
-        let state_change_duration_blocks = config.filter.config_change_duration_blocks as i32;
-        debug_assert!(state_change_duration_blocks > 0);
 
         let dominant_nearend_detector = if config.suppressor.use_subband_nearend_detection {
             NearendDetector::Subband(SubbandNearendDetector::new(
@@ -232,15 +238,14 @@ impl SuppressionGain {
         let backend = sonora_simd::detect_backend();
         Self {
             vector_math: VectorMath::new(backend),
-            config: config.clone(),
             num_capture_channels,
-            state_change_duration_blocks,
+            echo_audibility_config: config.echo_audibility.clone(),
+            use_subband_nearend_detection: config.suppressor.use_subband_nearend_detection,
             last_gain: [1.0; FFT_LENGTH_BY_2_PLUS_1],
             last_nearend: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
             last_echo: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
             low_render_detector: LowNoiseRenderDetector::new(),
             initial_state: true,
-            initial_state_change_counter: 0,
             nearend_smoothers: (0..num_capture_channels)
                 .map(|_| {
                     MovingAverage::new(
@@ -259,23 +264,30 @@ impl SuppressionGain {
                 config.suppressor.first_hf_band,
                 &config.suppressor.normal_tuning,
             ),
-            use_unbounded_echo_spectrum: config
-                .suppressor
-                .dominant_nearend_detection
-                .use_unbounded_echo_spectrum,
             dominant_nearend_detector,
         }
     }
 
-    /// Computes the suppression gains.
+    /// Computes the suppression gains using `suppressor_config`. Set
+    /// `config_changed` when `suppressor_config` differs from the one used on
+    /// the previous call, so that the config-dependent state is updated.
     pub(crate) fn get_gain(
         &mut self,
+        suppressor_config: &Suppressor,
+        config_changed: bool,
         input: &SuppressionInput<'_>,
         high_bands_gain: &mut f32,
         low_band_gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
     ) {
+        if config_changed {
+            self.update_state_depending_on_config(suppressor_config);
+        }
+
         // Choose residual echo spectrum for dominant nearend detection.
-        let echo = if self.use_unbounded_echo_spectrum {
+        let echo = if suppressor_config
+            .dominant_nearend_detection
+            .use_unbounded_echo_spectrum
+        {
             input.residual_echo_spectrum_unbounded
         } else {
             input.residual_echo_spectrum
@@ -291,12 +303,13 @@ impl SuppressionGain {
 
         // Compute gain for the lower band.
         let low_noise_render = self.low_render_detector.detect(input.render);
-        self.lower_band_gain(low_noise_render, input, low_band_gain);
+        self.lower_band_gain(suppressor_config, low_noise_render, input, low_band_gain);
 
         // Compute the gain for the upper bands.
         let narrow_peak_band = input.render_signal_analyzer.narrow_peak_band();
 
         *high_bands_gain = self.upper_bands_gain(
+            suppressor_config,
             input.echo_spectrum,
             input.comfort_noise_spectrum,
             narrow_peak_band,
@@ -314,16 +327,41 @@ impl SuppressionGain {
     /// Toggles the usage of the initial state.
     pub(crate) fn set_initial_state(&mut self, state: bool) {
         self.initial_state = state;
-        if state {
-            self.initial_state_change_counter = self.state_change_duration_blocks;
-        } else {
-            self.initial_state_change_counter = 0;
+    }
+
+    /// Updates the internal state, e.g. sizes and parameters, if the config
+    /// changes (C++ `UpdateStateDependingOnConfig`).
+    fn update_state_depending_on_config(&mut self, suppressor_config: &Suppressor) {
+        debug_assert_eq!(
+            suppressor_config.use_subband_nearend_detection,
+            self.use_subband_nearend_detection
+        );
+        // Update nearend average blocks.
+        for smoother in &mut self.nearend_smoothers {
+            smoother.update_memory_length(suppressor_config.nearend_average_blocks);
         }
+        self.dominant_nearend_detector.set_config(suppressor_config);
+        self.nearend_params.set_config(
+            suppressor_config.last_lf_band,
+            suppressor_config.first_hf_band,
+            &suppressor_config.nearend_tuning,
+        );
+
+        self.normal_params.set_config(
+            suppressor_config.last_lf_band,
+            suppressor_config.first_hf_band,
+            &suppressor_config.normal_tuning,
+        );
     }
 
     /// Computes the gain to apply for the bands beyond the first band.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors C++ UpperBandsGain, which takes the active suppressor config"
+    )]
     fn upper_bands_gain(
         &self,
+        suppressor_config: &Suppressor,
         echo_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
         comfort_noise_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]],
         narrow_peak_band: Option<usize>,
@@ -373,26 +411,21 @@ impl SuppressionGain {
         // frequencies, or if the power in upper frequencies is low, do not
         // bound the gain in the upper bands.
         let activation_threshold = BLOCK_SIZE as f32
-            * self
-                .config
-                .suppressor
+            * suppressor_config
                 .high_bands_suppression
                 .anti_howling_activation_threshold;
         let anti_howling_gain = if high_band_energy < low_band_energy.max(activation_threshold) {
             1.0
         } else {
             debug_assert!(high_band_energy > 0.0);
-            self.config
-                .suppressor
-                .high_bands_suppression
-                .anti_howling_gain
+            suppressor_config.high_bands_suppression.anti_howling_gain
                 * (low_band_energy / high_band_energy).sqrt()
         };
 
         let mut gain_bound = 1.0f32;
         if !self.dominant_nearend_detector.is_nearend_state() {
             // Bound the upper gain during significant echo activity.
-            let cfg = &self.config.suppressor.high_bands_suppression;
+            let cfg = &suppressor_config.high_bands_suppression;
             let low_frequency_energy =
                 |spectrum: &[f32; FFT_LENGTH_BY_2_PLUS_1]| -> f32 { spectrum[1..16].iter().sum() };
             for ch in 0..self.num_capture_channels {
@@ -436,8 +469,13 @@ impl SuppressionGain {
 
     /// Compute the minimum gain as the attenuating gain to put the signal just
     /// above the zero sample values.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors C++ GetMinGain, which takes the active suppressor config"
+    )]
     fn get_min_gain(
         &self,
+        suppressor_config: &Suppressor,
         weighted_residual_echo: &[f32; FFT_LENGTH_BY_2_PLUS_1],
         last_nearend: &[f32; FFT_LENGTH_BY_2_PLUS_1],
         last_echo: &[f32; FFT_LENGTH_BY_2_PLUS_1],
@@ -447,9 +485,9 @@ impl SuppressionGain {
     ) {
         if !saturated_echo {
             let min_echo_power = if low_noise_render {
-                self.config.echo_audibility.low_render_limit
+                self.echo_audibility_config.low_render_limit
             } else {
-                self.config.echo_audibility.normal_render_limit
+                self.echo_audibility_config.normal_render_limit
             };
 
             for k in 0..min_gain.len() {
@@ -460,18 +498,18 @@ impl SuppressionGain {
                 };
             }
 
-            if !self.initial_state || self.config.suppressor.lf_smoothing_during_initial_phase {
+            if !self.initial_state || suppressor_config.lf_smoothing_during_initial_phase {
                 let dec = if self.dominant_nearend_detector.is_nearend_state() {
                     self.nearend_params.max_dec_factor_lf
                 } else {
                     self.normal_params.max_dec_factor_lf
                 };
 
-                for k in 0..=self.config.suppressor.last_lf_smoothing_band as usize {
+                for k in 0..=suppressor_config.last_lf_smoothing_band as usize {
                     // Make sure the gains of the low frequencies do not decrease
                     // too quickly after strong nearend.
                     if last_nearend[k] > last_echo[k]
-                        || k <= self.config.suppressor.last_permanent_lf_smoothing_band as usize
+                        || k <= suppressor_config.last_permanent_lf_smoothing_band as usize
                     {
                         min_gain[k] = min_gain[k].max(self.last_gain[k] * dec);
                         min_gain[k] = min_gain[k].min(1.0);
@@ -485,20 +523,24 @@ impl SuppressionGain {
 
     /// Compute the maximum gain by limiting the gain increase from the previous
     /// gain.
-    fn get_max_gain(&self, max_gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1]) {
+    fn get_max_gain(
+        &self,
+        floor_first_increase: f32,
+        max_gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
+    ) {
         let inc = if self.dominant_nearend_detector.is_nearend_state() {
             self.nearend_params.max_inc_factor
         } else {
             self.normal_params.max_inc_factor
         };
-        let floor = self.config.suppressor.floor_first_increase;
         for (mg_k, &lg_k) in max_gain.iter_mut().zip(self.last_gain.iter()) {
-            *mg_k = (lg_k * inc).max(floor).min(1.0);
+            *mg_k = (lg_k * inc).max(floor_first_increase).min(1.0);
         }
     }
 
     fn lower_band_gain(
         &mut self,
+        suppressor_config: &Suppressor,
         low_noise_render: bool,
         input: &SuppressionInput<'_>,
         gain: &mut [f32; FFT_LENGTH_BY_2_PLUS_1],
@@ -506,7 +548,7 @@ impl SuppressionGain {
         gain.fill(1.0);
         let saturated_echo = input.aec_state.saturated_echo();
         let mut max_gain = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
-        self.get_max_gain(&mut max_gain);
+        self.get_max_gain(suppressor_config.floor_first_increase, &mut max_gain);
 
         for ch in 0..self.num_capture_channels {
             let mut g = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
@@ -516,13 +558,14 @@ impl SuppressionGain {
             // Weight echo power in terms of audibility.
             let mut weighted_residual_echo = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             weight_echo_for_audibility(
-                &self.config,
+                &self.echo_audibility_config,
                 &input.residual_echo_spectrum[ch],
                 &mut weighted_residual_echo,
             );
 
             let mut min_gain = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             self.get_min_gain(
+                suppressor_config,
                 &weighted_residual_echo,
                 &self.last_nearend[ch],
                 &self.last_echo[ch],
@@ -558,9 +601,13 @@ impl SuppressionGain {
         // in dominant nearend.
         if !self.dominant_nearend_detector.is_nearend_state()
             || input.clock_drift
-            || self.config.suppressor.conservative_hf_suppression
+            || suppressor_config.conservative_hf_suppression
         {
-            limit_high_frequency_gains(&self.config.suppressor, gain);
+            limit_high_frequency_gains(
+                &suppressor_config.high_frequency_suppression,
+                suppressor_config.conservative_hf_suppression,
+                gain,
+            );
         }
 
         // Store computed gains.
@@ -590,5 +637,54 @@ mod tests {
         let mut det = LowNoiseRenderDetector::new();
         let render = Block::new_with_value(1, 1, 1000.0);
         assert!(!det.detect(&render));
+    }
+
+    #[test]
+    fn update_state_depending_on_config() {
+        let mut config = EchoCanceller3Config::default();
+        config.suppressor.nearend_tuning.max_inc_factor = 2.0;
+        config.suppressor.normal_tuning.max_dec_factor_lf = 0.2;
+
+        let mut suppression_gain = SuppressionGain::new(&config, 16000, 1);
+
+        // Initial call to set up the state.
+        suppression_gain.update_state_depending_on_config(&config.suppressor);
+
+        assert_eq!(suppression_gain.nearend_params.max_inc_factor, 2.0);
+        assert_eq!(suppression_gain.normal_params.max_dec_factor_lf, 0.2);
+
+        // Change config and verify state is updated.
+        let mut new_config = config.clone();
+        new_config.suppressor.nearend_tuning.max_inc_factor = 3.0;
+        new_config.suppressor.normal_tuning.max_dec_factor_lf = 0.3;
+
+        suppression_gain.update_state_depending_on_config(&new_config.suppressor);
+
+        assert_eq!(suppression_gain.nearend_params.max_inc_factor, 3.0);
+        assert_eq!(suppression_gain.normal_params.max_dec_factor_lf, 0.3);
+    }
+
+    /// A config switch without re-creating the suppressor must also resize
+    /// the nearend averaging window. Otherwise the gains keep smoothing over
+    /// the old number of blocks.
+    #[test]
+    fn config_change_applies_new_nearend_average_blocks() {
+        let config = EchoCanceller3Config::default();
+        assert!(config.suppressor.nearend_average_blocks > 1);
+        let mut suppression_gain = SuppressionGain::new(&config, 16000, 1);
+
+        let old = [100.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        let mut out = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        suppression_gain.nearend_smoothers[0].average(&old, &mut out);
+        suppression_gain.nearend_smoothers[0].average(&old, &mut out);
+
+        let mut new_config = config.clone();
+        new_config.suppressor.nearend_average_blocks = 1;
+        suppression_gain.update_state_depending_on_config(&new_config.suppressor);
+
+        // With a one-block window, the output is the input alone.
+        let new = [1.0f32; FFT_LENGTH_BY_2_PLUS_1];
+        suppression_gain.nearend_smoothers[0].average(&new, &mut out);
+        assert_eq!(out, new);
     }
 }
