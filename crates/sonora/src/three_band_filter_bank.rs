@@ -5,6 +5,22 @@
 //!
 //! Ported from `modules/audio_processing/three_band_filter_bank.h/cc`.
 
+/// Whether the unrolled 4-tap sums in [`filter_core`] use [`f32::mul_add`].
+///
+/// Only AArch64 (`aarch64` and `arm64ec`), and x86 built with the `fma`
+/// target feature, take this path: there `mul_add` is one instruction.
+/// Without native FMA it is an `fmaf` library call per operation. Every other
+/// target, including targets with FMA such as riscv64gc, sums the taps with
+/// plain arithmetic, in the C++ operation order. C++ starts that sum from
+/// `0.0`; leaving it out changes only the sign of an all-zero sum, which
+/// `analysis` and `synthesis` lose when they add the result into zeroed
+/// buffers.
+const USE_FMA: bool = cfg!(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_feature = "fma"
+));
+
 const SQRT_3: f32 = 1.732_050_8;
 
 const SPARSITY: usize = 4;
@@ -79,13 +95,20 @@ fn filter_core(
     #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in 0..in_shift {
         let j = MEMORY_SIZE + k - in_shift;
-        output[k] = f0.mul_add(
-            state[j],
-            f1.mul_add(
-                state[j - STRIDE],
-                f2.mul_add(state[j - 2 * STRIDE], f3 * state[j - 3 * STRIDE]),
-            ),
-        );
+        output[k] = if USE_FMA {
+            f0.mul_add(
+                state[j],
+                f1.mul_add(
+                    state[j - STRIDE],
+                    f2.mul_add(state[j - 2 * STRIDE], f3 * state[j - 3 * STRIDE]),
+                ),
+            )
+        } else {
+            f0 * state[j]
+                + f1 * state[j - STRIDE]
+                + f2 * state[j - 2 * STRIDE]
+                + f3 * state[j - 3 * STRIDE]
+        };
     }
 
     // Part 2: transition samples (partially from input, partially from state).
@@ -112,13 +135,20 @@ fn filter_core(
     #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
         let base = k - in_shift;
-        output[k] = f0.mul_add(
-            input[base],
-            f1.mul_add(
-                input[base - STRIDE],
-                f2.mul_add(input[base - 2 * STRIDE], f3 * input[base - 3 * STRIDE]),
-            ),
-        );
+        output[k] = if USE_FMA {
+            f0.mul_add(
+                input[base],
+                f1.mul_add(
+                    input[base - STRIDE],
+                    f2.mul_add(input[base - 2 * STRIDE], f3 * input[base - 3 * STRIDE]),
+                ),
+            )
+        } else {
+            f0 * input[base]
+                + f1 * input[base - STRIDE]
+                + f2 * input[base - 2 * STRIDE]
+                + f3 * input[base - 3 * STRIDE]
+        };
     }
 
     // Update state from end of input.
@@ -332,6 +362,63 @@ mod tests {
             output_energy > input_energy * 0.05,
             "roundtrip should preserve most energy: input={input_energy}, output={output_energy}",
         );
+    }
+
+    /// The `USE_FMA` policy, restated so that a change to it fails the test
+    /// below: fuse on AArch64 (`aarch64` and `arm64ec`) and on x86 with the
+    /// `fma` feature. Elsewhere `mul_add` can be an `fmaf` library call and
+    /// C++ built without FP contraction does not fuse, so other targets must
+    /// match the C++ tap order bit for bit. On aarch64 the output must stay
+    /// the fused output it has always been.
+    const EXPECT_FUSED: bool = cfg!(any(
+        target_arch = "aarch64",
+        target_arch = "arm64ec",
+        target_feature = "fma"
+    ));
+
+    /// Checks the unrolled Parts 1 and 3 of `filter_core` against
+    /// [`EXPECT_FUSED`].
+    #[test]
+    fn filter_core_matches_fma_policy() {
+        use std::array::from_fn;
+
+        let filter = &FILTER_COEFFS[1];
+        let state: [f32; MEMORY_SIZE] = from_fn(|i| (i as f32 * 0.618_034).fract() - 0.5);
+        let input: [f32; SPLIT_BAND_SIZE] = from_fn(|i| (i as f32 * 0.414_214).fract() - 0.5);
+        // Sample n of the stream is history[MEMORY_SIZE + n]; n < 0 is state.
+        let history: Vec<f32> = state.iter().chain(&input).copied().collect();
+
+        let (mut part1_differs, mut part3_differs) = (false, false);
+        // in_shift >= 1 so that Part 1 (state only) runs.
+        for in_shift in 1..STRIDE {
+            let mut output = [0.0_f32; SPLIT_BAND_SIZE];
+            filter_core(filter, &input, in_shift, &mut output, &mut state.clone());
+
+            // Part 2 (taps split between state and input) is unchanged.
+            let parts_1_and_3 = (0..in_shift).chain(FILTER_SIZE * STRIDE..SPLIT_BAND_SIZE);
+            for k in parts_1_and_3 {
+                let t: [f32; FILTER_SIZE] =
+                    from_fn(|i| history[MEMORY_SIZE + k - in_shift - i * STRIDE]);
+                let f = filter;
+                let fused = f[0].mul_add(t[0], f[1].mul_add(t[1], f[2].mul_add(t[2], f[3] * t[3])));
+                // C++ accumulates `out[k] += in[j] * filter[i]` for i = 0..3.
+                let plain = f[0] * t[0] + f[1] * t[1] + f[2] * t[2] + f[3] * t[3];
+                if fused.to_bits() != plain.to_bits() {
+                    if k < in_shift {
+                        part1_differs = true;
+                    } else {
+                        part3_differs = true;
+                    }
+                }
+                let expected = if EXPECT_FUSED { fused } else { plain };
+                assert_eq!(
+                    output[k].to_bits(),
+                    expected.to_bits(),
+                    "in_shift {in_shift}, k {k}"
+                );
+            }
+        }
+        assert!(part1_differs && part3_differs);
     }
 
     #[test]

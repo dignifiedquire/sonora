@@ -2,6 +2,19 @@
 //!
 //! Ported from `modules/audio_processing/utility/cascaded_biquad_filter.h/cc`.
 
+/// Whether the filter recursion uses [`f32::mul_add`].
+///
+/// Only AArch64 (`aarch64` and `arm64ec`), and x86 built with the `fma`
+/// target feature, take this path: there `mul_add` is one instruction.
+/// Without native FMA it is an `fmaf` library call per operation. Every other
+/// target, including targets with FMA such as riscv64gc, uses the plain C++
+/// expression, in its operation order.
+const USE_FMA: bool = cfg!(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_feature = "fma"
+));
+
 /// Coefficients for a single second-order (biquad) IIR section.
 ///
 /// Transfer function: `H(z) = (b[0] + b[1]*z^-1 + b[2]*z^-2) / (1 + a[0]*z^-1 + a[1]*z^-2)`
@@ -73,14 +86,18 @@ impl CascadedBiQuadFilter {
             let mut m_y_1 = bq.y[1];
             for v in y.iter_mut() {
                 let tmp = *v;
-                // Use mul_add chains to emit fmadd/fmsub instructions.
-                *v = c_b_0.mul_add(
-                    tmp,
-                    c_b_1.mul_add(
-                        m_x_0,
-                        c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
-                    ),
-                );
+                // Fused only on AArch64 and on x86 with `fma`; see `USE_FMA`.
+                *v = if USE_FMA {
+                    c_b_0.mul_add(
+                        tmp,
+                        c_b_1.mul_add(
+                            m_x_0,
+                            c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
+                        ),
+                    )
+                } else {
+                    c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1
+                };
                 m_x_1 = m_x_0;
                 m_x_0 = tmp;
                 m_y_1 = m_y_0;
@@ -105,13 +122,17 @@ impl CascadedBiQuadFilter {
             let mut m_y_1 = bq.y[1];
             for v in y.iter_mut() {
                 let tmp = *v;
-                *v = c_b_0.mul_add(
-                    tmp,
-                    c_b_1.mul_add(
-                        m_x_0,
-                        c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
-                    ),
-                );
+                *v = if USE_FMA {
+                    c_b_0.mul_add(
+                        tmp,
+                        c_b_1.mul_add(
+                            m_x_0,
+                            c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
+                        ),
+                    )
+                } else {
+                    c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1
+                };
                 m_x_1 = m_x_0;
                 m_x_0 = tmp;
                 m_y_1 = m_y_0;
@@ -142,13 +163,17 @@ impl CascadedBiQuadFilter {
         let mut m_y_1 = bq.y[1];
         for (xi, yi) in x.iter().zip(y.iter_mut()) {
             let tmp = *xi;
-            *yi = c_b_0.mul_add(
-                tmp,
-                c_b_1.mul_add(
-                    m_x_0,
-                    c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
-                ),
-            );
+            *yi = if USE_FMA {
+                c_b_0.mul_add(
+                    tmp,
+                    c_b_1.mul_add(
+                        m_x_0,
+                        c_b_2.mul_add(m_x_1, (-c_a_0).mul_add(m_y_0, -c_a_1 * m_y_1)),
+                    ),
+                )
+            } else {
+                c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1
+            };
             m_x_1 = m_x_0;
             m_x_0 = tmp;
             m_y_1 = m_y_0;
@@ -228,6 +253,76 @@ mod tests {
         for (a, b) in output.iter().zip(output2.iter()) {
             assert!((a - b).abs() < 1e-6, "{a} != {b}");
         }
+    }
+
+    /// The `USE_FMA` policy, restated so that a change to it fails the test
+    /// below: fuse on AArch64 (`aarch64` and `arm64ec`) and on x86 with the
+    /// `fma` feature. Elsewhere `mul_add` can be an `fmaf` library call and
+    /// C++ built without FP contraction does not fuse, so other targets must
+    /// match the C++ expression bit for bit. On aarch64 the output must stay
+    /// the fused output it has always been.
+    const EXPECT_FUSED: bool = cfg!(any(
+        target_arch = "aarch64",
+        target_arch = "arm64ec",
+        target_feature = "fma"
+    ));
+
+    /// Reference cascade: the fused `mul_add` chain, or the C++ expression
+    /// `c_b_0 * tmp + c_b_1 * m_x_0 + c_b_2 * m_x_1 - c_a_0 * m_y_0 - c_a_1 * m_y_1`.
+    fn reference_cascade(coeffs: &[BiQuadCoefficients], x: &[f32], fused: bool) -> Vec<f32> {
+        let mut y = x.to_vec();
+        for c in coeffs {
+            let (mut x0, mut x1, mut y0, mut y1) = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
+            for v in &mut y {
+                let tmp = *v;
+                *v = if fused {
+                    c.b[0].mul_add(
+                        tmp,
+                        c.b[1].mul_add(x0, c.b[2].mul_add(x1, (-c.a[0]).mul_add(y0, -c.a[1] * y1))),
+                    )
+                } else {
+                    c.b[0] * tmp + c.b[1] * x0 + c.b[2] * x1 - c.a[0] * y0 - c.a[1] * y1
+                };
+                x1 = x0;
+                x0 = tmp;
+                y1 = y0;
+                y0 = *v;
+            }
+        }
+        y
+    }
+
+    /// Checks all three filter loops against [`EXPECT_FUSED`].
+    #[test]
+    fn recursion_matches_fma_policy() {
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+
+        // A high-pass section, then the low-pass section above. Two stages
+        // cover all three loops: `apply_biquad` and the in-place stage loop
+        // inside `process`, and the loop in `process_in_place`.
+        let coeffs = [
+            BiQuadCoefficients {
+                b: [0.972_613, -1.945_226, 0.972_613],
+                a: [-1.944_48, 0.945_976],
+            },
+            lowpass_coefficients(),
+        ];
+        let input: Vec<f32> = (0..32)
+            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
+            .collect();
+
+        let fused = reference_cascade(&coeffs, &input, true);
+        let plain = reference_cascade(&coeffs, &input, false);
+        assert_ne!(bits(&fused), bits(&plain));
+        let expected = bits(if EXPECT_FUSED { &fused } else { &plain });
+
+        let mut output = vec![0.0_f32; input.len()];
+        CascadedBiQuadFilter::new(&coeffs).process(&input, &mut output);
+        assert_eq!(bits(&output), expected);
+
+        let mut in_place = input.clone();
+        CascadedBiQuadFilter::new(&coeffs).process_in_place(&mut in_place);
+        assert_eq!(bits(&in_place), expected);
     }
 
     #[test]

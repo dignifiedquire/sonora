@@ -33,6 +33,19 @@
 use std::f32::consts::FRAC_PI_4;
 use std::ptr;
 
+/// Whether the twiddle multiplications use [`f32::mul_add`].
+///
+/// Only AArch64 (`aarch64` and `arm64ec`), and x86 built with the `fma`
+/// target feature, take this path: there `mul_add` is one instruction.
+/// Without native FMA it is an `fmaf` library call per operation. Every other
+/// target, including targets with FMA such as riscv64gc, uses the plain
+/// expressions of the C reference, in its operation order.
+const USE_FMA: bool = cfg!(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_feature = "fma"
+));
+
 /// Variable-size real FFT using Ooura's fft4g algorithm.
 ///
 /// Supports power-of-2 sizes (`n >= 2`). Twiddle tables and bit-reversal
@@ -506,8 +519,14 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             let wk2i = get(w, k1 + 1);
             let wk1r = get(w, k2);
             let wk1i = get(w, k2 + 1);
-            let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
-            let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
+            let (wk3r, wk3i) = if USE_FMA {
+                (
+                    (-2.0 * wk2i).mul_add(wk1i, wk1r),
+                    (2.0 * wk2i).mul_add(wk1r, -wk1i),
+                )
+            } else {
+                (wk1r - 2.0 * wk2i * wk1i, 2.0 * wk2i * wk1r - wk1i)
+            };
 
             let x0r = get(a, j) + get(a, j + 2);
             let x0i = get(a, j + 1) + get(a, j + 3);
@@ -521,21 +540,42 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             set(a, j + 1, x0i + x2i);
             let x0r = x0r - x2r;
             let x0i = x0i - x2i;
-            set(a, j + 4, wk2r.mul_add(x0r, -wk2i * x0i));
-            set(a, j + 5, wk2r.mul_add(x0i, wk2i * x0r));
+            if USE_FMA {
+                set(a, j + 4, wk2r.mul_add(x0r, -wk2i * x0i));
+                set(a, j + 5, wk2r.mul_add(x0i, wk2i * x0r));
+            } else {
+                set(a, j + 4, wk2r * x0r - wk2i * x0i);
+                set(a, j + 5, wk2r * x0i + wk2i * x0r);
+            }
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            set(a, j + 2, wk1r.mul_add(x0r, -wk1i * x0i));
-            set(a, j + 3, wk1r.mul_add(x0i, wk1i * x0r));
+            if USE_FMA {
+                set(a, j + 2, wk1r.mul_add(x0r, -wk1i * x0i));
+                set(a, j + 3, wk1r.mul_add(x0i, wk1i * x0r));
+            } else {
+                set(a, j + 2, wk1r * x0r - wk1i * x0i);
+                set(a, j + 3, wk1r * x0i + wk1i * x0r);
+            }
             let x0r = x1r + x3i;
             let x0i = x1i - x3r;
-            set(a, j + 6, wk3r.mul_add(x0r, -wk3i * x0i));
-            set(a, j + 7, wk3r.mul_add(x0i, wk3i * x0r));
+            if USE_FMA {
+                set(a, j + 6, wk3r.mul_add(x0r, -wk3i * x0i));
+                set(a, j + 7, wk3r.mul_add(x0i, wk3i * x0r));
+            } else {
+                set(a, j + 6, wk3r * x0r - wk3i * x0i);
+                set(a, j + 7, wk3r * x0i + wk3i * x0r);
+            }
 
             let wk1r = get(w, k2 + 2);
             let wk1i = get(w, k2 + 3);
-            let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
-            let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
+            let (wk3r, wk3i) = if USE_FMA {
+                (
+                    (-2.0 * wk2r).mul_add(wk1i, wk1r),
+                    (2.0 * wk2r).mul_add(wk1r, -wk1i),
+                )
+            } else {
+                (wk1r - 2.0 * wk2r * wk1i, 2.0 * wk2r * wk1r - wk1i)
+            };
 
             let x0r = get(a, j + 8) + get(a, j + 10);
             let x0i = get(a, j + 9) + get(a, j + 11);
@@ -549,16 +589,31 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             set(a, j + 9, x0i + x2i);
             let x0r = x0r - x2r;
             let x0i = x0i - x2i;
-            set(a, j + 12, (-wk2i).mul_add(x0r, -wk2r * x0i));
-            set(a, j + 13, (-wk2i).mul_add(x0i, wk2r * x0r));
+            if USE_FMA {
+                set(a, j + 12, (-wk2i).mul_add(x0r, -wk2r * x0i));
+                set(a, j + 13, (-wk2i).mul_add(x0i, wk2r * x0r));
+            } else {
+                set(a, j + 12, -wk2i * x0r - wk2r * x0i);
+                set(a, j + 13, -wk2i * x0i + wk2r * x0r);
+            }
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            set(a, j + 10, wk1r.mul_add(x0r, -wk1i * x0i));
-            set(a, j + 11, wk1r.mul_add(x0i, wk1i * x0r));
+            if USE_FMA {
+                set(a, j + 10, wk1r.mul_add(x0r, -wk1i * x0i));
+                set(a, j + 11, wk1r.mul_add(x0i, wk1i * x0r));
+            } else {
+                set(a, j + 10, wk1r * x0r - wk1i * x0i);
+                set(a, j + 11, wk1r * x0i + wk1i * x0r);
+            }
             let x0r = x1r + x3i;
             let x0i = x1i - x3r;
-            set(a, j + 14, wk3r.mul_add(x0r, -wk3i * x0i));
-            set(a, j + 15, wk3r.mul_add(x0i, wk3i * x0r));
+            if USE_FMA {
+                set(a, j + 14, wk3r.mul_add(x0r, -wk3i * x0i));
+                set(a, j + 15, wk3r.mul_add(x0i, wk3i * x0r));
+            } else {
+                set(a, j + 14, wk3r * x0r - wk3i * x0i);
+                set(a, j + 15, wk3r * x0i + wk3i * x0r);
+            }
 
             j += 16;
         }
@@ -633,8 +688,14 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
             let wk2i = get(w, k1 + 1);
             let wk1r = get(w, k2);
             let wk1i = get(w, k2 + 1);
-            let wk3r = (-2.0 * wk2i).mul_add(wk1i, wk1r);
-            let wk3i = (2.0 * wk2i).mul_add(wk1r, -wk1i);
+            let (wk3r, wk3i) = if USE_FMA {
+                (
+                    (-2.0 * wk2i).mul_add(wk1i, wk1r),
+                    (2.0 * wk2i).mul_add(wk1r, -wk1i),
+                )
+            } else {
+                (wk1r - 2.0 * wk2i * wk1i, 2.0 * wk2i * wk1r - wk1i)
+            };
 
             for j in (k..l + k).step_by(2) {
                 let j1 = j + l;
@@ -652,22 +713,43 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 set(a, j + 1, x0i + x2i);
                 let x0r = x0r - x2r;
                 let x0i = x0i - x2i;
-                set(a, j2, wk2r.mul_add(x0r, -wk2i * x0i));
-                set(a, j2 + 1, wk2r.mul_add(x0i, wk2i * x0r));
+                if USE_FMA {
+                    set(a, j2, wk2r.mul_add(x0r, -wk2i * x0i));
+                    set(a, j2 + 1, wk2r.mul_add(x0i, wk2i * x0r));
+                } else {
+                    set(a, j2, wk2r * x0r - wk2i * x0i);
+                    set(a, j2 + 1, wk2r * x0i + wk2i * x0r);
+                }
                 let x0r = x1r - x3i;
                 let x0i = x1i + x3r;
-                set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
-                set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
+                if USE_FMA {
+                    set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
+                    set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
+                } else {
+                    set(a, j1, wk1r * x0r - wk1i * x0i);
+                    set(a, j1 + 1, wk1r * x0i + wk1i * x0r);
+                }
                 let x0r = x1r + x3i;
                 let x0i = x1i - x3r;
-                set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
-                set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
+                if USE_FMA {
+                    set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
+                    set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
+                } else {
+                    set(a, j3, wk3r * x0r - wk3i * x0i);
+                    set(a, j3 + 1, wk3r * x0i + wk3i * x0r);
+                }
             }
 
             let wk1r = get(w, k2 + 2);
             let wk1i = get(w, k2 + 3);
-            let wk3r = (-2.0 * wk2r).mul_add(wk1i, wk1r);
-            let wk3i = (2.0 * wk2r).mul_add(wk1r, -wk1i);
+            let (wk3r, wk3i) = if USE_FMA {
+                (
+                    (-2.0 * wk2r).mul_add(wk1i, wk1r),
+                    (2.0 * wk2r).mul_add(wk1r, -wk1i),
+                )
+            } else {
+                (wk1r - 2.0 * wk2r * wk1i, 2.0 * wk2r * wk1r - wk1i)
+            };
 
             for j in (k + m..l + (k + m)).step_by(2) {
                 let j1 = j + l;
@@ -685,16 +767,31 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 set(a, j + 1, x0i + x2i);
                 let x0r = x0r - x2r;
                 let x0i = x0i - x2i;
-                set(a, j2, (-wk2i).mul_add(x0r, -wk2r * x0i));
-                set(a, j2 + 1, (-wk2i).mul_add(x0i, wk2r * x0r));
+                if USE_FMA {
+                    set(a, j2, (-wk2i).mul_add(x0r, -wk2r * x0i));
+                    set(a, j2 + 1, (-wk2i).mul_add(x0i, wk2r * x0r));
+                } else {
+                    set(a, j2, -wk2i * x0r - wk2r * x0i);
+                    set(a, j2 + 1, -wk2i * x0i + wk2r * x0r);
+                }
                 let x0r = x1r - x3i;
                 let x0i = x1i + x3r;
-                set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
-                set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
+                if USE_FMA {
+                    set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
+                    set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
+                } else {
+                    set(a, j1, wk1r * x0r - wk1i * x0i);
+                    set(a, j1 + 1, wk1r * x0i + wk1i * x0r);
+                }
                 let x0r = x1r + x3i;
                 let x0i = x1i - x3r;
-                set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
-                set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
+                if USE_FMA {
+                    set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
+                    set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
+                } else {
+                    set(a, j3, wk3r * x0r - wk3i * x0i);
+                    set(a, j3 + 1, wk3r * x0i + wk3i * x0r);
+                }
             }
 
             k += m2;
@@ -717,8 +814,11 @@ fn rftfsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
             let wki = get(c, kk);
             let xr = get(a, j) - get(a, k);
             let xi = get(a, j + 1) + get(a, k + 1);
-            let yr = wkr.mul_add(xr, -wki * xi);
-            let yi = wkr.mul_add(xi, wki * xr);
+            let (yr, yi) = if USE_FMA {
+                (wkr.mul_add(xr, -wki * xi), wkr.mul_add(xi, wki * xr))
+            } else {
+                (wkr * xr - wki * xi, wkr * xi + wki * xr)
+            };
             set(a, j, get(a, j) - yr);
             set(a, j + 1, get(a, j + 1) - yi);
             set(a, k, get(a, k) + yr);
@@ -744,8 +844,11 @@ fn rftbsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
             let wki = get(c, kk);
             let xr = get(a, j) - get(a, k);
             let xi = get(a, j + 1) + get(a, k + 1);
-            let yr = wkr.mul_add(xr, wki * xi);
-            let yi = wkr.mul_add(xi, -wki * xr);
+            let (yr, yi) = if USE_FMA {
+                (wkr.mul_add(xr, wki * xi), wkr.mul_add(xi, -wki * xr))
+            } else {
+                (wkr * xr + wki * xi, wkr * xi - wki * xr)
+            };
             set(a, j, get(a, j) - yr);
             set(a, j + 1, yi - get(a, j + 1));
             set(a, k, get(a, k) + yr);
@@ -856,6 +959,163 @@ mod tests {
         for (i, &v) in a.iter().enumerate() {
             assert_eq!(v, 0.0, "expected zero at {i}, got {v}");
         }
+    }
+
+    /// The `USE_FMA` policy, restated so that a change to it fails the tests
+    /// below: fuse on AArch64 (`aarch64` and `arm64ec`) and on x86 with the
+    /// `fma` feature. Elsewhere `mul_add` can be an `fmaf` library call and
+    /// the C reference built without FP contraction does not fuse, so other
+    /// targets must match the plain C expressions bit for bit. On aarch64 the
+    /// output must stay the fused output it has always been.
+    const EXPECT_FUSED: bool = cfg!(any(
+        target_arch = "aarch64",
+        target_arch = "arm64ec",
+        target_feature = "fma"
+    ));
+
+    /// One twiddled radix-4 butterfly of `cft1st` (`l = 2`) and `cftmdl`, on
+    /// the points `j`, `j + l`, `j + 2l` and `j + 3l`, with the twiddles the
+    /// C code loads at `k1` for the first or the `second` group.
+    fn reference_butterfly(
+        a: &mut [f32],
+        j: usize,
+        l: usize,
+        w: &[f32],
+        k1: usize,
+        second: bool,
+        fused: bool,
+    ) {
+        let cmul = |(wr, wi): (f32, f32), (xr, xi): (f32, f32)| {
+            if fused {
+                (wr.mul_add(xr, -wi * xi), wr.mul_add(xi, wi * xr))
+            } else {
+                (wr * xr - wi * xi, wr * xi + wi * xr)
+            }
+        };
+        let (k2, wk2r, wk2i) = (2 * k1, w[k1], w[k1 + 1]);
+        let (w2, s, (wk1r, wk1i)) = if second {
+            ((-wk2i, wk2r), wk2r, (w[k2 + 2], w[k2 + 3]))
+        } else {
+            ((wk2r, wk2i), wk2i, (w[k2], w[k2 + 1]))
+        };
+        let w3 = if fused {
+            (
+                (-2.0 * s).mul_add(wk1i, wk1r),
+                (2.0 * s).mul_add(wk1r, -wk1i),
+            )
+        } else {
+            (wk1r - 2.0 * s * wk1i, 2.0 * s * wk1r - wk1i)
+        };
+        let (j1, j2, j3) = (j + l, j + 2 * l, j + 3 * l);
+        let x0 = (a[j] + a[j1], a[j + 1] + a[j1 + 1]);
+        let x1 = (a[j] - a[j1], a[j + 1] - a[j1 + 1]);
+        let x2 = (a[j2] + a[j3], a[j2 + 1] + a[j3 + 1]);
+        let x3 = (a[j2] - a[j3], a[j2 + 1] - a[j3 + 1]);
+        let out = [
+            (j, (x0.0 + x2.0, x0.1 + x2.1)),
+            (j2, cmul(w2, (x0.0 - x2.0, x0.1 - x2.1))),
+            (j1, cmul((wk1r, wk1i), (x1.0 - x3.1, x1.1 + x3.0))),
+            (j3, cmul(w3, (x1.0 + x3.1, x1.1 - x3.0))),
+        ];
+        for (i, (re, im)) in out {
+            a[i] = re;
+            a[i + 1] = im;
+        }
+    }
+
+    /// Checks the twiddled butterflies of `cft1st` and `cftmdl` against
+    /// [`EXPECT_FUSED`].
+    #[test]
+    fn butterflies_match_fma_policy() {
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+
+        // cft1st, n = 256: iteration t runs at j = 16t with k1 = 2t, as two
+        // groups at l = 2. The untwiddled block a[0..16] is not checked.
+        let fft = Fft4g::new(256);
+        let w = &fft.w;
+        let input: Vec<f32> = (0..256)
+            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
+            .collect();
+        let [fused, plain] = [true, false].map(|fused| {
+            let mut e = input.clone();
+            for t in 1..16 {
+                reference_butterfly(&mut e, 16 * t, 2, w, 2 * t, false, fused);
+                reference_butterfly(&mut e, 16 * t + 8, 2, w, 2 * t, true, fused);
+            }
+            e
+        });
+        assert_ne!(bits(&fused[16..]), bits(&plain[16..]));
+        let expected = if EXPECT_FUSED { fused } else { plain };
+        let mut a = input;
+        cft1st(256, &mut a, w);
+        assert_eq!(bits(&a[16..]), bits(&expected[16..]));
+
+        // cftmdl, n = 512, l = 8: iteration t runs at k = 64t with k1 = 2t.
+        // The untwiddled block a[0..64] is not checked.
+        let fft = Fft4g::new(512);
+        let w = &fft.w;
+        let input: Vec<f32> = (0..512)
+            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
+            .collect();
+        let [fused, plain] = [true, false].map(|fused| {
+            let mut e = input.clone();
+            for t in 1..8 {
+                for j in (64 * t..64 * t + 8).step_by(2) {
+                    reference_butterfly(&mut e, j, 8, w, 2 * t, false, fused);
+                    reference_butterfly(&mut e, j + 32, 8, w, 2 * t, true, fused);
+                }
+            }
+            e
+        });
+        assert_ne!(bits(&fused[64..]), bits(&plain[64..]));
+        let expected = if EXPECT_FUSED { fused } else { plain };
+        let mut a = input;
+        cftmdl(512, 8, &mut a, w);
+        assert_eq!(bits(&a[64..]), bits(&expected[64..]));
+    }
+
+    /// Checks `rftfsub` and `rftbsub` against [`EXPECT_FUSED`].
+    #[test]
+    fn rft_sub_matches_fma_policy() {
+        // With n = 8 each routine runs one iteration: j = 2, k = 6,
+        // wkr = 0.5 - c[1], wki = c[1]. a[2] = a[3] = 0 makes a[2] and a[3]
+        // carry yr and yi exactly.
+        let c = [0.0_f32, 0.3];
+        let input = [0.4_f32, -0.8, 0.0, 0.0, 0.6, 0.9, 0.09, 0.65];
+        let (wkr, wki) = (0.5 - c[1], c[1]);
+        let (xr, xi) = (input[2] - input[6], input[3] + input[7]);
+
+        // rftfsub: C `yr = wkr * xr - wki * xi; yi = wkr * xi + wki * xr;`
+        let fused = (wkr.mul_add(xr, -wki * xi), wkr.mul_add(xi, wki * xr));
+        let plain = (wkr * xr - wki * xi, wkr * xi + wki * xr);
+        assert_ne!(fused.0.to_bits(), plain.0.to_bits());
+        assert_ne!(fused.1.to_bits(), plain.1.to_bits());
+        let (yr, yi) = if EXPECT_FUSED { fused } else { plain };
+        let mut expected = input;
+        expected[2] -= yr;
+        expected[3] -= yi;
+        expected[6] += yr;
+        expected[7] -= yi;
+        let mut a = input;
+        rftfsub(8, &mut a, 2, &c);
+        assert_eq!(a.map(f32::to_bits), expected.map(f32::to_bits));
+
+        // rftbsub: C `yr = wkr * xr + wki * xi; yi = wkr * xi - wki * xr;`
+        let fused = (wkr.mul_add(xr, wki * xi), wkr.mul_add(xi, -wki * xr));
+        let plain = (wkr * xr + wki * xi, wkr * xi - wki * xr);
+        assert_ne!(fused.0.to_bits(), plain.0.to_bits());
+        assert_ne!(fused.1.to_bits(), plain.1.to_bits());
+        let (yr, yi) = if EXPECT_FUSED { fused } else { plain };
+        let mut expected = input;
+        expected[1] = -expected[1];
+        expected[2] -= yr;
+        expected[3] = yi - expected[3];
+        expected[6] += yr;
+        expected[7] = yi - expected[7];
+        expected[5] = -expected[5];
+        let mut a = input;
+        rftbsub(8, &mut a, 2, &c);
+        assert_eq!(a.map(f32::to_bits), expected.map(f32::to_bits));
     }
 
     #[test]
