@@ -349,7 +349,6 @@ pub(crate) struct AecState {
     num_capture_channels: usize,
     // Field trial flags — use defaults (no field trials).
     deactivate_initial_state_reset_at_echo_path_change: bool,
-    full_reset_at_echo_path_change: bool,
     subtractor_analyzer_reset_at_echo_path_change: bool,
 
     initial_state: InitialState,
@@ -377,7 +376,6 @@ impl AecState {
             num_capture_channels,
             // Without field trials, these are the defaults:
             deactivate_initial_state_reset_at_echo_path_change: false,
-            full_reset_at_echo_path_change: true,
             subtractor_analyzer_reset_at_echo_path_change: true,
 
             initial_state: InitialState::new(config),
@@ -482,9 +480,7 @@ impl AecState {
 
     /// Takes appropriate action at an echo path change.
     pub(crate) fn handle_echo_path_change(&mut self, echo_path_variability: &EchoPathVariability) {
-        if self.full_reset_at_echo_path_change
-            && echo_path_variability.delay_change != DelayAdjustment::None
-        {
+        if echo_path_variability.delay_change != DelayAdjustment::None {
             self.filter_analyzer.reset();
             self.capture_signal_saturation = false;
             self.strong_not_saturated_render_blocks = 0;
