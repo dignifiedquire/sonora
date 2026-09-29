@@ -1533,7 +1533,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let mut helper = TestHelper::new(InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             assert_eq!(helper.call_agc_sequence(128, 0.9, -80.0, 1).unwrap(), 128);
@@ -1545,7 +1545,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let mut helper = TestHelper::new(InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             assert!(helper.call_agc_sequence(10, 0.9, -80.0, 1).unwrap() >= 10);
@@ -1561,7 +1561,7 @@ mod tests {
                 update_input_volume_wait_frames: 1,
                 speech_probability_threshold: 0.5,
                 speech_ratio_threshold: 0.5,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             let volume = helper.call_agc_sequence(1, 0.9, -80.0, 1).unwrap();
@@ -1578,7 +1578,7 @@ mod tests {
                 update_input_volume_wait_frames: 1,
                 speech_probability_threshold: 0.5,
                 speech_ratio_threshold: 0.5,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             for _ in 0..100 {
@@ -1597,7 +1597,7 @@ mod tests {
                 update_input_volume_wait_frames: 1,
                 speech_probability_threshold: 0.5,
                 speech_ratio_threshold: 0.5,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             let volume = helper.call_agc_sequence(0, 0.9, -80.0, 1).unwrap();
@@ -1710,7 +1710,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper_1 = TestHelper::new(config.clone());
             let mut helper_2 = TestHelper::new(config);
@@ -1747,7 +1747,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1778,7 +1778,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1809,7 +1809,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1829,7 +1829,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1849,7 +1849,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(255, HIGH_SPEECH_PROBABILITY, SPEECH_LEVEL, 1);
@@ -1864,7 +1864,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(255, HIGH_SPEECH_PROBABILITY, SPEECH_LEVEL, 1);
@@ -1966,7 +1966,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -2002,7 +2002,7 @@ mod tests {
         let mut helper = TestHelper::new(InputVolumeControllerConfig {
             min_input_volume: 80,
             clipped_level_min: 70,
-            ..get_test_config()
+            ..InputVolumeControllerConfig::default()
         });
 
         write_audio_buffer_samples(4000.0, 0.8, &mut helper.audio_buffer);
@@ -2017,7 +2017,7 @@ mod tests {
         let mut helper = TestHelper::new(InputVolumeControllerConfig {
             min_input_volume: 70,
             clipped_level_min: 80,
-            ..get_test_config()
+            ..InputVolumeControllerConfig::default()
         });
 
         write_audio_buffer_samples(4000.0, 0.8, &mut helper.audio_buffer);
