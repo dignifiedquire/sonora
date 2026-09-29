@@ -138,9 +138,8 @@ impl EchoAudibility {
         let num_render_channels = block_buffer.buffer[0].num_channels();
         let render_block_write_current = block_buffer.index.write;
 
-        let too_low;
-        if render_block_write_current == self.render_block_write_prev {
-            too_low = true;
+        let too_low = if render_block_write_current == self.render_block_write_prev {
+            true
         } else {
             let mut found_low = false;
             let mut idx = self.render_block_write_prev;
@@ -163,8 +162,8 @@ impl EchoAudibility {
                 }
                 idx = block_buffer.index.inc_index(idx);
             }
-            too_low = found_low;
-        }
+            found_low
+        };
 
         self.render_block_write_prev = render_block_write_current;
         too_low

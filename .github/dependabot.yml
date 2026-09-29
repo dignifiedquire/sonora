@@ -4,6 +4,19 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Excluded from the workspace, each with its own Cargo.lock
+  - package-ecosystem: cargo
+    directory: /fuzz
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /crates/sonora-sys
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /crates/sonora-bench
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: /
     schedule:

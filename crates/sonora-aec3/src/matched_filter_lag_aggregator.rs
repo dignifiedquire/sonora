@@ -134,8 +134,7 @@ impl PreEchoLagAggregator {
         self.histogram_data_index = (self.histogram_data_index + 1) % self.histogram_data.len();
 
         let num_blocks_per_second = 250i32;
-        let pre_echo_candidate_block_size;
-        if self.number_updates < num_blocks_per_second * 2 {
+        let pre_echo_candidate_block_size = if self.number_updates < num_blocks_per_second * 2 {
             self.number_updates += 1;
             let mut penalization_per_delay = 1.0f32;
             let mut max_histogram_value = -1.0f32;
@@ -155,16 +154,15 @@ impl PreEchoLagAggregator {
                 penalization_per_delay *= 0.7;
                 start += window;
             }
-            pre_echo_candidate_block_size = best_idx as i32;
+            best_idx as i32
         } else {
-            pre_echo_candidate_block_size = self
-                .histogram
+            self.histogram
                 .iter()
                 .enumerate()
                 .max_by_key(|(_, v)| *v)
                 .map(|(i, _)| i as i32)
-                .unwrap_or(0);
-        }
+                .unwrap_or(0)
+        };
 
         self.pre_echo_candidate = pre_echo_candidate_block_size << self.block_size_log2;
     }
