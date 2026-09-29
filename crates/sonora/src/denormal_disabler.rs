@@ -44,14 +44,17 @@ impl DenormalDisabler {
     /// Until the guard drops, everything that runs on this thread sees
     /// subnormal inputs and results as zero. That includes code sonora does
     /// not control: `tracing` subscribers, the global allocator and the panic
-    /// hook (which runs before unwinding drops the guard). A comparison with
-    /// a subnormal operand can change its result (`x > 0.0` is false for
-    /// `x = f32::from_bits(1)`). LLVM may also move register-only float
-    /// operations across the guard boundary, and compile-time float results
-    /// can differ from run-time ones in the subnormal range. The caller must
-    /// run only code that tolerates all of this. The audio pipeline has no
-    /// subnormal-sensitive logic, and upstream runs the same algorithms with
-    /// the same bits set.
+    /// hook (which runs before unwinding drops the guard). On Linux and other
+    /// platforms where a new thread inherits the floating-point environment,
+    /// a thread that such code starts before the guard drops keeps
+    /// flush-to-zero for its whole life; `Drop` restores only this thread. A
+    /// comparison with a subnormal operand can change its result (`x > 0.0`
+    /// is false for `x = f32::from_bits(1)`). LLVM may also move
+    /// register-only float operations across the guard boundary, and
+    /// compile-time float results can differ from run-time ones in the
+    /// subnormal range. The caller must run only code that tolerates all of
+    /// this. The audio pipeline has no subnormal-sensitive logic, and
+    /// upstream runs the same algorithms with the same bits set.
     #[inline]
     pub(crate) unsafe fn new() -> Self {
         #[cfg(test)]
@@ -224,10 +227,11 @@ mod imp {
     pub(super) unsafe fn write(_word: Word) {}
 }
 
-// Every test asserts the flushing behavior against `is_supported()` instead
-// of skipping unsupported targets. On a no-op target the tests therefore
-// check that the guard really is a no-op, nothing shows as passed without
-// running, and the target predicates exist only once (in `imp`).
+// Every test whose result depends on the target asserts it against
+// `is_supported()` instead of skipping unsupported targets; the other tests
+// hold on every target. On a no-op target the tests therefore check that the
+// guard really is a no-op, nothing shows as passed without running, and the
+// target predicates exist only once (in `imp`).
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -442,8 +446,8 @@ mod tests {
 
     /// Frames (10 ms) of 1 s speech-like render and echo.
     const SPEECH_END: usize = 100;
-    /// Then exact-zero render with -60 dBFS capture noise (the reported
-    /// case), until checkpoint A.
+    /// Then exact-zero render (the reported case) with capture noise at about
+    /// -75 dBFS RMS and -66 dBFS peak, until checkpoint A.
     const CHECKPOINT_A: usize = 300;
     /// Then exact-zero render and capture, until checkpoint B. The latest
     /// onset in the control (`y2_smoothed`, about frame 650) leaves a margin
