@@ -188,10 +188,9 @@ impl FilterDelay {
         external_delay: &Option<DelayEstimate>,
         blocks_with_proper_filter_adaptation: usize,
     ) {
-        if let Some(ext) = external_delay
-            && (self.external_delay.is_none() || self.external_delay.unwrap().delay != ext.delay)
-        {
-            self.external_delay = Some(*ext);
+        // Update the delay based on the external delay.
+        if external_delay.is_some() {
+            self.external_delay = *external_delay;
         }
 
         let delay_estimator_may_not_have_converged =
