@@ -44,4 +44,15 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/shim.h");
     println!("cargo:rerun-if-changed=cpp/shim.cc");
     println!("cargo:rerun-if-changed=src/bridge.rs");
+
+    // The shim compiles C++ types such as `AudioProcessing::Config` from the
+    // WebRTC headers, so their layout and default values are fixed when the
+    // shim is built. Rebuild it when the headers or the installed library
+    // change (for example after a submodule bump and reinstall); otherwise a
+    // warm target dir compares Rust against a stale C++ config.
+    println!("cargo:rerun-if-env-changed=WEBRTC_CPP_ROOT");
+    println!("cargo:rerun-if-changed={cpp_root}/webrtc");
+    for path in lib.include_paths.iter().chain(&lib.link_paths) {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 }
