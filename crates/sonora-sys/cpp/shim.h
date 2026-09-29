@@ -97,6 +97,15 @@ int32_t process_reverse_stream_f32(
     size_t output_channels,
     rust::Slice<float> dest);
 
+// Reverse stream - deinterleaved f32 (stereo)
+int32_t process_reverse_stream_f32_2ch(
+    ApmHandle& handle,
+    rust::Slice<const float> src_l,
+    rust::Slice<const float> src_r,
+    int32_t sample_rate,
+    rust::Slice<float> dest_l,
+    rust::Slice<float> dest_r);
+
 // ── Per-component: ThreeBandFilterBank ────────────────────────────────────────
 
 std::unique_ptr<FilterBankHandle> create_filter_bank();
