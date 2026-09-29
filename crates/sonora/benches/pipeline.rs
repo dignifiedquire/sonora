@@ -147,14 +147,16 @@ fn bench_aec3_silent_render(c: &mut Criterion) {
             .capture_config(stream)
             .render_config(stream)
             .build();
-        // 1 s with active render and echo, then 1 s of the measured
-        // condition so the filter states have settled before timing.
+        // 1 s with active render and echo, then 6 s of the measured
+        // condition so the filter states have settled before timing. Without
+        // flush-to-zero, the slowest state (the low-render detector's average
+        // power) turns subnormal about 4 s into the silent condition.
         for _ in 0..100 {
             apm.process_render_f32(&[&speech], &mut [&mut render_out])
                 .unwrap();
             apm.process_capture_f32(&[&echo], &mut [&mut out]).unwrap();
         }
-        for _ in 0..100 {
+        for _ in 0..600 {
             apm.process_render_f32(&[render], &mut [&mut render_out])
                 .unwrap();
             apm.process_capture_f32(&[capture], &mut [&mut out])
