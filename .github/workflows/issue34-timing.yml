@@ -12,6 +12,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Shared by the before/after builds, which use separate target dirs.
+  CRITERION_HOME: ${{ github.workspace }}/criterion-results
 
 jobs:
   timing:
@@ -39,29 +41,45 @@ jobs:
           fi
 
       - name: Before (guards removed)
+        env:
+          CARGO_TARGET_DIR: target-before
         run: |
           f=crates/sonora/src/audio_processing_impl.rs
           guard='let _denormal_disabler = unsafe { DenormalDisabler::new() };'
           test "$(grep -cF "$guard" "$f")" = 4
-          cp "$f" "$f.orig"
-          grep -vF "$guard" "$f.orig" > "$f"
+          grep -vF "$guard" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           test "$(grep -cF 'DenormalDisabler::new()' "$f")" = 0
           cargo bench -p sonora --bench pipeline -- aec3_render \
             --save-baseline before --warm-up-time 3 --measurement-time 15
-          mv "$f.orig" "$f"
+          git checkout -- "$f"
           git diff --exit-code
 
       - name: After (guards in place)
+        env:
+          CARGO_TARGET_DIR: target-after
         run: |
           cargo bench -p sonora --bench pipeline -- aec3_render \
             --baseline before --warm-up-time 3 --measurement-time 15
+
+      - name: Check that only the "after" binary contains the guard
+        if: runner.os == 'Linux'
+        run: |
+          count() { objdump -d "$(ls "$1"/release/deps/pipeline-* | grep -v '\.d$' | head -1)" | grep -c ldmxcsr || true; }
+          before=$(count target-before); after=$(count target-after)
+          echo "ldmxcsr instructions: before=$before after=$after"
+          test "$after" -gt "$before"
+
+      - name: Guard tests on this runner
+        env:
+          CARGO_TARGET_DIR: target-after
+        run: cargo test -p sonora --release --lib denormal_disabler
 
       - name: Summary
         run: |
           py=$(command -v python3 || command -v python)
           "$py" - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
-          import json, pathlib
-          root = pathlib.Path("target/criterion/aec3_render")
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["CRITERION_HOME"]) / "aec3_render"
           def mean_us(case, run):
               est = json.loads((root / case / run / "estimates.json").read_text())
               return est["mean"]["point_estimate"] / 1000.0
