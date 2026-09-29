@@ -347,8 +347,7 @@ impl SaturationDetector {
 pub(crate) struct AecState {
     config: EchoCanceller3Config,
     num_capture_channels: usize,
-    // Field trial flags — use defaults (no field trials).
-    deactivate_initial_state_reset_at_echo_path_change: bool,
+    // Field trial flag — uses the default (no field trials).
     subtractor_analyzer_reset_at_echo_path_change: bool,
 
     initial_state: InitialState,
@@ -374,8 +373,7 @@ impl AecState {
         Self {
             config: config.clone(),
             num_capture_channels,
-            // Without field trials, these are the defaults:
-            deactivate_initial_state_reset_at_echo_path_change: false,
+            // Without field trials, this is the default:
             subtractor_analyzer_reset_at_echo_path_change: true,
 
             initial_state: InitialState::new(config),
@@ -485,9 +483,7 @@ impl AecState {
             self.capture_signal_saturation = false;
             self.strong_not_saturated_render_blocks = 0;
             self.blocks_with_active_render = 0;
-            if !self.deactivate_initial_state_reset_at_echo_path_change {
-                self.initial_state.reset();
-            }
+            self.initial_state.reset();
             if let Some(ref mut ts) = self.transparent_state {
                 ts.reset();
             }
