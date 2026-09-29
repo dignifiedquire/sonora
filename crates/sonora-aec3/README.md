@@ -13,6 +13,25 @@ frequency domain using partitioned block processing.
 
 Part of the [Sonora] audio processing library.
 
+## Not ported: neural residual echo estimator
+
+Upstream AEC3 can replace its heuristic residual echo estimate with a neural
+network (`NeuralResidualEchoEstimator`, "ML-REE"). This crate does not port it:
+
+- Upstream ships it disabled. An application must inject it through
+  `BuiltinAudioProcessingBuilder::SetNeuralResidualEchoEstimator()`, the
+  creator API is marked experimental, and WebRTC's build keeps the default
+  implementation out of ordinary targets.
+- It runs inference with TensorFlow Lite, a C++ library, and needs a trained
+  model. The WebRTC repository contains only a no-op model for testing.
+- The C++ reference that sonora is validated against (PulseAudio's
+  webrtc-audio-processing packaging) does not build it either.
+
+Without it, AEC3 behaves like upstream AEC3 with no estimator injected, which
+is upstream's default. The code that switches the suppressor configuration
+when the estimator turns on or off is ported for parity, but nothing triggers
+it.
+
 ## License
 
 BSD-3-Clause. See [LICENSE] for details.

@@ -32,6 +32,8 @@ Ported from the [WebRTC Native Code][webrtc-src] (M145) audio processing module,
 - **High-Pass Filter** -- DC offset removal
 - **C API** -- cbindgen-generated C header for FFI integration (via [`sonora-ffi`])
 
+Upstream's experimental neural residual echo estimator is not ported; see [`sonora-aec3`](crates/sonora-aec3/README.md#not-ported-neural-residual-echo-estimator).
+
 ## Quick Start
 
 Run the minimal echo cancellation demo:
