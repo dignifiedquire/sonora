@@ -417,6 +417,14 @@ const STEREO_ECHO_FRAMES: usize = 500;
 /// Echo path delay in samples (10 ms at 48 kHz).
 const ECHO_DELAY: usize = 480;
 
+/// Tolerance for `stereo_echo_pipeline_matches_cpp`, set from measurements
+/// instead of `PIPELINE_TOL`. The Rust/C++ max diff is 0.0050 (L) and 0.0056
+/// (R) on macOS arm64 and on x86_64 Linux (GCC, `-march=native`). With Rust
+/// render downmixed to mono (`multi_channel_render: false`, the default before
+/// upstream 7c388cbabb) it grows to 0.055 (L) and 0.046 (R) on both, which
+/// `PIPELINE_TOL` (0.2) would accept.
+const STEREO_ECHO_TOL: f32 = 0.02;
+
 /// Deterministic white noise in `[-amp, amp)` from a 32-bit LCG. Different
 /// seeds give uncorrelated channels.
 fn gen_noise(len: usize, seed: u32, amp: f32) -> Vec<f32> {
@@ -435,11 +443,14 @@ fn gen_noise(len: usize, seed: u32, amp: f32) -> Vec<f32> {
 /// `rust_cpp_pipeline_comparison` feeds no render signal and the same signal
 /// to both channels, so it never reaches the multi-channel AEC3 paths. Here
 /// the two render channels are independent noise, and each capture channel
-/// is a different mix of the delayed render plus its own near-end noise. This
-/// exercises, in both implementations, the upstream changes that only matter
-/// with more than one channel: multi-channel render and capture enabled by
-/// default (7c388cbabb), comfort noise shared across channels (297352a2fd),
-/// and one coarse/refined filter decision for all channels (573e746914).
+/// is a different mix of the delayed render plus its own near-end noise.
+///
+/// This guards the multi-channel defaults of upstream 7c388cbabb: capture
+/// downmixed to mono on either side fails the channel check, and Rust render
+/// downmixed to mono exceeds `STEREO_ECHO_TOL`. The stimulus also runs
+/// the shared comfort noise (297352a2fd) and the joint coarse/refined filter
+/// choice (573e746914), but reverting either one in Rust changes the max diff
+/// by less than 1e-5, so this test cannot detect those regressions.
 #[test]
 fn stereo_echo_pipeline_matches_cpp() {
     let stream = StreamConfig::new(48000, 2);
@@ -567,7 +578,7 @@ fn stereo_echo_pipeline_matches_cpp() {
         !cpp_channels_differ,
     );
     assert!(
-        worst_l.max_abs_diff <= PIPELINE_TOL && worst_r.max_abs_diff <= PIPELINE_TOL,
+        worst_l.max_abs_diff <= STEREO_ECHO_TOL && worst_r.max_abs_diff <= STEREO_ECHO_TOL,
         "stereo echo pipeline diverged:\n  L: {worst_l}\n  R: {worst_r}",
     );
 }
