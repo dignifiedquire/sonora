@@ -318,10 +318,10 @@ impl AudioBuffer {
         let buf_frames = buffer.num_frames();
         if resampling_needed {
             for i in 0..self.num_channels {
+                // Resample straight into the destination channel instead of a
+                // temporary vector, so this real-time path does not allocate.
                 let src = self.data.bands(i);
-                let mut temp = vec![0.0f32; buf_frames];
-                self.output_resamplers[i].resample(src, &mut temp);
-                buffer.channel_mut(i)[..buf_frames].copy_from_slice(&temp);
+                self.output_resamplers[i].resample(src, &mut buffer.channel_mut(i)[..buf_frames]);
             }
         } else {
             for i in 0..self.num_channels {
