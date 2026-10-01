@@ -560,10 +560,11 @@ impl EchoCanceller3 {
             &mut self.capture_sub_frame_view,
         );
 
-        self.capture_blocker.insert_sub_frame_and_extract_block(
-            &self.capture_sub_frame_view,
-            &mut self.capture_block,
-        );
+        self.capture_blocker
+            .insert_owned_sub_frame_and_extract_block(
+                &self.capture_sub_frame_view,
+                &mut self.capture_block,
+            );
 
         // Process through block processor.
         let echo_path_gain_change = level_change || aec_reference_is_downmixed_stereo;
@@ -674,10 +675,11 @@ impl EchoCanceller3 {
                     &mut self.render_sub_frame_view,
                 );
 
-                self.render_blocker.insert_sub_frame_and_extract_block(
-                    &self.render_sub_frame_view,
-                    &mut self.render_block,
-                );
+                self.render_blocker
+                    .insert_owned_sub_frame_and_extract_block(
+                        &self.render_sub_frame_view,
+                        &mut self.render_block,
+                    );
                 self.block_processor.buffer_render(&self.render_block);
             }
 

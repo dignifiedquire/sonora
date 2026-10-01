@@ -42,14 +42,28 @@ impl FrameBlocker {
     /// Inserts one 80-sample sub-frame and extracts one 64-sample block.
     ///
     /// `sub_frame` is indexed as `sub_frame[band][channel]`, where each inner
-    /// slice has `SUB_FRAME_LENGTH` (80) samples. It accepts both borrowed
-    /// views (`Vec<&[f32]>` per band) and owned buffers (`Vec<Vec<f32>>` per
-    /// band), so callers do not need to build a temporary view per call.
-    pub fn insert_sub_frame_and_extract_block<Band, Channel>(
+    /// slice has `SUB_FRAME_LENGTH` (80) samples.
+    pub fn insert_sub_frame_and_extract_block(
         &mut self,
-        sub_frame: &[Band],
+        sub_frame: &[Vec<&[f32]>],
         block: &mut Block,
-    ) where
+    ) {
+        self.insert_sub_frame(sub_frame, block);
+    }
+
+    /// Same as [`Self::insert_sub_frame_and_extract_block`], but for a
+    /// sub-frame held in owned buffers (`sub_frame[band][channel]`), so the
+    /// caller does not need to build a view of them on each call.
+    pub fn insert_owned_sub_frame_and_extract_block(
+        &mut self,
+        sub_frame: &[Vec<Vec<f32>>],
+        block: &mut Block,
+    ) {
+        self.insert_sub_frame(sub_frame, block);
+    }
+
+    fn insert_sub_frame<Band, Channel>(&mut self, sub_frame: &[Band], block: &mut Block)
+    where
         Band: AsRef<[Channel]>,
         Channel: AsRef<[f32]>,
     {
@@ -206,10 +220,8 @@ mod tests {
         let mut block_counter = 0;
         for sub_frame_index in 0..NUM_SUB_FRAMES {
             fill_sub_frame(sub_frame_index, 0, &mut input_sub_frame);
-            // Borrowed views (`&[Vec<&[f32]>]`) are the form that the
-            // published 0.2.0 signature took, so this keeps such callers
-            // compiling. `run_blocker_and_framer_test` passes owned buffers,
-            // as `EchoCanceller3` does.
+            // This passes borrowed views; `run_blocker_and_framer_test`
+            // passes owned buffers, as `EchoCanceller3` does.
             let view = make_sub_frame_view(&input_sub_frame);
 
             blocker.insert_sub_frame_and_extract_block(&view, &mut block);
@@ -250,7 +262,7 @@ mod tests {
         for sub_frame_index in 0..NUM_SUB_FRAMES {
             fill_sub_frame(sub_frame_index, 0, &mut input_sub_frame);
 
-            blocker.insert_sub_frame_and_extract_block(&input_sub_frame, &mut block);
+            blocker.insert_owned_sub_frame_and_extract_block(&input_sub_frame, &mut block);
             framer.insert_block_and_extract_sub_frame(&block, &mut output_sub_frame);
 
             if (sub_frame_index + 1) % 4 == 0 {
@@ -290,6 +302,16 @@ mod tests {
                 assert!(channel.capacity() >= BLOCK_SIZE);
             }
         }
+    }
+
+    /// `insert_sub_frame_and_extract_block` keeps the exact signature it had
+    /// in the published sonora-aec3 0.2.0. Making it generic again (for
+    /// example over `AsRef`) breaks 0.2.0 callers that use it as a function
+    /// pointer or rely on it for type inference, so this stops compiling.
+    #[test]
+    fn insert_sub_frame_keeps_published_signature() {
+        let _: fn(&mut FrameBlocker, &[Vec<&[f32]>], &mut Block) =
+            FrameBlocker::insert_sub_frame_and_extract_block;
     }
 
     #[test]
