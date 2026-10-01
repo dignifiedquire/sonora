@@ -3,10 +3,16 @@
 //! Per-component tests verify close matching at each DSP stage.
 //! Full-pipeline tests verify end-to-end equivalence.
 //!
-//! On ARM (NEON) both Rust and C++ use fused multiply-add producing bit-identical
-//! results. On x86 the Rust `mul_add` intrinsic and C++ scalar arithmetic may
-//! diverge by a small amount due to different FMA contraction behaviour between
-//! LLVM and GCC. The tolerances below accommodate this.
+//! On AArch64 both Rust and C++ use fused multiply-add, but the results are not
+//! always bit-identical. For example, on aarch64-apple-darwin the optimized C++
+//! build computes each fft4g twiddle `cos`/`sin` pair with one
+//! `__sincosf_stret` call, while Rust calls `cosf` and `sinf` separately (and
+//! merges only some pairs in release builds); some table entries differ by
+//! 1 ulp. On x86 without the `fma` target feature, Rust uses unfused
+//! arithmetic in the C++ source order. The C++ reference is built with
+//! `-march=native`, so on a CPU with FMA the C++ compiler may contract those
+//! expressions into fused multiply-adds, and the results may diverge by a
+//! small amount. The tolerances below accommodate this.
 
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression, TransparentModeType};
 use sonora::high_pass_filter::HighPassFilter;
