@@ -3,8 +3,15 @@
 //! echo canceller enabled does not allocate, through the float and int16
 //! APIs, at the 16, 32 and 48 kHz processing rates (one, two and three
 //! bands), with rate conversion, downmixing, stereo, an unused capture output
-//! and a change of the echo delay. They count allocations of the current
-//! thread only, so tests running in parallel do not interfere.
+//! and a change of the echo delay. They count allocations (`alloc` and
+//! `realloc`) of the current thread only, so tests running in parallel do not
+//! interfere.
+//!
+//! Frees are not counted. With multichannel render, the echo canceller
+//! rebuilds its block processor when it detects stereo render, and the new
+//! comfort noise generator frees its initial noise estimate (one buffer of 260
+//! bytes per capture channel) 1000 blocks (4 s) later, while allocations are
+//! counted. Upstream frees the same buffer at the same point.
 //!
 //! Each test also checks that the echo canceller found and removed the echo,
 //! so that a test cannot pass because the processing it covers was skipped.
@@ -309,9 +316,12 @@ fn check(scenario: Scenario) {
         "steady-state processing allocated: {scenario:?}"
     );
 
-    // Without echo in the microphone signal the ERLE stays below 1 dB, and
-    // without echo removal the attenuation is about 0 dB. Here both are above
-    // 15 dB, so 10 dB shows that the echo canceller ran and converged.
+    // Without echo in the microphone signal the ERLE stays below 1 dB.
+    // Without echo removal the attenuation still reaches about 6.4 dB: the
+    // average of two microphones carries less echo than the first one, which
+    // is the one measured (3.5 dB), and processing 48 kHz at 32 kHz drops the
+    // noise above 16 kHz (2.9 dB). Here both are above 15 dB, so 10 dB shows
+    // that the echo canceller ran and converged.
     assert!(
         outcome.erle_db > 10.0,
         "ERLE is {:.1} dB: {scenario:?}",
