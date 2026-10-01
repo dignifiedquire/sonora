@@ -14,7 +14,9 @@
 //! counted. Upstream frees the same buffer at the same point.
 //!
 //! Each test also checks that the echo canceller found and removed the echo,
-//! so that a test cannot pass because the processing it covers was skipped.
+//! and the noise suppression test checks that noise suppression changed the
+//! output, so that a test cannot pass because the processing it covers was
+//! skipped.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -302,7 +304,7 @@ fn run(scenario: Scenario) -> Outcome {
     }
 }
 
-fn check(scenario: Scenario) {
+fn check(scenario: Scenario) -> Outcome {
     let outcome = run(scenario);
     // Streams above 32 kHz are processed at the maximum processing rate,
     // which decides whether the scenario covers two bands or three.
@@ -346,6 +348,7 @@ fn check(scenario: Scenario) {
         "delay estimate {} ms, expected {expected_delay_ms} ms: {scenario:?}",
         outcome.delay_ms
     );
+    outcome
 }
 
 #[test]
@@ -425,13 +428,27 @@ fn i16_44k_stereo() {
 /// suppressors, one per capture channel, each over two bands.
 #[test]
 fn f32_48k_stereo_noise_suppression() {
-    check(Scenario {
+    let scenario = Scenario {
         capture_in_channels: 2,
         capture_out_channels: 2,
         render_channels: 2,
         noise_suppression: true,
         ..Scenario::mono(48_000, Format::F32)
+    };
+    let with_ns = check(scenario);
+    // `check` covers the echo canceller only. If noise suppression were
+    // skipped, the output would equal that of the same run without it, so
+    // require a clear difference in the echo attenuation (about 2.1 dB here).
+    let without_ns = run(Scenario {
+        noise_suppression: false,
+        ..scenario
     });
+    assert!(
+        (with_ns.attenuation_db - without_ns.attenuation_db).abs() > 1.0,
+        "noise suppression did not change the output: {:.2} dB with it, {:.2} dB without",
+        with_ns.attenuation_db,
+        without_ns.attenuation_db
+    );
 }
 
 #[test]
