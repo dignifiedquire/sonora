@@ -49,11 +49,13 @@ impl DenormalDisabler {
     /// a thread that such code starts before the guard drops keeps
     /// flush-to-zero for its whole life; `Drop` restores only this thread. A
     /// comparison with a subnormal operand can change its result (`x > 0.0`
-    /// is false for `x = f32::from_bits(1)`). LLVM may also move
-    /// register-only float operations across the guard boundary, and
-    /// compile-time float results can differ from run-time ones in the
-    /// subnormal range. The caller must run only code that tolerates all of
-    /// this. The audio pipeline has no subnormal-sensitive logic, and
+    /// is false for `x = f32::from_bits(1)`). LLVM may also move float
+    /// operations across the guard boundary: the `asm!` blocks order only
+    /// memory the compiler cannot prove private, so arithmetic on values in
+    /// registers, on the stack, or behind a `&` or `&mut` can run on either
+    /// side. Compile-time float results can also differ from run-time ones
+    /// in the subnormal range. The caller must run only code that tolerates
+    /// all of this. The audio pipeline has no subnormal-sensitive logic, and
     /// upstream runs the same algorithms with the same bits set.
     #[inline]
     pub(crate) unsafe fn new() -> Self {

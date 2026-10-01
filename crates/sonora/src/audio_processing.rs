@@ -427,8 +427,12 @@ impl AudioProcessingBuilder {
 /// thread inherits the floating-point environment, a thread started during
 /// the call (for example by a subscriber or the allocator) keeps
 /// flush-to-zero for its whole life; only the calling thread is restored.
-/// All other targets do not flush, for example 32-bit ARM, `arm64ec`, wasm,
-/// x86 without SSE (i586) and aarch64 without NEON (soft-float). There,
+/// Changing the floating-point environment is formally undefined behavior in
+/// Rust, and upstream's `DenormalDisabler`, nih-plug and the `no_denormals`
+/// crate also change it; sonora limits the change to the calling thread for
+/// the length of each call, and the audio pipeline has no subnormal-sensitive
+/// logic. All other targets do not flush, for example 32-bit ARM, `arm64ec`,
+/// wasm, x86 without SSE (i586) and aarch64 without NEON (soft-float). There,
 /// near-silent input can make processing slower on hardware with a
 /// subnormal penalty.
 ///
