@@ -3,7 +3,8 @@
 //!
 //! Ported from `modules/audio_processing/aec3/echo_remover.h/cc`.
 
-use std::{fmt, ptr};
+use std::fmt;
+use std::ptr;
 
 use crate::aec_state::{AecState, AecStateUpdate};
 use crate::aec3_fft::{Aec3Fft, Window};
