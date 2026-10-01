@@ -120,6 +120,13 @@ mod imp {
         word | MASK
     }
 
+    /// Test-only: FTZ set and DAZ clear, a word the guard must still change
+    /// and whose FTZ bit a sloppy restore would drop.
+    #[cfg(test)]
+    pub(super) const fn non_default_word(word: Word) -> Word {
+        (word | 0x8000) & !0x0040
+    }
+
     #[inline(always)]
     pub(super) fn read() -> Word {
         let mut csr: Word = 0;
@@ -169,6 +176,15 @@ mod imp {
         word | MASK
     }
 
+    /// Test-only: FPCR.DN (bit 25) set, a bit the guard does not own and a
+    /// restore to a fixed default word would drop. (Clearing FZ from the
+    /// saved word cannot lose anything here: `new` saves only words with FZ
+    /// clear.)
+    #[cfg(test)]
+    pub(super) const fn non_default_word(word: Word) -> Word {
+        word | (1 << 25)
+    }
+
     #[inline(always)]
     pub(super) fn read() -> Word {
         let fpcr: Word;
@@ -215,6 +231,12 @@ mod imp {
         word
     }
 
+    /// Test-only: there is no register, so the word stays as it is.
+    #[cfg(test)]
+    pub(super) const fn non_default_word(word: Word) -> Word {
+        word
+    }
+
     #[inline(always)]
     pub(super) fn read() -> Word {
         0
@@ -240,7 +262,7 @@ mod tests {
     use std::hint::black_box;
     use std::panic;
 
-    use super::DenormalDisabler;
+    use super::{DenormalDisabler, imp};
     use crate::config::EchoCanceller;
     use crate::{AudioProcessing, Config, StreamConfig};
 
@@ -312,6 +334,35 @@ mod tests {
         {
             let _g = guard();
         }
+        assert_ieee_default();
+    }
+
+    /// The guard promises to restore the exact word it read: not the default
+    /// word, and not that word with the flush bits cleared. From the default
+    /// word all three are equal, so start from a word the guard must change
+    /// and that a sloppy restore would lose: FTZ without DAZ on x86 (a caller
+    /// that chose FTZ only), FPCR.DN on aarch64.
+    #[test]
+    fn guard_restores_non_default_word_exactly() {
+        assert_ieee_default();
+        let default = imp::read();
+        let start = imp::non_default_word(default);
+        // SAFETY: test code; tolerates flushed subnormals and default NaNs.
+        // The default word is written back before any assertion can panic.
+        unsafe { imp::write(start) };
+        let inside = {
+            let _g = guard();
+            imp::read()
+        };
+        let after = imp::read();
+        // SAFETY: as above; this is the word the thread started with.
+        unsafe { imp::write(default) };
+        assert_eq!(
+            inside != start,
+            DenormalDisabler::is_supported(),
+            "guard did not change {start:#x}"
+        );
+        assert_eq!(after, start, "restored {after:#x}, expected {start:#x}");
         assert_ieee_default();
     }
 
@@ -392,6 +443,7 @@ mod tests {
         let mut apm = ec_48k_mono();
         for_each_process_call(&mut apm, |call| {
             assert!(runtime_division_is_subnormal(), "{call} leaked FTZ");
+            assert!(!subnormal_input_reads_as_zero(), "{call} leaked DAZ");
         });
         let _caller_ftz = guard();
         for_each_process_call(&mut apm, |call| {
@@ -407,6 +459,12 @@ mod tests {
     /// pretty `Debug` dump of the whole processor (every state struct derives
     /// `Debug`). Keys are the field path, e.g.
     /// `inner.render.render_audio.splitting_filter.state.analysis_state1`.
+    ///
+    /// The scan cannot tell `f32` from `f64` fields, so it also counts `f64`
+    /// values below that bound (normal `f64`s, untouched by FTZ), and some
+    /// state is `f64`, such as `echo_return_loss` in the stored statistics.
+    /// That can only add counts: it can fail the guarded run, with the field
+    /// named in the message, but cannot hide an `f32` subnormal.
     fn subnormals_by_field(apm: &AudioProcessing) -> BTreeMap<String, usize> {
         let dump = format!("{apm:#?}");
         let mut stack: Vec<Option<&str>> = Vec::new();
