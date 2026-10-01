@@ -4,8 +4,8 @@
 
 The port now tracks M145 plus 15 later upstream WebRTC changes, up to M156. `cpp/NEWS` lists them. Three of them (multi-channel defaults, shared comfort noise, joint coarse/refined filter choice) were already in 0.2.0.
 
-- Input volume controller: the default config is now upstream's production config (upstream d9b92fe1bc). With `input_volume_controller` enabled, `recommended_stream_analog_level()` targets a speech level in [-50, -12] dBFS instead of [-30, -18] dBFS, updates the volume from the speech level at most once every 100 frames, and also lowers it when clipping is predicted. The processed samples do not change.
-- AEC3: ports the render buffer headroom fix for underruns (d460e60e19) and dynamic suppressor config updates (e10cd19640), and removes the code for three field-trial kill switches that the port never enabled (no behaviour change).
+- Input volume controller: the default config is now upstream's production config (upstream d9b92fe1bc). With `input_volume_controller` enabled, `recommended_stream_analog_level()` targets a speech level in [-50, -12] dBFS instead of [-30, -18] dBFS, updates the volume from the speech level at most once every 100 frames, and also lowers it when clipping is predicted. Processed samples are unchanged unless `capture_level_adjustment.analog_mic_gain_emulation` is enabled; then the emulated analog gain follows the new recommendation, so the output level changes.
+- AEC3: ports the render buffer headroom fix for underruns (d460e60e19). Two further changes are internal and change no behaviour: the code that applies suppressor config updates (e10cd19640) is ported, but nothing in the port triggers it, and the code for three field-trial kill switches that the port never enabled is removed.
 
 ## 0.1.0 (unreleased)
 
