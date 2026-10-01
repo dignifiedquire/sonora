@@ -43,6 +43,10 @@ pub(crate) struct AudioBuffer {
     output_resamplers: Vec<PushSincResampler>,
     downmix_by_averaging: bool,
     channel_for_downmixing: usize,
+    /// Working buffer for downmixing and sample format conversion in the
+    /// `copy_*` methods. It is sized at construction for the longer of the
+    /// input and output frames so that processing a frame does not allocate.
+    scratch: Vec<f32>,
 }
 
 impl AudioBuffer {
@@ -120,6 +124,7 @@ impl AudioBuffer {
             output_resamplers,
             downmix_by_averaging: true,
             channel_for_downmixing: 0,
+            scratch: vec![0.0; input_num_frames.max(output_num_frames)],
         }
     }
 
@@ -227,9 +232,8 @@ impl AudioBuffer {
         let resampling_needed = self.input_num_frames != self.buffer_num_frames;
 
         if downmix_needed {
-            let mut downmix = vec![0.0f32; self.input_num_frames];
-
-            if self.downmix_by_averaging {
+            let downmixed_data: &[f32] = if self.downmix_by_averaging {
+                let downmix = &mut self.scratch[..self.input_num_frames];
                 let scale = 1.0 / self.input_num_channels as f32;
                 for (i, d) in downmix.iter_mut().enumerate() {
                     let mut value = stacked_data[0][i];
@@ -238,14 +242,7 @@ impl AudioBuffer {
                     }
                     *d = value * scale;
                 }
-            } else {
-                downmix.copy_from_slice(
-                    &stacked_data[self.channel_for_downmixing][..self.input_num_frames],
-                );
-            }
-
-            let downmixed_data = if self.downmix_by_averaging {
-                &downmix
+                downmix
             } else {
                 &stacked_data[self.channel_for_downmixing][..self.input_num_frames]
             };
@@ -320,8 +317,12 @@ impl AudioBuffer {
             for i in 0..self.num_channels {
                 // Resample straight into the destination channel instead of a
                 // temporary vector, so this real-time path does not allocate.
+                // This fills the whole destination only because the resampler
+                // produces exactly `buf_frames` samples per call.
                 let src = self.data.bands(i);
-                self.output_resamplers[i].resample(src, &mut buffer.channel_mut(i)[..buf_frames]);
+                let written = self.output_resamplers[i]
+                    .resample(src, &mut buffer.channel_mut(i)[..buf_frames]);
+                debug_assert_eq!(written, buf_frames);
             }
         } else {
             for i in 0..self.num_channels {
@@ -362,13 +363,13 @@ impl AudioBuffer {
             if self.input_num_channels == 1 {
                 // Mono to mono.
                 if resampling_required {
-                    let mut float_buffer = vec![0.0f32; self.input_num_frames];
+                    let float_buffer = &mut self.scratch[..self.input_num_frames];
                     audio_util::s16_to_float_s16_slice(
                         &interleaved_data[..self.input_num_frames],
-                        &mut float_buffer,
+                        float_buffer,
                     );
                     let ch0 = self.data.bands_mut(0);
-                    self.input_resamplers[0].resample(&float_buffer, ch0);
+                    self.input_resamplers[0].resample(float_buffer, ch0);
                 } else {
                     let ch0 = self.data.bands_mut(0);
                     audio_util::s16_to_float_s16_slice(
@@ -378,7 +379,7 @@ impl AudioBuffer {
                 }
             } else {
                 // Multi-channel to mono (downmix).
-                let mut downmixed = vec![0.0f32; self.input_num_frames];
+                let downmixed = &mut self.scratch[..self.input_num_frames];
 
                 if self.downmix_by_averaging {
                     for (j, sample) in downmixed.iter_mut().enumerate().take(self.input_num_frames)
@@ -399,15 +400,15 @@ impl AudioBuffer {
 
                 if resampling_required {
                     let ch0 = self.data.bands_mut(0);
-                    self.input_resamplers[0].resample(&downmixed, ch0);
+                    self.input_resamplers[0].resample(downmixed, ch0);
                 } else {
-                    self.data.bands_mut(0)[..self.input_num_frames].copy_from_slice(&downmixed);
+                    self.data.bands_mut(0)[..self.input_num_frames].copy_from_slice(downmixed);
                 }
             }
         } else {
             // Multi-channel, deinterleave.
             if resampling_required {
-                let mut float_buffer = vec![0.0f32; self.input_num_frames];
+                let float_buffer = &mut self.scratch[..self.input_num_frames];
                 for i in 0..self.num_channels {
                     // Deinterleave channel i.
                     for (j, sample) in float_buffer
@@ -418,7 +419,7 @@ impl AudioBuffer {
                         *sample = interleaved_data[j * self.input_num_channels + i] as f32;
                     }
                     let ch = self.data.bands_mut(i);
-                    self.input_resamplers[i].resample(&float_buffer, ch);
+                    self.input_resamplers[i].resample(float_buffer, ch);
                 }
             } else {
                 for i in 0..self.num_channels {
@@ -444,11 +445,11 @@ impl AudioBuffer {
         let resampling_required = self.buffer_num_frames != self.output_num_frames;
 
         if self.num_channels == 1 {
-            let mut float_buffer = vec![0.0f32; self.output_num_frames];
+            let float_buffer = &mut self.scratch[..self.output_num_frames];
 
             if resampling_required {
                 let ch0 = self.data.bands(0);
-                self.output_resamplers[0].resample(ch0, &mut float_buffer);
+                self.output_resamplers[0].resample(ch0, float_buffer);
             } else {
                 float_buffer.copy_from_slice(&self.data.bands(0)[..self.output_num_frames]);
             }
@@ -470,9 +471,9 @@ impl AudioBuffer {
         } else {
             if resampling_required {
                 for i in 0..self.num_channels {
-                    let mut float_buffer = vec![0.0f32; self.output_num_frames];
+                    let float_buffer = &mut self.scratch[..self.output_num_frames];
                     let ch = self.data.bands(i);
-                    self.output_resamplers[i].resample(ch, &mut float_buffer);
+                    self.output_resamplers[i].resample(ch, float_buffer);
                     for (k, sample) in float_buffer.iter().enumerate().take(self.output_num_frames)
                     {
                         interleaved_data[k * config_num_channels + i] =
