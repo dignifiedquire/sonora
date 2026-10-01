@@ -388,10 +388,12 @@ pub fn detect_backend() -> SimdBackend {
 /// Whether the scalar kernels of the Sonora crates use [`f32::mul_add`].
 ///
 /// True on AArch64 (`aarch64` and `arm64ec`), and on x86 built with the `fma`
-/// target feature: there `mul_add` is one instruction. Without native FMA it
-/// is an `fmaf` library call per operation, so every other target, including
-/// targets with FMA such as riscv64gc, uses the plain C++ expressions, in
-/// their operation order.
+/// target feature: there `mul_add` is one instruction. Every other target
+/// uses the plain C++ expressions, in their operation order. Targets without
+/// native FMA take this path because `mul_add` would be an `fmaf` library
+/// call per operation. Other targets with native FMA, such as riscv64gc,
+/// powerpc64 and armv7 with VFPv4, take it by policy, so that they evaluate
+/// the expressions as C++ built without floating-point contraction does.
 ///
 /// This is a property of the compilation target, fixed at build time. Unlike
 /// [`detect_backend`], it does not depend on the CPU the code runs on.
