@@ -22,36 +22,39 @@ impl FrameBlocker {
     pub fn new(num_bands: usize, num_channels: usize) -> Self {
         debug_assert!(num_bands > 0);
         debug_assert!(num_channels > 0);
+        // Each buffer gets its own allocation: `vec![v; n]` clones `v`, and a
+        // cloned `Vec` does not keep the capacity, so the buffers would grow
+        // (allocate) in the audio callback.
+        let buffer = (0..num_bands)
+            .map(|_| {
+                (0..num_channels)
+                    .map(|_| Vec::with_capacity(BLOCK_SIZE))
+                    .collect()
+            })
+            .collect();
         Self {
             num_bands,
             num_channels,
-            buffer: vec![vec![Vec::with_capacity(BLOCK_SIZE); num_channels]; num_bands],
+            buffer,
         }
     }
 
     /// Inserts one 80-sample sub-frame and extracts one 64-sample block.
     ///
     /// `sub_frame` is indexed as `sub_frame[band][channel]`, where each inner
-    /// slice has `SUB_FRAME_LENGTH` (80) samples. It accepts both borrowed
-    /// views (`Vec<&[f32]>` per band) and owned buffers (`Vec<Vec<f32>>` per
-    /// band), so callers do not need to build a temporary view per call.
-    pub fn insert_sub_frame_and_extract_block<Band, Channel>(
+    /// `Vec` has `SUB_FRAME_LENGTH` (80) samples.
+    pub fn insert_sub_frame_and_extract_block(
         &mut self,
-        sub_frame: &[Band],
+        sub_frame: &[Vec<Vec<f32>>],
         block: &mut Block,
-    ) where
-        Band: AsRef<[Channel]>,
-        Channel: AsRef<[f32]>,
-    {
+    ) {
         debug_assert_eq!(self.num_bands, block.num_bands());
         debug_assert_eq!(self.num_bands, sub_frame.len());
         for (band, (buf_band, sf_band)) in self.buffer.iter_mut().zip(sub_frame.iter()).enumerate()
         {
             debug_assert_eq!(self.num_channels, block.num_channels());
-            let sf_band = sf_band.as_ref();
             debug_assert_eq!(self.num_channels, sf_band.len());
             for (channel, (buf_ch, sf_ch)) in buf_band.iter_mut().zip(sf_band.iter()).enumerate() {
-                let sf_ch = sf_ch.as_ref();
                 debug_assert!(buf_ch.len() <= BLOCK_SIZE - 16);
                 debug_assert_eq!(SUB_FRAME_LENGTH, sf_ch.len());
 
@@ -133,13 +136,6 @@ mod tests {
         }
     }
 
-    fn make_sub_frame_view(sub_frame: &[Vec<Vec<f32>>]) -> Vec<Vec<&[f32]>> {
-        sub_frame
-            .iter()
-            .map(|band| band.iter().map(|ch| ch.as_slice()).collect())
-            .collect()
-    }
-
     fn verify_block(block_counter: usize, offset: i32, block: &Block) -> bool {
         for band in 0..block.num_bands() {
             for channel in 0..block.num_channels() {
@@ -196,9 +192,8 @@ mod tests {
         let mut block_counter = 0;
         for sub_frame_index in 0..NUM_SUB_FRAMES {
             fill_sub_frame(sub_frame_index, 0, &mut input_sub_frame);
-            let view = make_sub_frame_view(&input_sub_frame);
 
-            blocker.insert_sub_frame_and_extract_block(&view, &mut block);
+            blocker.insert_sub_frame_and_extract_block(&input_sub_frame, &mut block);
             assert!(
                 verify_block(block_counter, 0, &block),
                 "block {block_counter} mismatch"
@@ -235,9 +230,8 @@ mod tests {
 
         for sub_frame_index in 0..NUM_SUB_FRAMES {
             fill_sub_frame(sub_frame_index, 0, &mut input_sub_frame);
-            let view = make_sub_frame_view(&input_sub_frame);
 
-            blocker.insert_sub_frame_and_extract_block(&view, &mut block);
+            blocker.insert_sub_frame_and_extract_block(&input_sub_frame, &mut block);
             framer.insert_block_and_extract_sub_frame(&block, &mut output_sub_frame);
 
             if (sub_frame_index + 1) % 4 == 0 {
@@ -263,6 +257,18 @@ mod tests {
         for rate in [16000, 32000, 48000] {
             for num_channels in [1, 2, 4, 8] {
                 run_blocker_test(rate, num_channels);
+            }
+        }
+    }
+
+    /// The blocker runs in real-time audio callbacks, so every buffer must
+    /// have room for a full block from the start and never grow.
+    #[test]
+    fn buffers_have_block_capacity() {
+        let blocker = FrameBlocker::new(3, 2);
+        for band in &blocker.buffer {
+            for channel in band {
+                assert!(channel.capacity() >= BLOCK_SIZE);
             }
         }
     }
