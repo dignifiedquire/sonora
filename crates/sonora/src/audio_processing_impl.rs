@@ -683,10 +683,11 @@ impl AudioProcessingImpl {
                     .capture_multi_band_processing_active(ec_active)
                 {
                     // Copy the multi-band processed audio to the fullband buffer.
-                    // Temporarily take capture_audio to avoid double &mut borrow.
-                    let mut capture = self.capture.capture_audio.take().unwrap();
-                    capture.copy_to_buffer(fullband);
-                    self.capture.capture_audio = Some(capture);
+                    self.capture
+                        .capture_audio
+                        .as_mut()
+                        .unwrap()
+                        .copy_to_buffer(fullband);
                 }
             }
 

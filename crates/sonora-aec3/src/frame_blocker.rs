@@ -22,10 +22,20 @@ impl FrameBlocker {
     pub fn new(num_bands: usize, num_channels: usize) -> Self {
         debug_assert!(num_bands > 0);
         debug_assert!(num_channels > 0);
+        // Each buffer gets its own allocation: `vec![v; n]` clones `v`, and a
+        // cloned `Vec` does not keep the capacity, so the buffers would grow
+        // (allocate) in the audio callback.
+        let buffer = (0..num_bands)
+            .map(|_| {
+                (0..num_channels)
+                    .map(|_| Vec::with_capacity(BLOCK_SIZE))
+                    .collect()
+            })
+            .collect();
         Self {
             num_bands,
             num_channels,
-            buffer: vec![vec![Vec::with_capacity(BLOCK_SIZE); num_channels]; num_bands],
+            buffer,
         }
     }
 
@@ -38,13 +48,34 @@ impl FrameBlocker {
         sub_frame: &[Vec<&[f32]>],
         block: &mut Block,
     ) {
+        self.insert_sub_frame(sub_frame, block);
+    }
+
+    /// Same as [`Self::insert_sub_frame_and_extract_block`], but for a
+    /// sub-frame held in owned buffers (`sub_frame[band][channel]`), so the
+    /// caller does not need to build a view of them on each call.
+    pub fn insert_owned_sub_frame_and_extract_block(
+        &mut self,
+        sub_frame: &[Vec<Vec<f32>>],
+        block: &mut Block,
+    ) {
+        self.insert_sub_frame(sub_frame, block);
+    }
+
+    fn insert_sub_frame<Band, Channel>(&mut self, sub_frame: &[Band], block: &mut Block)
+    where
+        Band: AsRef<[Channel]>,
+        Channel: AsRef<[f32]>,
+    {
         debug_assert_eq!(self.num_bands, block.num_bands());
         debug_assert_eq!(self.num_bands, sub_frame.len());
         for (band, (buf_band, sf_band)) in self.buffer.iter_mut().zip(sub_frame.iter()).enumerate()
         {
             debug_assert_eq!(self.num_channels, block.num_channels());
+            let sf_band = sf_band.as_ref();
             debug_assert_eq!(self.num_channels, sf_band.len());
             for (channel, (buf_ch, sf_ch)) in buf_band.iter_mut().zip(sf_band.iter()).enumerate() {
+                let sf_ch = sf_ch.as_ref();
                 debug_assert!(buf_ch.len() <= BLOCK_SIZE - 16);
                 debug_assert_eq!(SUB_FRAME_LENGTH, sf_ch.len());
 
@@ -189,6 +220,8 @@ mod tests {
         let mut block_counter = 0;
         for sub_frame_index in 0..NUM_SUB_FRAMES {
             fill_sub_frame(sub_frame_index, 0, &mut input_sub_frame);
+            // This passes borrowed views; `run_blocker_and_framer_test`
+            // passes owned buffers, as `EchoCanceller3` does.
             let view = make_sub_frame_view(&input_sub_frame);
 
             blocker.insert_sub_frame_and_extract_block(&view, &mut block);
@@ -228,9 +261,8 @@ mod tests {
 
         for sub_frame_index in 0..NUM_SUB_FRAMES {
             fill_sub_frame(sub_frame_index, 0, &mut input_sub_frame);
-            let view = make_sub_frame_view(&input_sub_frame);
 
-            blocker.insert_sub_frame_and_extract_block(&view, &mut block);
+            blocker.insert_owned_sub_frame_and_extract_block(&input_sub_frame, &mut block);
             framer.insert_block_and_extract_sub_frame(&block, &mut output_sub_frame);
 
             if (sub_frame_index + 1) % 4 == 0 {
@@ -258,6 +290,28 @@ mod tests {
                 run_blocker_test(rate, num_channels);
             }
         }
+    }
+
+    /// The blocker runs in real-time audio callbacks, so every buffer must
+    /// have room for a full block from the start and never grow.
+    #[test]
+    fn buffers_have_block_capacity() {
+        let blocker = FrameBlocker::new(3, 2);
+        for band in &blocker.buffer {
+            for channel in band {
+                assert!(channel.capacity() >= BLOCK_SIZE);
+            }
+        }
+    }
+
+    /// `insert_sub_frame_and_extract_block` keeps the exact signature it had
+    /// in the published sonora-aec3 0.2.0. Making it generic again (for
+    /// example over `AsRef`) breaks 0.2.0 callers that use it as a function
+    /// pointer or rely on it for type inference, so this stops compiling.
+    #[test]
+    fn insert_sub_frame_keeps_published_signature() {
+        let _: fn(&mut FrameBlocker, &[Vec<&[f32]>], &mut Block) =
+            FrameBlocker::insert_sub_frame_and_extract_block;
     }
 
     #[test]

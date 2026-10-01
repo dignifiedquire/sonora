@@ -67,6 +67,14 @@ enum WapError
   NullPointer = -1,
   /**
    * Internal error (panic caught at FFI boundary).
+   *
+   * The call stopped partway through, so the processing state of the
+   * instance may be inconsistent. The instance can still be passed to
+   * `wap_initialize()` and `wap_destroy()`. To recover, call
+   * `wap_initialize()`: it rebuilds the audio buffers and resets or
+   * rebuilds every enabled submodule from the current configuration. If
+   * that also returns this error, destroy the instance with `wap_destroy()`
+   * and create a new one.
    */
   Internal = -2,
   /**
