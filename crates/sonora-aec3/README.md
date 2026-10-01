@@ -20,17 +20,19 @@ network (`NeuralResidualEchoEstimator`, "ML-REE"). This crate does not port it:
 
 - Upstream ships it disabled. An application must inject it through
   `BuiltinAudioProcessingBuilder::SetNeuralResidualEchoEstimator()`, the
-  creator API is marked experimental, and WebRTC's build keeps the default
-  implementation out of ordinary targets.
+  creator API was marked experimental at M145, and WebRTC's build keeps the
+  default implementation out of ordinary targets.
 - It runs inference with TensorFlow Lite, a C++ library, and needs a trained
   model. The WebRTC repository contains only a no-op model for testing.
 - The C++ reference that sonora is validated against (PulseAudio's
   webrtc-audio-processing packaging) does not build it either.
 
 Without it, AEC3 behaves like upstream AEC3 with no estimator injected, which
-is upstream's default. The code that switches the suppressor configuration
-when the estimator turns on or off is ported for parity, but nothing triggers
-it.
+is upstream's default. Upstream switches the suppressor configuration when the
+estimator turns on or off. Only the receiving side of that switch is ported:
+the suppression gain can apply a new configuration, but the echo remover
+always passes the fixed `suppressor` configuration and reports no change, so
+the switch never happens.
 
 ## License
 
