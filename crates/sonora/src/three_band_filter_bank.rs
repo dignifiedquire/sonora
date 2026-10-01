@@ -5,21 +5,7 @@
 //!
 //! Ported from `modules/audio_processing/three_band_filter_bank.h/cc`.
 
-/// Whether the unrolled 4-tap sums in [`filter_core`] use [`f32::mul_add`].
-///
-/// Only AArch64 (`aarch64` and `arm64ec`), and x86 built with the `fma`
-/// target feature, take this path: there `mul_add` is one instruction.
-/// Without native FMA it is an `fmaf` library call per operation. Every other
-/// target, including targets with FMA such as riscv64gc, sums the taps with
-/// plain arithmetic, in the C++ operation order. C++ starts that sum from
-/// `0.0`; leaving it out changes only the sign of an all-zero sum, which
-/// `analysis` and `synthesis` lose when they add the result into zeroed
-/// buffers.
-const USE_FMA: bool = cfg!(any(
-    target_arch = "aarch64",
-    target_arch = "arm64ec",
-    target_feature = "fma"
-));
+use sonora_simd::NATIVE_FMA;
 
 const SQRT_3: f32 = 1.732_050_8;
 
@@ -73,8 +59,20 @@ const DCT_MODULATION: [[f32; NUM_BANDS]; NUM_NON_ZERO_FILTERS] = [
 /// Polyphase filter core: filters `input` through `filter` with shift `in_shift`,
 /// using and updating `state`.
 ///
+/// If `FMA`, the unrolled 4-tap sums of Parts 1 and 3 use [`f32::mul_add`];
+/// otherwise they use plain arithmetic, in the C++ operation order. C++ starts
+/// that sum from `0.0`; leaving it out changes only the sign of an all-zero
+/// sum, which `analysis` and `synthesis` lose when they add the result into
+/// zeroed buffers. The public methods pass [`NATIVE_FMA`]; the tests run both
+/// forms.
+///
 /// Direct port of C++ `FilterCore` in `three_band_filter_bank.cc`.
-fn filter_core(
+// LLVM's inline cost for this body sits at its threshold, so without
+// `inline(always)` whether `analysis` and `synthesis` inline it depends on
+// the codegen-unit partition (with Cargo's default 16 units it did on
+// aarch64 and did not on x86_64).
+#[inline(always)]
+fn filter_core<const FMA: bool>(
     filter: &[f32; FILTER_SIZE],
     input: &[f32; SPLIT_BAND_SIZE],
     in_shift: usize,
@@ -95,7 +93,7 @@ fn filter_core(
     #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in 0..in_shift {
         let j = MEMORY_SIZE + k - in_shift;
-        output[k] = if USE_FMA {
+        output[k] = if FMA {
             f0.mul_add(
                 state[j],
                 f1.mul_add(
@@ -135,7 +133,7 @@ fn filter_core(
     #[allow(clippy::needless_range_loop, reason = "index used in arithmetic")]
     for k in (FILTER_SIZE * STRIDE)..SPLIT_BAND_SIZE {
         let base = k - in_shift;
-        output[k] = if USE_FMA {
+        output[k] = if FMA {
             f0.mul_add(
                 input[base],
                 f1.mul_add(
@@ -182,6 +180,18 @@ impl ThreeBandFilterBank {
         input: &[f32; FULL_BAND_SIZE],
         output: &mut [[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
     ) {
+        self.analysis_with::<NATIVE_FMA>(input, output);
+    }
+
+    /// [`Self::analysis`], with [`filter_core`] in the form `FMA` selects.
+    /// Always inlined, so that LLVM optimizes this body as part of
+    /// `analysis`.
+    #[inline(always)]
+    fn analysis_with<const FMA: bool>(
+        &mut self,
+        input: &[f32; FULL_BAND_SIZE],
+        output: &mut [[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
+    ) {
         // Initialize output to zero.
         for band in output.iter_mut() {
             band.fill(0.0);
@@ -214,7 +224,7 @@ impl ThreeBandFilterBank {
 
                 // Filter.
                 let mut out_subsampled = [0.0f32; SPLIT_BAND_SIZE];
-                filter_core(
+                filter_core::<FMA>(
                     filter,
                     &in_subsampled,
                     in_shift,
@@ -235,6 +245,18 @@ impl ThreeBandFilterBank {
 
     /// Merges 3 × 160-sample sub-bands into a 480-sample fullband frame.
     pub fn synthesis(
+        &mut self,
+        input: &[[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
+        output: &mut [f32; FULL_BAND_SIZE],
+    ) {
+        self.synthesis_with::<NATIVE_FMA>(input, output);
+    }
+
+    /// [`Self::synthesis`], with [`filter_core`] in the form `FMA` selects.
+    /// Always inlined, so that LLVM optimizes this body as part of
+    /// `synthesis`.
+    #[inline(always)]
+    fn synthesis_with<const FMA: bool>(
         &mut self,
         input: &[[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
         output: &mut [f32; FULL_BAND_SIZE],
@@ -270,7 +292,7 @@ impl ThreeBandFilterBank {
 
                 // Filter.
                 let mut out_subsampled = [0.0f32; SPLIT_BAND_SIZE];
-                filter_core(
+                filter_core::<FMA>(
                     filter,
                     &in_subsampled,
                     in_shift,
@@ -364,22 +386,11 @@ mod tests {
         );
     }
 
-    /// The `USE_FMA` policy, restated so that a change to it fails the test
-    /// below: fuse on AArch64 (`aarch64` and `arm64ec`) and on x86 with the
-    /// `fma` feature. Elsewhere `mul_add` can be an `fmaf` library call and
-    /// C++ built without FP contraction does not fuse, so other targets must
-    /// match the C++ tap order bit for bit. On aarch64 the output must stay
-    /// the fused output it has always been.
-    const EXPECT_FUSED: bool = cfg!(any(
-        target_arch = "aarch64",
-        target_arch = "arm64ec",
-        target_feature = "fma"
-    ));
-
-    /// Checks the unrolled Parts 1 and 3 of `filter_core` against
-    /// [`EXPECT_FUSED`].
+    /// Both forms of the unrolled Parts 1 and 3 of `filter_core`, on every
+    /// target: the fused form must match the `mul_add` chain, and the plain
+    /// form the C++ tap order, bit for bit.
     #[test]
-    fn filter_core_matches_fma_policy() {
+    fn filter_core_matches_fused_and_plain_references() {
         use std::array::from_fn;
 
         let filter = &FILTER_COEFFS[1];
@@ -391,8 +402,22 @@ mod tests {
         let (mut part1_differs, mut part3_differs) = (false, false);
         // in_shift >= 1 so that Part 1 (state only) runs.
         for in_shift in 1..STRIDE {
-            let mut output = [0.0_f32; SPLIT_BAND_SIZE];
-            filter_core(filter, &input, in_shift, &mut output, &mut state.clone());
+            let mut fused_output = [0.0_f32; SPLIT_BAND_SIZE];
+            filter_core::<true>(
+                filter,
+                &input,
+                in_shift,
+                &mut fused_output,
+                &mut state.clone(),
+            );
+            let mut plain_output = [0.0_f32; SPLIT_BAND_SIZE];
+            filter_core::<false>(
+                filter,
+                &input,
+                in_shift,
+                &mut plain_output,
+                &mut state.clone(),
+            );
 
             // Part 2 (taps split between state and input) is unchanged.
             let parts_1_and_3 = (0..in_shift).chain(FILTER_SIZE * STRIDE..SPLIT_BAND_SIZE);
@@ -410,15 +435,61 @@ mod tests {
                         part3_differs = true;
                     }
                 }
-                let expected = if EXPECT_FUSED { fused } else { plain };
                 assert_eq!(
-                    output[k].to_bits(),
-                    expected.to_bits(),
-                    "in_shift {in_shift}, k {k}"
+                    fused_output[k].to_bits(),
+                    fused.to_bits(),
+                    "fused, in_shift {in_shift}, k {k}"
+                );
+                assert_eq!(
+                    plain_output[k].to_bits(),
+                    plain.to_bits(),
+                    "plain, in_shift {in_shift}, k {k}"
                 );
             }
         }
         assert!(part1_differs && part3_differs);
+    }
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// Output bits of `analysis_with::<FMA>` on `input` and of
+    /// `synthesis_with::<FMA>` on `bands`, each on a new filter bank.
+    fn run_forms<const FMA: bool>(
+        input: &[f32; FULL_BAND_SIZE],
+        bands: &[[f32; SPLIT_BAND_SIZE]; NUM_BANDS],
+    ) -> [Vec<u32>; 2] {
+        let mut analysis = [[0.0_f32; SPLIT_BAND_SIZE]; NUM_BANDS];
+        ThreeBandFilterBank::new().analysis_with::<FMA>(input, &mut analysis);
+        let mut synthesis = [0.0_f32; FULL_BAND_SIZE];
+        ThreeBandFilterBank::new().synthesis_with::<FMA>(bands, &mut synthesis);
+        [bits(analysis.as_flattened()), bits(&synthesis)]
+    }
+
+    /// `analysis` and `synthesis` run the [`NATIVE_FMA`] form.
+    #[test]
+    fn analysis_and_synthesis_use_native_fma() {
+        use std::array::from_fn;
+
+        let input: [f32; FULL_BAND_SIZE] = from_fn(|i| (i as f32 * 0.618_034).fract() - 0.5);
+        let bands: [[f32; SPLIT_BAND_SIZE]; NUM_BANDS] =
+            from_fn(|b| from_fn(|i| ((b * SPLIT_BAND_SIZE + i) as f32 * 0.414_214).fract() - 0.5));
+        // The forms differ on these inputs, so the comparison below can fail.
+        let [fused, plain] = [
+            run_forms::<true>(&input, &bands),
+            run_forms::<false>(&input, &bands),
+        ];
+        assert!(fused[0] != plain[0] && fused[1] != plain[1]);
+
+        let mut analysis = [[0.0_f32; SPLIT_BAND_SIZE]; NUM_BANDS];
+        ThreeBandFilterBank::new().analysis(&input, &mut analysis);
+        let mut synthesis = [0.0_f32; FULL_BAND_SIZE];
+        ThreeBandFilterBank::new().synthesis(&bands, &mut synthesis);
+        assert_eq!(
+            [bits(analysis.as_flattened()), bits(&synthesis)],
+            run_forms::<NATIVE_FMA>(&input, &bands)
+        );
     }
 
     #[test]

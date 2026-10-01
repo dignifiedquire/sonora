@@ -1398,6 +1398,7 @@ name = "sonora-fft"
 version = "0.2.0"
 dependencies = [
  "proptest",
+ "sonora-simd",
  "test-strategy",
 ]
 

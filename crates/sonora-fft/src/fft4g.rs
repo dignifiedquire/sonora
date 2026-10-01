@@ -33,18 +33,7 @@
 use std::f32::consts::FRAC_PI_4;
 use std::ptr;
 
-/// Whether the twiddle multiplications use [`f32::mul_add`].
-///
-/// Only AArch64 (`aarch64` and `arm64ec`), and x86 built with the `fma`
-/// target feature, take this path: there `mul_add` is one instruction.
-/// Without native FMA it is an `fmaf` library call per operation. Every other
-/// target, including targets with FMA such as riscv64gc, uses the plain
-/// expressions of the C reference, in its operation order.
-const USE_FMA: bool = cfg!(any(
-    target_arch = "aarch64",
-    target_arch = "arm64ec",
-    target_feature = "fma"
-));
+use sonora_simd::NATIVE_FMA;
 
 /// Variable-size real FFT using Ooura's fft4g algorithm.
 ///
@@ -122,15 +111,25 @@ impl Fft4g {
     ///
     /// Panics if `a.len() != n`.
     pub fn rdft(&self, a: &mut [f32]) {
+        self.rdft_with::<NATIVE_FMA>(a);
+    }
+
+    /// [`Self::rdft`], with the twiddle multiplications fused by
+    /// [`f32::mul_add`] if `FMA`, else in the plain expressions of the C
+    /// reference and their operation order. The public methods pass
+    /// [`NATIVE_FMA`]; the tests run both forms. Always inlined, so that
+    /// LLVM optimizes this body as part of `rdft`.
+    #[inline(always)]
+    fn rdft_with<const FMA: bool>(&self, a: &mut [f32]) {
         assert_eq!(a.len(), self.n, "input length must be {}", self.n);
         let n = self.n;
 
         if n > 4 {
             apply_bitrv2(&self.bitrv_ip, self.bitrv_m, self.bitrv_long, a);
-            cftfsub(n, a, &self.w);
-            rftfsub(n, a, self.nc, &self.w[self.nw..]);
+            cftfsub::<FMA>(n, a, &self.w);
+            rftfsub::<FMA>(n, a, self.nc, &self.w[self.nw..]);
         } else if n == 4 {
-            cftfsub(n, a, &self.w);
+            cftfsub::<FMA>(n, a, &self.w);
         }
         let xi = a[0] - a[1];
         a[0] += a[1];
@@ -146,17 +145,23 @@ impl Fft4g {
     ///
     /// Panics if `a.len() != n`.
     pub fn irdft(&self, a: &mut [f32]) {
+        self.irdft_with::<NATIVE_FMA>(a);
+    }
+
+    /// [`Self::irdft`], in the form `FMA` selects; see [`Self::rdft_with`].
+    #[inline(always)]
+    fn irdft_with<const FMA: bool>(&self, a: &mut [f32]) {
         assert_eq!(a.len(), self.n, "input length must be {}", self.n);
         let n = self.n;
 
         a[1] = 0.5 * (a[0] - a[1]);
         a[0] -= a[1];
         if n > 4 {
-            rftbsub(n, a, self.nc, &self.w[self.nw..]);
+            rftbsub::<FMA>(n, a, self.nc, &self.w[self.nw..]);
             apply_bitrv2(&self.bitrv_ip, self.bitrv_m, self.bitrv_long, a);
-            cftbsub(n, a, &self.w);
+            cftbsub::<FMA>(n, a, &self.w);
         } else if n == 4 {
-            cftfsub(n, a, &self.w);
+            cftfsub::<FMA>(n, a, &self.w);
         }
     }
 }
@@ -365,13 +370,13 @@ fn bitrv2(n: usize, ip: &mut [usize], a: &mut [f32]) {
 }
 
 /// Forward complex sub-transform (radix-4 decomposition).
-fn cftfsub(n: usize, a: &mut [f32], w: &[f32]) {
+fn cftfsub<const FMA: bool>(n: usize, a: &mut [f32], w: &[f32]) {
     let mut l = 2;
     if n > 8 {
-        cft1st(n, a, w);
+        cft1st::<FMA>(n, a, w);
         l = 8;
         while (l << 2) < n {
-            cftmdl(n, l, a, w);
+            cftmdl::<FMA>(n, l, a, w);
             l <<= 2;
         }
     }
@@ -414,13 +419,13 @@ fn cftfsub(n: usize, a: &mut [f32], w: &[f32]) {
 }
 
 /// Backward complex sub-transform (radix-4 decomposition).
-fn cftbsub(n: usize, a: &mut [f32], w: &[f32]) {
+fn cftbsub<const FMA: bool>(n: usize, a: &mut [f32], w: &[f32]) {
     let mut l = 2;
     if n > 8 {
-        cft1st(n, a, w);
+        cft1st::<FMA>(n, a, w);
         l = 8;
         while (l << 2) < n {
-            cftmdl(n, l, a, w);
+            cftmdl::<FMA>(n, l, a, w);
             l <<= 2;
         }
     }
@@ -466,7 +471,7 @@ fn cftbsub(n: usize, a: &mut [f32], w: &[f32]) {
 ///
 /// # Safety contract
 /// `a.len() >= n >= 16` and `w.len() >= n/4`. All indices stay within bounds.
-fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
+fn cft1st<const FMA: bool>(n: usize, a: &mut [f32], w: &[f32]) {
     // SAFETY: All indices into `a` are in 0..n and all indices into `w` are
     // in 0..n/4. This is guaranteed by the Ooura algorithm structure and
     // validated by the test suite.
@@ -519,7 +524,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             let wk2i = get(w, k1 + 1);
             let wk1r = get(w, k2);
             let wk1i = get(w, k2 + 1);
-            let (wk3r, wk3i) = if USE_FMA {
+            let (wk3r, wk3i) = if FMA {
                 (
                     (-2.0 * wk2i).mul_add(wk1i, wk1r),
                     (2.0 * wk2i).mul_add(wk1r, -wk1i),
@@ -540,7 +545,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             set(a, j + 1, x0i + x2i);
             let x0r = x0r - x2r;
             let x0i = x0i - x2i;
-            if USE_FMA {
+            if FMA {
                 set(a, j + 4, wk2r.mul_add(x0r, -wk2i * x0i));
                 set(a, j + 5, wk2r.mul_add(x0i, wk2i * x0r));
             } else {
@@ -549,7 +554,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             }
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            if USE_FMA {
+            if FMA {
                 set(a, j + 2, wk1r.mul_add(x0r, -wk1i * x0i));
                 set(a, j + 3, wk1r.mul_add(x0i, wk1i * x0r));
             } else {
@@ -558,7 +563,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             }
             let x0r = x1r + x3i;
             let x0i = x1i - x3r;
-            if USE_FMA {
+            if FMA {
                 set(a, j + 6, wk3r.mul_add(x0r, -wk3i * x0i));
                 set(a, j + 7, wk3r.mul_add(x0i, wk3i * x0r));
             } else {
@@ -568,7 +573,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
 
             let wk1r = get(w, k2 + 2);
             let wk1i = get(w, k2 + 3);
-            let (wk3r, wk3i) = if USE_FMA {
+            let (wk3r, wk3i) = if FMA {
                 (
                     (-2.0 * wk2r).mul_add(wk1i, wk1r),
                     (2.0 * wk2r).mul_add(wk1r, -wk1i),
@@ -589,7 +594,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             set(a, j + 9, x0i + x2i);
             let x0r = x0r - x2r;
             let x0i = x0i - x2i;
-            if USE_FMA {
+            if FMA {
                 set(a, j + 12, (-wk2i).mul_add(x0r, -wk2r * x0i));
                 set(a, j + 13, (-wk2i).mul_add(x0i, wk2r * x0r));
             } else {
@@ -598,7 +603,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             }
             let x0r = x1r - x3i;
             let x0i = x1i + x3r;
-            if USE_FMA {
+            if FMA {
                 set(a, j + 10, wk1r.mul_add(x0r, -wk1i * x0i));
                 set(a, j + 11, wk1r.mul_add(x0i, wk1i * x0r));
             } else {
@@ -607,7 +612,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
             }
             let x0r = x1r + x3i;
             let x0i = x1i - x3r;
-            if USE_FMA {
+            if FMA {
                 set(a, j + 14, wk3r.mul_add(x0r, -wk3i * x0i));
                 set(a, j + 15, wk3r.mul_add(x0i, wk3i * x0r));
             } else {
@@ -624,7 +629,7 @@ fn cft1st(n: usize, a: &mut [f32], w: &[f32]) {
 ///
 /// # Safety contract
 /// All indices into `a` are in `0..n` and into `w` are in `0..n/4`.
-fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
+fn cftmdl<const FMA: bool>(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
     let m = l << 2;
 
     // SAFETY: All indices are bounded by `n` (see module-level doc).
@@ -688,7 +693,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
             let wk2i = get(w, k1 + 1);
             let wk1r = get(w, k2);
             let wk1i = get(w, k2 + 1);
-            let (wk3r, wk3i) = if USE_FMA {
+            let (wk3r, wk3i) = if FMA {
                 (
                     (-2.0 * wk2i).mul_add(wk1i, wk1r),
                     (2.0 * wk2i).mul_add(wk1r, -wk1i),
@@ -713,7 +718,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 set(a, j + 1, x0i + x2i);
                 let x0r = x0r - x2r;
                 let x0i = x0i - x2i;
-                if USE_FMA {
+                if FMA {
                     set(a, j2, wk2r.mul_add(x0r, -wk2i * x0i));
                     set(a, j2 + 1, wk2r.mul_add(x0i, wk2i * x0r));
                 } else {
@@ -722,7 +727,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 }
                 let x0r = x1r - x3i;
                 let x0i = x1i + x3r;
-                if USE_FMA {
+                if FMA {
                     set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
                     set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
                 } else {
@@ -731,7 +736,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 }
                 let x0r = x1r + x3i;
                 let x0i = x1i - x3r;
-                if USE_FMA {
+                if FMA {
                     set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
                     set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
                 } else {
@@ -742,7 +747,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
 
             let wk1r = get(w, k2 + 2);
             let wk1i = get(w, k2 + 3);
-            let (wk3r, wk3i) = if USE_FMA {
+            let (wk3r, wk3i) = if FMA {
                 (
                     (-2.0 * wk2r).mul_add(wk1i, wk1r),
                     (2.0 * wk2r).mul_add(wk1r, -wk1i),
@@ -767,7 +772,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 set(a, j + 1, x0i + x2i);
                 let x0r = x0r - x2r;
                 let x0i = x0i - x2i;
-                if USE_FMA {
+                if FMA {
                     set(a, j2, (-wk2i).mul_add(x0r, -wk2r * x0i));
                     set(a, j2 + 1, (-wk2i).mul_add(x0i, wk2r * x0r));
                 } else {
@@ -776,7 +781,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 }
                 let x0r = x1r - x3i;
                 let x0i = x1i + x3r;
-                if USE_FMA {
+                if FMA {
                     set(a, j1, wk1r.mul_add(x0r, -wk1i * x0i));
                     set(a, j1 + 1, wk1r.mul_add(x0i, wk1i * x0r));
                 } else {
@@ -785,7 +790,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
                 }
                 let x0r = x1r + x3i;
                 let x0i = x1i - x3r;
-                if USE_FMA {
+                if FMA {
                     set(a, j3, wk3r.mul_add(x0r, -wk3i * x0i));
                     set(a, j3 + 1, wk3r.mul_add(x0i, wk3i * x0r));
                 } else {
@@ -800,7 +805,7 @@ fn cftmdl(n: usize, l: usize, a: &mut [f32], w: &[f32]) {
 }
 
 /// Real FFT forward post-processing (split-radix real/imaginary separation).
-fn rftfsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
+fn rftfsub<const FMA: bool>(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
     let m = n >> 1;
     let ks = 2 * nc / m;
     let mut kk = 0;
@@ -814,7 +819,7 @@ fn rftfsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
             let wki = get(c, kk);
             let xr = get(a, j) - get(a, k);
             let xi = get(a, j + 1) + get(a, k + 1);
-            let (yr, yi) = if USE_FMA {
+            let (yr, yi) = if FMA {
                 (wkr.mul_add(xr, -wki * xi), wkr.mul_add(xi, wki * xr))
             } else {
                 (wkr * xr - wki * xi, wkr * xi + wki * xr)
@@ -829,7 +834,7 @@ fn rftfsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
 }
 
 /// Real FFT backward pre-processing (split-radix real/imaginary recombination).
-fn rftbsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
+fn rftbsub<const FMA: bool>(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
     let m = n >> 1;
     let ks = 2 * nc / m;
     let mut kk = 0;
@@ -844,7 +849,7 @@ fn rftbsub(n: usize, a: &mut [f32], nc: usize, c: &[f32]) {
             let wki = get(c, kk);
             let xr = get(a, j) - get(a, k);
             let xi = get(a, j + 1) + get(a, k + 1);
-            let (yr, yi) = if USE_FMA {
+            let (yr, yi) = if FMA {
                 (wkr.mul_add(xr, wki * xi), wkr.mul_add(xi, -wki * xr))
             } else {
                 (wkr * xr + wki * xi, wkr * xi - wki * xr)
@@ -961,18 +966,6 @@ mod tests {
         }
     }
 
-    /// The `USE_FMA` policy, restated so that a change to it fails the tests
-    /// below: fuse on AArch64 (`aarch64` and `arm64ec`) and on x86 with the
-    /// `fma` feature. Elsewhere `mul_add` can be an `fmaf` library call and
-    /// the C reference built without FP contraction does not fuse, so other
-    /// targets must match the plain C expressions bit for bit. On aarch64 the
-    /// output must stay the fused output it has always been.
-    const EXPECT_FUSED: bool = cfg!(any(
-        target_arch = "aarch64",
-        target_arch = "arm64ec",
-        target_feature = "fma"
-    ));
-
     /// One twiddled radix-4 butterfly of `cft1st` (`l = 2`) and `cftmdl`, on
     /// the points `j`, `j + l`, `j + 2l` and `j + 3l`, with the twiddles the
     /// C code loads at `k1` for the first or the `second` group.
@@ -1023,43 +1016,88 @@ mod tests {
         }
     }
 
-    /// Checks the twiddled butterflies of `cft1st` and `cftmdl` against
-    /// [`EXPECT_FUSED`].
-    #[test]
-    fn butterflies_match_fma_policy() {
-        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
 
-        // cft1st, n = 256: iteration t runs at j = 16t with k1 = 2t, as two
+    /// Asserts that `fused` and `plain`, the outputs of a pass of butterflies
+    /// with span `l` (`cft1st` is `l = 2`), differ in every twiddled output:
+    /// at `j + l`, `j + 2l` and `j + 3l`, real and imaginary, in both groups,
+    /// for at least one butterfly. A statement that computes one of these in
+    /// the wrong form then fails the bit-exact comparison on its own.
+    fn assert_each_twiddled_output_differs(fused: &[f32], plain: &[f32], l: usize) {
+        let m = 4 * l;
+        // differs[group][quarter][part]: quarter q holds a[j + q * l], and
+        // quarter 0, a[j] = x0 + x2, has no twiddle.
+        let mut differs = [[[false; 2]; 4]; 2];
+        // The first block of 2m values has no `mul_add`.
+        for p in 2 * m..fused.len() {
+            if fused[p].to_bits() != plain[p].to_bits() {
+                let (group, q) = (p % (2 * m) / m, p % m);
+                differs[group][q / l][q % 2] = true;
+            }
+        }
+        for (group, quarters) in differs.iter().enumerate() {
+            for (quarter, parts) in quarters.iter().enumerate().skip(1) {
+                for (part, &differs) in ["real", "imaginary"].iter().zip(parts) {
+                    assert!(
+                        differs,
+                        "l {l}, group {group}: {part} a[j + {quarter}l] same in both forms"
+                    );
+                }
+            }
+        }
+    }
+
+    /// `n` pseudo-random values in `-0.5..0.5`, the same on every target.
+    fn noise(n: usize) -> Vec<f32> {
+        let mut x = 1_u32;
+        (0..n)
+            .map(|_| {
+                x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (x >> 8) as f32 / (1 << 24) as f32 - 0.5
+            })
+            .collect()
+    }
+
+    /// Both forms of the twiddled butterflies of `cft1st` and `cftmdl`, on
+    /// every target: the fused form must match the `mul_add` chains, and the
+    /// plain form the C expressions, bit for bit. The input is pseudo-random:
+    /// in the golden-ratio sequence of the other tests, values `l` apart
+    /// differ by almost the same amount, and some outputs then matched
+    /// between the forms in every butterfly. With this input and these
+    /// sizes, each twiddled output differs in dozens of butterflies.
+    #[test]
+    fn butterflies_match_fused_and_plain_references() {
+        // cft1st, n = 4096: iteration t runs at j = 16t with k1 = 2t, as two
         // groups at l = 2. The untwiddled block a[0..16] is not checked.
-        let fft = Fft4g::new(256);
+        let fft = Fft4g::new(4096);
         let w = &fft.w;
-        let input: Vec<f32> = (0..256)
-            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
-            .collect();
+        let input = noise(4096);
         let [fused, plain] = [true, false].map(|fused| {
             let mut e = input.clone();
-            for t in 1..16 {
+            for t in 1..256 {
                 reference_butterfly(&mut e, 16 * t, 2, w, 2 * t, false, fused);
                 reference_butterfly(&mut e, 16 * t + 8, 2, w, 2 * t, true, fused);
             }
             e
         });
-        assert_ne!(bits(&fused[16..]), bits(&plain[16..]));
-        let expected = if EXPECT_FUSED { fused } else { plain };
+        assert_each_twiddled_output_differs(&fused, &plain, 2);
+        let mut a = input.clone();
+        cft1st::<true>(4096, &mut a, w);
+        assert_eq!(bits(&a[16..]), bits(&fused[16..]));
         let mut a = input;
-        cft1st(256, &mut a, w);
-        assert_eq!(bits(&a[16..]), bits(&expected[16..]));
+        cft1st::<false>(4096, &mut a, w);
+        assert_eq!(bits(&a[16..]), bits(&plain[16..]));
 
-        // cftmdl, n = 512, l = 8: iteration t runs at k = 64t with k1 = 2t.
+        // cftmdl, n = 8192, l = 8: iteration t runs at k = 64t with k1 = 2t.
         // The untwiddled block a[0..64] is not checked.
-        let fft = Fft4g::new(512);
+        let fft = Fft4g::new(8192);
         let w = &fft.w;
-        let input: Vec<f32> = (0..512)
-            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
-            .collect();
+        let input = noise(8192);
         let [fused, plain] = [true, false].map(|fused| {
             let mut e = input.clone();
-            for t in 1..8 {
+            for t in 1..128 {
                 for j in (64 * t..64 * t + 8).step_by(2) {
                     reference_butterfly(&mut e, j, 8, w, 2 * t, false, fused);
                     reference_butterfly(&mut e, j + 32, 8, w, 2 * t, true, fused);
@@ -1067,16 +1105,20 @@ mod tests {
             }
             e
         });
-        assert_ne!(bits(&fused[64..]), bits(&plain[64..]));
-        let expected = if EXPECT_FUSED { fused } else { plain };
+        assert_each_twiddled_output_differs(&fused, &plain, 8);
+        let mut a = input.clone();
+        cftmdl::<true>(8192, 8, &mut a, w);
+        assert_eq!(bits(&a[64..]), bits(&fused[64..]));
         let mut a = input;
-        cftmdl(512, 8, &mut a, w);
-        assert_eq!(bits(&a[64..]), bits(&expected[64..]));
+        cftmdl::<false>(8192, 8, &mut a, w);
+        assert_eq!(bits(&a[64..]), bits(&plain[64..]));
     }
 
-    /// Checks `rftfsub` and `rftbsub` against [`EXPECT_FUSED`].
+    /// Both forms of `rftfsub` and `rftbsub`, on every target: the fused
+    /// form must match the `mul_add` result, and the plain form the C
+    /// expressions, bit for bit.
     #[test]
-    fn rft_sub_matches_fma_policy() {
+    fn rft_sub_matches_fused_and_plain_references() {
         // With n = 8 each routine runs one iteration: j = 2, k = 6,
         // wkr = 0.5 - c[1], wki = c[1]. a[2] = a[3] = 0 makes a[2] and a[3]
         // carry yr and yi exactly.
@@ -1090,32 +1132,196 @@ mod tests {
         let plain = (wkr * xr - wki * xi, wkr * xi + wki * xr);
         assert_ne!(fused.0.to_bits(), plain.0.to_bits());
         assert_ne!(fused.1.to_bits(), plain.1.to_bits());
-        let (yr, yi) = if EXPECT_FUSED { fused } else { plain };
-        let mut expected = input;
-        expected[2] -= yr;
-        expected[3] -= yi;
-        expected[6] += yr;
-        expected[7] -= yi;
+        let expected = |(yr, yi): (f32, f32)| {
+            let mut e = input;
+            e[2] -= yr;
+            e[3] -= yi;
+            e[6] += yr;
+            e[7] -= yi;
+            e.map(f32::to_bits)
+        };
         let mut a = input;
-        rftfsub(8, &mut a, 2, &c);
-        assert_eq!(a.map(f32::to_bits), expected.map(f32::to_bits));
+        rftfsub::<true>(8, &mut a, 2, &c);
+        assert_eq!(a.map(f32::to_bits), expected(fused));
+        let mut a = input;
+        rftfsub::<false>(8, &mut a, 2, &c);
+        assert_eq!(a.map(f32::to_bits), expected(plain));
 
         // rftbsub: C `yr = wkr * xr + wki * xi; yi = wkr * xi - wki * xr;`
         let fused = (wkr.mul_add(xr, wki * xi), wkr.mul_add(xi, -wki * xr));
         let plain = (wkr * xr + wki * xi, wkr * xi - wki * xr);
         assert_ne!(fused.0.to_bits(), plain.0.to_bits());
         assert_ne!(fused.1.to_bits(), plain.1.to_bits());
-        let (yr, yi) = if EXPECT_FUSED { fused } else { plain };
-        let mut expected = input;
-        expected[1] = -expected[1];
-        expected[2] -= yr;
-        expected[3] = yi - expected[3];
-        expected[6] += yr;
-        expected[7] = yi - expected[7];
-        expected[5] = -expected[5];
+        let expected = |(yr, yi): (f32, f32)| {
+            let mut e = input;
+            e[1] = -e[1];
+            e[2] -= yr;
+            e[3] = yi - e[3];
+            e[6] += yr;
+            e[7] = yi - e[7];
+            e[5] = -e[5];
+            e.map(f32::to_bits)
+        };
         let mut a = input;
-        rftbsub(8, &mut a, 2, &c);
-        assert_eq!(a.map(f32::to_bits), expected.map(f32::to_bits));
+        rftbsub::<true>(8, &mut a, 2, &c);
+        assert_eq!(a.map(f32::to_bits), expected(fused));
+        let mut a = input;
+        rftbsub::<false>(8, &mut a, 2, &c);
+        assert_eq!(a.map(f32::to_bits), expected(plain));
+    }
+
+    /// Output bits of `rdft_with::<FMA>` and `irdft_with::<FMA>` on `x`.
+    fn run_forms<const FMA: bool>(fft: &Fft4g, x: &[f32]) -> [Vec<u32>; 2] {
+        let mut forward = x.to_vec();
+        fft.rdft_with::<FMA>(&mut forward);
+        let mut inverse = x.to_vec();
+        fft.irdft_with::<FMA>(&mut inverse);
+        [bits(&forward), bits(&inverse)]
+    }
+
+    /// `rdft` and `irdft` run the [`NATIVE_FMA`] form.
+    #[test]
+    fn rdft_and_irdft_use_native_fma() {
+        // n = 512 runs cft1st, cftmdl, and rftfsub or rftbsub.
+        let fft = Fft4g::new(512);
+        let input: Vec<f32> = (0..512)
+            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
+            .collect();
+        // The forms differ on this input, so the comparison below can fail.
+        let [fused, plain] = [
+            run_forms::<true>(&fft, &input),
+            run_forms::<false>(&fft, &input),
+        ];
+        assert!(fused[0] != plain[0] && fused[1] != plain[1]);
+
+        let mut forward = input.clone();
+        fft.rdft(&mut forward);
+        let mut inverse = input.clone();
+        fft.irdft(&mut inverse);
+        assert_eq!(
+            [bits(&forward), bits(&inverse)],
+            run_forms::<NATIVE_FMA>(&fft, &input)
+        );
+    }
+
+    /// The last pass of `cftfsub`, or of `cftbsub` if `backward`, for
+    /// `n = 4 * l`, copied from them. It has no `mul_add`, so both forms
+    /// share it.
+    fn last_radix4_pass(a: &mut [f32], l: usize, backward: bool) {
+        for j in (0..l).step_by(2) {
+            let (j1, j2, j3) = (j + l, j + 2 * l, j + 3 * l);
+            let x0r = a[j] + a[j1];
+            let x1r = a[j] - a[j1];
+            let x2r = a[j2] + a[j3];
+            let x2i = a[j2 + 1] + a[j3 + 1];
+            let x3r = a[j2] - a[j3];
+            let x3i = a[j2 + 1] - a[j3 + 1];
+            if backward {
+                let x0i = -a[j + 1] - a[j1 + 1];
+                let x1i = -a[j + 1] + a[j1 + 1];
+                a[j] = x0r + x2r;
+                a[j + 1] = x0i - x2i;
+                a[j2] = x0r - x2r;
+                a[j2 + 1] = x0i + x2i;
+                a[j1] = x1r - x3i;
+                a[j1 + 1] = x1i - x3r;
+                a[j3] = x1r + x3i;
+                a[j3 + 1] = x1i + x3r;
+            } else {
+                let x0i = a[j + 1] + a[j1 + 1];
+                let x1i = a[j + 1] - a[j1 + 1];
+                a[j] = x0r + x2r;
+                a[j + 1] = x0i + x2i;
+                a[j2] = x0r - x2r;
+                a[j2 + 1] = x0i - x2i;
+                a[j1] = x1r - x3i;
+                a[j1 + 1] = x1i + x3r;
+                a[j3] = x1r + x3i;
+                a[j3 + 1] = x1i - x3r;
+            }
+        }
+    }
+
+    /// Output bits of `rdft_with` on `x` at n = 512, or of `irdft_with` if
+    /// `inverse`, built from the kernels without the call chain in between:
+    /// `cft1st`, both `cftmdl` passes, and `rftfsub` or `rftbsub`, each in
+    /// the form `forms` gives for it.
+    fn composed(fft: &Fft4g, x: &[f32], inverse: bool, forms: [bool; 3]) -> Vec<u32> {
+        assert_eq!(fft.n, 512);
+        let (n, nc, w, c) = (fft.n, fft.nc, &fft.w[..], &fft.w[fft.nw..]);
+        let rft_sub = |a: &mut [f32]| match (inverse, forms[2]) {
+            (false, true) => rftfsub::<true>(n, a, nc, c),
+            (false, false) => rftfsub::<false>(n, a, nc, c),
+            (true, true) => rftbsub::<true>(n, a, nc, c),
+            (true, false) => rftbsub::<false>(n, a, nc, c),
+        };
+        let mut a = x.to_vec();
+        if inverse {
+            a[1] = 0.5 * (a[0] - a[1]);
+            a[0] -= a[1];
+            rft_sub(&mut a);
+        }
+        apply_bitrv2(&fft.bitrv_ip, fft.bitrv_m, fft.bitrv_long, &mut a);
+        if forms[0] {
+            cft1st::<true>(n, &mut a, w);
+        } else {
+            cft1st::<false>(n, &mut a, w);
+        }
+        for l in [8, 32] {
+            if forms[1] {
+                cftmdl::<true>(n, l, &mut a, w);
+            } else {
+                cftmdl::<false>(n, l, &mut a, w);
+            }
+        }
+        last_radix4_pass(&mut a, 128, inverse);
+        if !inverse {
+            rft_sub(&mut a);
+            let xi = a[0] - a[1];
+            a[0] += a[1];
+            a[1] = xi;
+        }
+        bits(&a)
+    }
+
+    /// `rdft_with` and `irdft_with` pass their form to every kernel: on every
+    /// target, each form matches the kernels composed in that form, bit for
+    /// bit.
+    #[test]
+    fn transforms_pass_the_form_to_every_kernel() {
+        let fft = Fft4g::new(512);
+        let input: Vec<f32> = (0..512)
+            .map(|i| (i as f32 * 0.618_034).fract() - 0.5)
+            .collect();
+        for fma in [true, false] {
+            let expected = [false, true].map(|inverse| composed(&fft, &input, inverse, [fma; 3]));
+            // Each `::<FMA>` in the call chain sets the form of one of these:
+            // `cft1st`; both `cftmdl` passes; all three (the call of `cftfsub`
+            // or `cftbsub`); `rftfsub` or `rftbsub`. Each of them, alone in
+            // the other form, changes both transforms, so a wrong `::<FMA>`
+            // fails the comparison below.
+            for flipped in [
+                [true, false, false],
+                [false, true, false],
+                [true, true, false],
+                [false, false, true],
+            ] {
+                let forms = flipped.map(|flip| flip != fma);
+                for (inverse, expected) in [false, true].into_iter().zip(&expected) {
+                    assert_ne!(
+                        &composed(&fft, &input, inverse, forms),
+                        expected,
+                        "fma {fma}, inverse {inverse}, forms {forms:?}"
+                    );
+                }
+            }
+            let actual = if fma {
+                run_forms::<true>(&fft, &input)
+            } else {
+                run_forms::<false>(&fft, &input)
+            };
+            assert_eq!(actual, expected, "fma {fma}");
+        }
     }
 
     #[test]
