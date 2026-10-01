@@ -2,10 +2,10 @@
 //! memory can block. These tests check that steady-state processing with the
 //! echo canceller enabled does not allocate, through the float and int16
 //! APIs, at the 16, 32 and 48 kHz processing rates (one, two and three
-//! bands), with rate conversion, downmixing, stereo, an unused capture output
-//! and a change of the echo delay. They count allocations (`alloc` and
-//! `realloc`) of the current thread only, so tests running in parallel do not
-//! interfere.
+//! bands), with rate conversion, downmixing, stereo, an unused capture output,
+//! a change of the echo delay and noise suppression. They count allocations
+//! (`alloc` and `realloc`) of the current thread only, so tests running in
+//! parallel do not interfere.
 //!
 //! Frees are not counted. With multichannel render, the echo canceller
 //! rebuilds its block processor when it detects stereo render, and the new
@@ -19,7 +19,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use sonora::config::{EchoCanceller, MaxProcessingRate, Pipeline};
+use sonora::config::{EchoCanceller, MaxProcessingRate, NoiseSuppression, Pipeline};
 use sonora::{AudioProcessing, Config, StreamConfig};
 
 thread_local! {
@@ -97,6 +97,8 @@ struct Scenario {
     /// `DELAY_CHANGE_SECONDS`, so that the echo canceller has to find the new
     /// delay while allocations are counted.
     delay_change: bool,
+    /// Whether noise suppression runs after the echo canceller.
+    noise_suppression: bool,
 }
 
 impl Scenario {
@@ -110,6 +112,7 @@ impl Scenario {
             render_channels: 1,
             capture_output_used: true,
             delay_change: false,
+            noise_suppression: false,
         }
     }
 }
@@ -211,6 +214,7 @@ fn run(scenario: Scenario) -> Outcome {
     let mut apm = AudioProcessing::builder()
         .config(Config {
             echo_canceller: Some(EchoCanceller::default()),
+            noise_suppression: scenario.noise_suppression.then(NoiseSuppression::default),
             pipeline: Pipeline {
                 maximum_internal_processing_rate: scenario.max_processing_rate,
                 ..Pipeline::default()
@@ -320,8 +324,9 @@ fn check(scenario: Scenario) {
     // Without echo removal the attenuation still reaches about 6.4 dB: the
     // average of two microphones carries less echo than the first one, which
     // is the one measured (3.5 dB), and processing 48 kHz at 32 kHz drops the
-    // noise above 16 kHz (2.9 dB). Here both are above 15 dB, so 10 dB shows
-    // that the echo canceller ran and converged.
+    // noise above 16 kHz (2.9 dB). Noise suppression raises that to 7.3 dB.
+    // Here both are above 15 dB, so 10 dB shows that the echo canceller ran
+    // and converged.
     assert!(
         outcome.erle_db > 10.0,
         "ERLE is {:.1} dB: {scenario:?}",
@@ -413,6 +418,19 @@ fn i16_44k_stereo() {
         capture_out_channels: 2,
         render_channels: 2,
         ..Scenario::mono(44_100, Format::I16)
+    });
+}
+
+/// Noise suppression runs in the same capture callback: here two
+/// suppressors, one per capture channel, each over two bands.
+#[test]
+fn f32_48k_stereo_noise_suppression() {
+    check(Scenario {
+        capture_in_channels: 2,
+        capture_out_channels: 2,
+        render_channels: 2,
+        noise_suppression: true,
+        ..Scenario::mono(48_000, Format::F32)
     });
 }
 
