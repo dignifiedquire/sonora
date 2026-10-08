@@ -121,7 +121,10 @@ impl AdaptiveDigitalGainController {
     }
 
     /// Analyzes `info`, updates the digital gain and applies it to a 10 ms frame.
-    pub fn process(&mut self, info: &FrameInfo, frame: &mut [&mut [f32]]) {
+    ///
+    /// `frame` holds one slice per channel; owned buffers (`Vec<f32>`) work
+    /// as well as borrowed slices, so callers need not build a view.
+    pub fn process<C: AsRef<[f32]> + AsMut<[f32]>>(&mut self, info: &FrameInfo, frame: &mut [C]) {
         debug_assert!(info.speech_level_dbfs >= -150.0);
         debug_assert!(!frame.is_empty());
 

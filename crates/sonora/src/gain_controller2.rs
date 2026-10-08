@@ -104,11 +104,14 @@ fn compute_audio_levels(audio: &AudioBuffer) -> AudioLevels {
     }
 }
 
-/// Copies channel data out of an AudioBuffer for use with `&mut [&mut [f32]]` APIs.
-fn extract_channels(audio: &AudioBuffer) -> Vec<Vec<f32>> {
-    (0..audio.num_channels())
-        .map(|ch| audio.channel(ch).to_vec())
-        .collect()
+/// Copies the channels of `audio` into `channel_data`, reusing its buffers:
+/// once they have grown to the frame size, this does not allocate.
+fn copy_channels(audio: &AudioBuffer, channel_data: &mut Vec<Vec<f32>>) {
+    channel_data.resize_with(audio.num_channels(), Vec::new);
+    for (ch, data) in channel_data.iter_mut().enumerate() {
+        data.clear();
+        data.extend_from_slice(audio.channel(ch));
+    }
 }
 
 /// Writes channel data back into an AudioBuffer.
@@ -132,6 +135,10 @@ pub(crate) struct GainController2 {
     adaptive_digital_controller: Option<AdaptiveDigitalGainController>,
     limiter: Limiter,
     recommended_input_volume: Option<i32>,
+    /// The frame being processed, one buffer per channel. Allocated once, so
+    /// that processing a frame does not allocate (it runs in real-time audio
+    /// callbacks).
+    channel_data: Vec<Vec<f32>>,
 }
 
 impl GainController2 {
@@ -201,6 +208,7 @@ impl GainController2 {
             adaptive_digital_controller,
             limiter: Limiter::new(samples_per_channel),
             recommended_input_volume: None,
+            channel_data: vec![Vec::with_capacity(samples_per_channel); num_channels],
         }
     }
 
@@ -258,11 +266,13 @@ impl GainController2 {
         // Compute audio levels from the first channel.
         let audio_levels = compute_audio_levels(audio);
 
+        // The gain stages below work on a copy of the frame, which is
+        // written back at the end.
+        copy_channels(audio, &mut self.channel_data);
+
         // Noise level estimation.
         let noise_rms_dbfs = if let Some(ref mut nle) = self.noise_level_estimator {
-            let num_ch = audio.num_channels();
-            let channels: Vec<&[f32]> = (0..num_ch).map(|ch| audio.channel(ch)).collect();
-            Some(nle.analyze(&channels))
+            Some(nle.analyze(&self.channel_data))
         } else {
             None
         };
@@ -307,31 +317,16 @@ impl GainController2 {
                 limiter_envelope_dbfs,
             };
 
-            // Build mutable channel slices for the adaptive controller.
-            let mut channel_data = extract_channels(audio);
-            let mut channel_slices: Vec<&mut [f32]> =
-                channel_data.iter_mut().map(|v| v.as_mut_slice()).collect();
-            adc.process(&info, &mut channel_slices);
-            write_back_channels(audio, &channel_data);
+            adc.process(&info, &mut self.channel_data);
         }
 
         // Fixed gain.
-        {
-            let mut channel_data = extract_channels(audio);
-            let mut channel_slices: Vec<&mut [f32]> =
-                channel_data.iter_mut().map(|v| v.as_mut_slice()).collect();
-            self.fixed_gain_applier.apply_gain(&mut channel_slices);
-            write_back_channels(audio, &channel_data);
-        }
+        self.fixed_gain_applier.apply_gain(&mut self.channel_data);
 
         // Limiter.
-        {
-            let mut channel_data = extract_channels(audio);
-            let mut channel_slices: Vec<&mut [f32]> =
-                channel_data.iter_mut().map(|v| v.as_mut_slice()).collect();
-            self.limiter.process(&mut channel_slices);
-            write_back_channels(audio, &channel_data);
-        }
+        self.limiter.process(&mut self.channel_data);
+
+        write_back_channels(audio, &self.channel_data);
     }
 
     /// Validates the configuration.
