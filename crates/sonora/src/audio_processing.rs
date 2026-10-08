@@ -368,7 +368,8 @@ impl AudioProcessingBuilder {
     /// [`Config::echo_canceller`] is enabled; its `transparent_mode` still
     /// overrides `echo_removal_control.transparent_mode`. The configuration
     /// is validated (clamped to valid ranges) when the echo canceller is
-    /// created.
+    /// created. It applies to mono and multichannel render alike, as with
+    /// C++ `EchoCanceller3Factory(config)`.
     pub fn echo_canceller3_config(mut self, config: EchoCanceller3Config) -> Self {
         self.echo_canceller3_config = Some(config);
         self

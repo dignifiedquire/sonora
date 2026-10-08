@@ -201,14 +201,14 @@ impl AudioProcessingImpl {
         apm
     }
 
-    /// Installs the residual echo detector (opt-in).
-    ///
-    /// Must be called before `initialize()`.
     /// Sets the AEC3 configuration used when the echo canceller is created.
     pub(crate) fn set_echo_canceller3_config(&mut self, config: EchoCanceller3Config) {
         self.echo_canceller3_config = Some(config);
     }
 
+    /// Installs the residual echo detector (opt-in).
+    ///
+    /// Must be called before `initialize()`.
     pub(crate) fn set_echo_detector(&mut self) {
         self.submodules.echo_detector = Some(ResidualEchoDetector::new());
     }
@@ -1297,7 +1297,13 @@ impl AudioProcessingImpl {
             None => EchoCanceller3Config::default(),
         };
         config.echo_removal_control.transparent_mode = ec.transparent_mode;
-        let multichannel_config = Some(EchoCanceller3Config::create_default_multichannel_config());
+        // Like C++ `AudioProcessingImpl::InitializeEchoController`: the default
+        // multichannel config is used only when the caller set no config. A
+        // caller's config applies to mono and multichannel render alike.
+        let multichannel_config = match self.echo_canceller3_config {
+            Some(_) => None,
+            None => Some(EchoCanceller3Config::create_default_multichannel_config()),
+        };
 
         self.submodules.echo_controller = Some(EchoCanceller3::new(
             config,

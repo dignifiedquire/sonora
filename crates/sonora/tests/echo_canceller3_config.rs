@@ -1,5 +1,6 @@
 //! `AudioProcessingBuilder::echo_canceller3_config`: a caller's AEC3 tuning
-//! reaches the echo canceller, and the default path is unchanged.
+//! reaches the echo canceller, also for stereo render, and the default path
+//! is unchanged.
 
 use sonora::config::{EchoCanceller, EchoCanceller3Config};
 use sonora::{AudioProcessing, Config, StreamConfig};
@@ -53,14 +54,20 @@ fn run(apm: &mut AudioProcessing) -> Vec<f32> {
 }
 
 fn apm(aec3: Option<EchoCanceller3Config>) -> AudioProcessing {
-    let stream = StreamConfig::new(RATE as u32, 1);
+    apm_with_render_channels(aec3, 1)
+}
+
+fn apm_with_render_channels(
+    aec3: Option<EchoCanceller3Config>,
+    render_channels: u16,
+) -> AudioProcessing {
     let mut builder = AudioProcessing::builder()
         .config(Config {
             echo_canceller: Some(EchoCanceller::default()),
             ..Config::default()
         })
-        .capture_config(stream)
-        .render_config(stream);
+        .capture_config(StreamConfig::new(RATE as u32, 1))
+        .render_config(StreamConfig::new(RATE as u32, render_channels));
     if let Some(aec3) = aec3 {
         builder = builder.echo_canceller3_config(aec3);
     }
@@ -81,5 +88,61 @@ fn custom_tuning_reaches_the_echo_canceller() {
     // A much stronger assumed echo path: the suppressor removes more.
     tuned_config.ep_strength.default_gain = 10.0;
     let tuned = run(&mut apm(Some(tuned_config)));
+    assert_ne!(default, tuned);
+}
+
+/// Runs 8 s of independent far-end noise on two render channels with a
+/// delayed echo of both on one microphone, and returns the processed capture
+/// signal of the last 2 s: by then AEC3 has detected stereo render (after 2 s
+/// of differing channels) and processes with its multichannel config.
+fn run_stereo(apm: &mut AudioProcessing) -> Vec<f32> {
+    let len = 8 * RATE;
+    let far = [noise(len, 3), noise(len, 4)];
+    let mut output = Vec::with_capacity(2 * RATE);
+    let mut unused = [[0.0f32; FRAME]; 2];
+    let mut out = [0.0f32; FRAME];
+    for f in 0..len / FRAME {
+        let range = f * FRAME..(f + 1) * FRAME;
+        let mic: Vec<f32> = range
+            .clone()
+            .map(|n| {
+                if n >= 2400 {
+                    0.3 * far[0][n - 2400] + 0.1 * far[1][n - 2400]
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let [u0, u1] = &mut unused;
+        apm.process_render_f32(
+            &[&far[0][range.clone()], &far[1][range.clone()]],
+            &mut [u0, u1],
+        )
+        .unwrap();
+        apm.process_capture_f32(&[&mic], &mut [&mut out]).unwrap();
+        if range.start >= len - 2 * RATE {
+            output.extend_from_slice(&out);
+        }
+    }
+    output
+}
+
+#[test]
+fn custom_config_with_a_fixed_capture_delay_builds_and_processes() {
+    // The default multichannel config has no fixed capture delay. Combining
+    // the two used to trip ConfigSelector's compatibility check in debug
+    // builds, even with mono render.
+    let mut config = EchoCanceller3Config::default();
+    config.delay.fixed_capture_delay_samples = 480;
+    let output = run(&mut apm(Some(config)));
+    assert!(output.iter().all(|s| s.is_finite()));
+}
+
+#[test]
+fn custom_tuning_reaches_the_echo_canceller_with_stereo_render() {
+    let default = run_stereo(&mut apm_with_render_channels(None, 2));
+    let mut tuned_config = EchoCanceller3Config::default();
+    tuned_config.ep_strength.default_gain = 10.0;
+    let tuned = run_stereo(&mut apm_with_render_channels(Some(tuned_config), 2));
     assert_ne!(default, tuned);
 }
