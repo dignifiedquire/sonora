@@ -195,6 +195,9 @@ impl Default for EchoCanceller {
 
 pub use sonora_aec3::config::TransparentModeType;
 
+/// Full AEC3 tuning, for [`AudioProcessingBuilder::echo_canceller3_config`](crate::AudioProcessingBuilder::echo_canceller3_config).
+pub use sonora_aec3::config::EchoCanceller3Config;
+
 /// Background noise suppression settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoiseSuppression {

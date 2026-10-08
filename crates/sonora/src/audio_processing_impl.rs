@@ -165,6 +165,8 @@ pub(crate) struct AudioProcessingImpl {
     capture_input_rms: RmsLevel,
     capture_output_rms: RmsLevel,
     capture_rms_interval_counter: usize,
+    // AEC3 tuning given to the builder; the default configuration if `None`.
+    echo_canceller3_config: Option<EchoCanceller3Config>,
 }
 
 impl AudioProcessingImpl {
@@ -193,6 +195,7 @@ impl AudioProcessingImpl {
             capture_input_rms: RmsLevel::new(),
             capture_output_rms: RmsLevel::new(),
             capture_rms_interval_counter: 0,
+            echo_canceller3_config: None,
         };
         apm.initialize();
         apm
@@ -201,6 +204,11 @@ impl AudioProcessingImpl {
     /// Installs the residual echo detector (opt-in).
     ///
     /// Must be called before `initialize()`.
+    /// Sets the AEC3 configuration used when the echo canceller is created.
+    pub(crate) fn set_echo_canceller3_config(&mut self, config: EchoCanceller3Config) {
+        self.echo_canceller3_config = Some(config);
+    }
+
     pub(crate) fn set_echo_detector(&mut self) {
         self.submodules.echo_detector = Some(ResidualEchoDetector::new());
     }
@@ -1278,7 +1286,16 @@ impl AudioProcessingImpl {
         let num_render_channels = self.num_reverse_channels();
         let num_capture_channels = self.num_proc_channels();
 
-        let mut config = EchoCanceller3Config::default();
+        // The default path stays exactly as before; only a caller's tuning
+        // is validated (clamped to valid ranges).
+        let mut config = match &self.echo_canceller3_config {
+            Some(custom) => {
+                let mut custom = custom.clone();
+                let _ = custom.validate();
+                custom
+            }
+            None => EchoCanceller3Config::default(),
+        };
         config.echo_removal_control.transparent_mode = ec.transparent_mode;
         let multichannel_config = Some(EchoCanceller3Config::create_default_multichannel_config());
 

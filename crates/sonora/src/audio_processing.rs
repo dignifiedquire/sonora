@@ -10,7 +10,7 @@ use std::error;
 use std::fmt;
 
 use crate::audio_processing_impl::AudioProcessingImpl;
-use crate::config::{Config, PlayoutAudioDeviceInfo, RuntimeSetting};
+use crate::config::{Config, EchoCanceller3Config, PlayoutAudioDeviceInfo, RuntimeSetting};
 use crate::stats::AudioProcessingStats;
 use crate::stream_config::StreamConfig;
 /// Errors returned by audio processing operations.
@@ -313,6 +313,7 @@ pub struct AudioProcessingBuilder {
     capture_config: StreamConfig,
     render_config: StreamConfig,
     echo_detector: bool,
+    echo_canceller3_config: Option<EchoCanceller3Config>,
 }
 
 impl Default for AudioProcessingBuilder {
@@ -322,6 +323,7 @@ impl Default for AudioProcessingBuilder {
             capture_config: DEFAULT_STREAM_CONFIG,
             render_config: DEFAULT_STREAM_CONFIG,
             echo_detector: false,
+            echo_canceller3_config: None,
         }
     }
 }
@@ -361,9 +363,23 @@ impl AudioProcessingBuilder {
         self
     }
 
+    /// Use this AEC3 configuration instead of the default one (matching C++
+    /// `EchoCanceller3Factory(config)`). Only takes effect when
+    /// [`Config::echo_canceller`] is enabled; its `transparent_mode` still
+    /// overrides `echo_removal_control.transparent_mode`. The configuration
+    /// is validated (clamped to valid ranges) when the echo canceller is
+    /// created.
+    pub fn echo_canceller3_config(mut self, config: EchoCanceller3Config) -> Self {
+        self.echo_canceller3_config = Some(config);
+        self
+    }
+
     /// Build the [`AudioProcessing`] instance.
     pub fn build(self) -> AudioProcessing {
         let mut inner = AudioProcessingImpl::with_config(self.config);
+        if let Some(config) = self.echo_canceller3_config {
+            inner.set_echo_canceller3_config(config);
+        }
 
         if self.echo_detector {
             inner.set_echo_detector();
