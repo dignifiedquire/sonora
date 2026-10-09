@@ -14,17 +14,10 @@ pub(crate) enum DelayEstimateQuality {
 pub(crate) struct DelayEstimate {
     pub quality: DelayEstimateQuality,
     pub delay: usize,
-    pub blocks_since_last_change: usize,
-    pub blocks_since_last_update: usize,
 }
 
 impl DelayEstimate {
     pub(crate) fn new(quality: DelayEstimateQuality, delay: usize) -> Self {
-        Self {
-            quality,
-            delay,
-            blocks_since_last_change: 0,
-            blocks_since_last_update: 0,
-        }
+        Self { quality, delay }
     }
 }

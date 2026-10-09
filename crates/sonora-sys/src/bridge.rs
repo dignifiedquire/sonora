@@ -71,6 +71,16 @@ mod ffi {
             dest: &mut [f32],
         ) -> i32;
 
+        /// Process a single 10ms reverse stream frame of f32 audio (stereo, separate L/R channels).
+        fn process_reverse_stream_f32_2ch(
+            handle: Pin<&mut ApmHandle>,
+            src_l: &[f32],
+            src_r: &[f32],
+            sample_rate: i32,
+            dest_l: &mut [f32],
+            dest_r: &mut [f32],
+        ) -> i32;
+
         // ── Per-component: ThreeBandFilterBank ───────────────────────────────
 
         type FilterBankHandle;

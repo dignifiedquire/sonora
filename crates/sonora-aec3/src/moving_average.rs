@@ -3,13 +3,18 @@
 //! Ported from `modules/audio_processing/aec3/moving_average.h/cc`.
 
 /// Computes the running average over the last `mem_len` input vectors.
+///
+/// Until `mem_len` inputs have been seen, the average is taken over the
+/// inputs seen so far rather than over a window padded with zeros.
 #[derive(Debug)]
 pub(crate) struct MovingAverage {
     num_elem: usize,
     mem_len: usize,
-    scaling: f32,
     memory: Vec<f32>,
     mem_index: usize,
+    /// Number of stored inputs that contribute to the average (C++
+    /// `number_updates_`), saturating at `mem_len`.
+    number_updates: usize,
 }
 
 impl MovingAverage {
@@ -22,14 +27,14 @@ impl MovingAverage {
         Self {
             num_elem,
             mem_len: stored,
-            scaling: 1.0 / mem_len as f32,
             memory: vec![0.0; num_elem * stored],
             mem_index: 0,
+            number_updates: 0,
         }
     }
 
-    /// Computes the average of `input` and the `mem_len - 1` previous inputs,
-    /// writing the result to `output`.
+    /// Computes the average of `input` and up to `mem_len - 1` previous
+    /// inputs, writing the result to `output`.
     pub(crate) fn average(&mut self, input: &[f32], output: &mut [f32]) {
         debug_assert_eq!(input.len(), self.num_elem);
         debug_assert_eq!(output.len(), self.num_elem);
@@ -44,9 +49,10 @@ impl MovingAverage {
             }
         }
 
-        // Divide by total window length.
+        // Divide by the number of points used to compute the average.
+        let scaling = 1.0 / (self.number_updates + 1) as f32;
         for o in output.iter_mut() {
-            *o *= self.scaling;
+            *o *= scaling;
         }
 
         // Update memory ring buffer.
@@ -55,6 +61,22 @@ impl MovingAverage {
             self.memory[start..start + self.num_elem].copy_from_slice(input);
             self.mem_index = (self.mem_index + 1) % self.mem_len;
         }
+        self.number_updates = self.mem_len.min(self.number_updates + 1);
+    }
+
+    /// If `mem_len` differs from the current window length, resets the state
+    /// and clears the memory to use the new window length (C++
+    /// `UpdateMemoryLength`).
+    pub(crate) fn update_memory_length(&mut self, mem_len: usize) {
+        if self.mem_len + 1 == mem_len {
+            return;
+        }
+        debug_assert!(mem_len > 0);
+        self.mem_len = mem_len - 1;
+        self.memory.resize(self.num_elem * self.mem_len, 0.0);
+        self.memory.fill(0.0);
+        self.mem_index = 0;
+        self.number_updates = 0;
     }
 }
 
@@ -75,17 +97,18 @@ mod tests {
         let data4 = [8.0, 4.0, 2.0, 1.0];
         let mut output = [0.0f32; 4];
 
-        // First call: only data1, memory is zeros.
+        // First call: only data1 has been seen, so the average is data1
+        // itself. The empty memory slots must not dilute it.
         ma.average(&data1, &mut output);
         for i in 0..num_elem {
-            assert!((output[i] - data1[i] / 3.0).abs() < e, "step 1, elem {i}");
+            assert!((output[i] - data1[i] / 1.0).abs() < e, "step 1, elem {i}");
         }
 
-        // Second call: data1 + data2 in memory.
+        // Second call: average of the two inputs seen so far.
         ma.average(&data2, &mut output);
         for i in 0..num_elem {
             assert!(
-                (output[i] - (data1[i] + data2[i]) / 3.0).abs() < e,
+                (output[i] - (data1[i] + data2[i]) / 2.0).abs() < e,
                 "step 2, elem {i}"
             );
         }
@@ -105,6 +128,72 @@ mod tests {
             assert!(
                 (output[i] - (data2[i] + data3[i] + data4[i]) / 3.0).abs() < e,
                 "step 4, elem {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn update_memory_length() {
+        let num_elem = 4;
+        let e = 1e-6;
+        let mut ma = MovingAverage::new(num_elem, 3);
+
+        let data1 = [1.0, 2.0, 3.0, 4.0];
+        let data2 = [5.0, 1.0, 9.0, 7.0];
+        let mut output = [0.0f32; 4];
+
+        ma.average(&data1, &mut output);
+        assert!((output[0] - data1[0]).abs() < e);
+
+        ma.update_memory_length(1);
+        ma.average(&data2, &mut output);
+        // After the update, it behaves as if it was just created with
+        // mem_len = 1.
+        for i in 0..num_elem {
+            assert!((output[i] - data2[i]).abs() < e, "elem {i}");
+        }
+    }
+
+    /// A suppressor config switch changes the averaging window at runtime.
+    /// Inputs from the old window must not leak into the new one, and the
+    /// new window must ramp up like a freshly created instance. Keeping the
+    /// same window length must keep the history.
+    #[test]
+    fn update_memory_length_restarts_ramp_up() {
+        let num_elem = 4;
+        let e = 1e-6;
+        let mut ma = MovingAverage::new(num_elem, 3);
+
+        let data1 = [1.0, 2.0, 3.0, 4.0];
+        let data2 = [5.0, 1.0, 9.0, 7.0];
+        let data3 = [3.0, 3.0, 5.0, 6.0];
+        let data4 = [8.0, 4.0, 2.0, 1.0];
+        let mut output = [0.0f32; 4];
+
+        ma.average(&data1, &mut output);
+        ma.average(&data2, &mut output);
+
+        // Same length: no reset, so data1 and data2 still count.
+        ma.update_memory_length(3);
+        ma.average(&data3, &mut output);
+        for i in 0..num_elem {
+            assert!(
+                (output[i] - (data1[i] + data2[i] + data3[i]) / 3.0).abs() < e,
+                "same length, elem {i}"
+            );
+        }
+
+        // New length: history is dropped and the ramp-up starts over.
+        ma.update_memory_length(2);
+        ma.average(&data4, &mut output);
+        for i in 0..num_elem {
+            assert!((output[i] - data4[i]).abs() < e, "after resize, elem {i}");
+        }
+        ma.average(&data1, &mut output);
+        for i in 0..num_elem {
+            assert!(
+                (output[i] - (data4[i] + data1[i]) / 2.0).abs() < e,
+                "after resize, second call, elem {i}"
             );
         }
     }

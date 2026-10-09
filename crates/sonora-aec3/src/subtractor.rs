@@ -129,7 +129,6 @@ pub(crate) struct Subtractor {
     backend: sonora_simd::SimdBackend,
     config: EchoCanceller3Config,
     num_capture_channels: usize,
-    use_coarse_filter_reset_hangover: bool,
     refined_filters: Vec<AdaptiveFirFilter>,
     coarse_filters: Vec<AdaptiveFirFilter>,
     refined_gains: Vec<RefinedFilterUpdateGain>,
@@ -199,7 +198,6 @@ impl Subtractor {
             backend,
             config: config.clone(),
             num_capture_channels,
-            use_coarse_filter_reset_hangover: true,
             refined_filters,
             coarse_filters,
             refined_gains,
@@ -318,8 +316,7 @@ impl Subtractor {
             // Update the refined filter.
             let mut g = FftData::default();
             if !refined_filters_adjusted {
-                let disallow_leakage_diverged = self.coarse_filter_reset_hangover[ch] > 0
-                    && self.use_coarse_filter_reset_hangover;
+                let disallow_leakage_diverged = self.coarse_filter_reset_hangover[ch] > 0;
 
                 let mut erl = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
                 compute_erl(
