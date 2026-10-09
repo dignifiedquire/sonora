@@ -446,9 +446,14 @@ impl EchoRemover {
             let clock_drift = self.config.echo_removal_control.has_clock_drift
                 || echo_path_variability.clock_drift;
 
-            // Compute preferred gains.
+            // Compute preferred gains. The C++ code switches to an ML-REE
+            // specific suppressor config while the NeuralResidualEchoEstimator
+            // is active. That estimator is not ported, so the active config is
+            // always `config.suppressor` and never changes.
             let mut high_bands_gain = 0.0f32;
             self.suppression_gain.get_gain(
+                &self.config.suppressor,
+                false,
                 &SuppressionInput {
                     nearend_spectrum,
                     echo_spectrum,

@@ -7,7 +7,7 @@
 
 use crate::block::Block;
 use crate::clockdrift_detector::ClockdriftLevel;
-use crate::common::{BLOCK_SIZE_LOG2, NUM_BLOCKS_PER_SECOND};
+use crate::common::BLOCK_SIZE_LOG2;
 use crate::config::EchoCanceller3Config;
 use crate::delay_estimate::{DelayEstimate, DelayEstimateQuality};
 use crate::downsampled_render_buffer::DownsampledRenderBuffer;
@@ -49,7 +49,6 @@ pub(crate) struct RenderDelayController {
     metrics: RenderDelayControllerMetrics,
     delay_samples: Option<DelayEstimate>,
     capture_call_counter: usize,
-    delay_change_counter: i32,
     last_delay_estimate_quality: DelayEstimateQuality,
 }
 
@@ -66,7 +65,6 @@ impl RenderDelayController {
             metrics: RenderDelayControllerMetrics::new(),
             delay_samples: None,
             capture_call_counter: 0,
-            delay_change_counter: 0,
             last_delay_estimate_quality: DelayEstimateQuality::Coarse,
         }
     }
@@ -77,7 +75,6 @@ impl RenderDelayController {
         self.delay = None;
         self.delay_samples = None;
         self.delay_estimator.reset(reset_delay_confidence);
-        self.delay_change_counter = 0;
         if reset_delay_confidence {
             self.last_delay_estimate_quality = DelayEstimateQuality::Coarse;
         }
@@ -94,41 +91,15 @@ impl RenderDelayController {
 
         let delay_samples = self.delay_estimator.estimate_delay(render_buffer, capture);
 
-        if let Some(new_est) = delay_samples {
-            if self.delay_samples.is_none()
-                || self
-                    .delay_samples
-                    .as_ref()
-                    .is_some_and(|d| d.delay != new_est.delay)
-            {
-                self.delay_change_counter = 0;
-            }
-            if let Some(existing) = &mut self.delay_samples {
-                existing.blocks_since_last_change = if existing.delay == new_est.delay {
-                    existing.blocks_since_last_change + 1
-                } else {
-                    0
-                };
-                existing.blocks_since_last_update = 0;
-                existing.delay = new_est.delay;
-                existing.quality = new_est.quality;
-            } else {
-                self.delay_samples = Some(new_est);
-            }
-        } else if let Some(existing) = &mut self.delay_samples {
-            existing.blocks_since_last_change += 1;
-            existing.blocks_since_last_update += 1;
-        }
-
-        if self.delay_change_counter < 2 * NUM_BLOCKS_PER_SECOND as i32 {
-            self.delay_change_counter += 1;
+        if delay_samples.is_some() {
+            self.delay_samples = delay_samples;
         }
 
         if let Some(ds) = &self.delay_samples {
             // Compute the render delay buffer delay.
             let use_hysteresis = self.last_delay_estimate_quality == DelayEstimateQuality::Refined
                 && ds.quality == DelayEstimateQuality::Refined;
-            self.delay = Some(compute_buffer_delay(
+            let delay = compute_buffer_delay(
                 &self.delay,
                 if use_hysteresis {
                     self.hysteresis_limit_blocks
@@ -136,8 +107,9 @@ impl RenderDelayController {
                     0
                 },
                 *ds,
-            ));
-            self.last_delay_estimate_quality = ds.quality;
+            );
+            self.last_delay_estimate_quality = delay.quality;
+            self.delay = Some(delay);
         }
 
         self.metrics.update(

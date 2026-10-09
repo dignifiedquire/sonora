@@ -173,8 +173,7 @@ impl Default for HighPassFilter {
 /// Echo canceller (AEC3) settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EchoCanceller {
-    /// Enforce the highpass filter to be on (default: true). Has no effect
-    /// in mobile mode.
+    /// Enforce the highpass filter to be on (default: true).
     pub enforce_high_pass_filtering: bool,
     /// Which transparent mode algorithm to use (default: `Legacy`).
     ///
