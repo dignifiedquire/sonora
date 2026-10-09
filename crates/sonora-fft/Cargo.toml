@@ -13,6 +13,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+sonora-simd = { workspace = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
 test-strategy = { workspace = true }
