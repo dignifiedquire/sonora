@@ -53,11 +53,14 @@ fn compute_per_sample_subframe_factors(
     }
 }
 
-fn scale_samples(per_sample_scaling_factors: &[f32], signal: &mut [&mut [f32]]) {
-    let samples_per_channel = signal.first().map_or(0, |ch| ch.len());
+fn scale_samples<C: AsRef<[f32]> + AsMut<[f32]>>(
+    per_sample_scaling_factors: &[f32],
+    signal: &mut [C],
+) {
+    let samples_per_channel = signal.first().map_or(0, |ch| ch.as_ref().len());
     debug_assert_eq!(samples_per_channel, per_sample_scaling_factors.len());
     for channel in signal.iter_mut() {
-        for (sample, &factor) in channel.iter_mut().zip(per_sample_scaling_factors) {
+        for (sample, &factor) in channel.as_mut().iter_mut().zip(per_sample_scaling_factors) {
             *sample = (*sample * factor).clamp(MIN_FLOAT_S16_VALUE, MAX_FLOAT_S16_VALUE);
         }
     }
@@ -90,13 +93,14 @@ impl Limiter {
     }
 
     /// Applies limiter and hard-clipping to the signal.
-    pub fn process(&mut self, signal: &mut [&mut [f32]]) {
-        let samples_per_channel = signal.first().map_or(0, |ch| ch.len());
+    ///
+    /// `signal` holds one slice per channel; owned buffers (`Vec<f32>`) work
+    /// as well as borrowed slices, so callers need not build a view.
+    pub fn process<C: AsRef<[f32]> + AsMut<[f32]>>(&mut self, signal: &mut [C]) {
+        let samples_per_channel = signal.first().map_or(0, |ch| ch.as_ref().len());
         debug_assert!(samples_per_channel <= MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL);
 
-        // Build immutable view of signal for level estimation.
-        let signal_refs: Vec<&[f32]> = signal.iter().map(|ch| &**ch).collect();
-        let level_estimate = self.level_estimator.compute_level(&signal_refs);
+        let level_estimate = self.level_estimator.compute_level(signal);
 
         debug_assert_eq!(level_estimate.len() + 1, self.scaling_factors.len());
         self.scaling_factors[0] = self.last_scaling_factor;

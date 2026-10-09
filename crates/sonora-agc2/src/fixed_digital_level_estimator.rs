@@ -44,15 +44,19 @@ impl FixedDigitalLevelEstimator {
     ///
     /// The input is assumed to be in FloatS16 format. Returns `SUB_FRAMES_IN_FRAME`
     /// level estimates, one per sub-frame.
-    pub fn compute_level(&mut self, frame: &[&[f32]]) -> [f32; SUB_FRAMES_IN_FRAME as usize] {
+    pub fn compute_level<C: AsRef<[f32]>>(
+        &mut self,
+        frame: &[C],
+    ) -> [f32; SUB_FRAMES_IN_FRAME as usize] {
         let num_channels = frame.len();
         debug_assert!(num_channels > 0);
-        debug_assert_eq!(frame[0].len(), self.samples_in_frame as usize);
+        debug_assert_eq!(frame[0].as_ref().len(), self.samples_in_frame as usize);
 
         // Compute max envelope without smoothing.
         let mut envelope = [0.0_f32; SUB_FRAMES_IN_FRAME as usize];
         let sub_frame_len = self.samples_in_sub_frame as usize;
         for channel in frame {
+            let channel = channel.as_ref();
             for (sub_frame, env) in envelope.iter_mut().enumerate() {
                 let sub_frame_samples =
                     &channel[sub_frame * sub_frame_len..(sub_frame + 1) * sub_frame_len];
