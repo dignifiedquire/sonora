@@ -11,6 +11,7 @@ use crate::audio_buffer::AudioBuffer;
 use crate::audio_converter::AudioConverter;
 use crate::capture_levels_adjuster::CaptureLevelsAdjuster;
 use crate::config::{Config, DownmixMethod, NoiseSuppressionLevel, RuntimeSetting};
+use crate::denormal_disabler::DenormalDisabler;
 use crate::echo_canceller3::EchoCanceller3;
 use crate::gain_controller2::{
     Agc2AdaptiveDigitalConfig, Agc2Config, Agc2InputVolumeControllerConfig, FixedDigitalConfig,
@@ -194,6 +195,9 @@ impl AudioProcessingImpl {
             capture_output_rms: RmsLevel::new(),
             capture_rms_interval_counter: 0,
         };
+        if !DenormalDisabler::is_supported() {
+            tracing::info!("Denormal disabler unsupported");
+        }
         apm.initialize();
         apm
     }
@@ -322,6 +326,7 @@ impl AudioProcessingImpl {
     /// Processes a capture audio frame.
     ///
     /// `src` and `dest` are deinterleaved float channel slices, one per channel.
+    #[inline(never)]
     pub(crate) fn process_stream(
         &mut self,
         src: &[&[f32]],
@@ -329,6 +334,12 @@ impl AudioProcessingImpl {
         output_config: &StreamConfig,
         dest: &mut [&mut [f32]],
     ) {
+        // SAFETY: the pipeline tolerates flushed subnormals; upstream runs it
+        // under the same guard (audio_processing_impl.cc, DenormalDisabler).
+        // Foreign code in the window (tracing subscribers, the allocator, the
+        // panic hook) is documented on `AudioProcessing`. `#[inline(never)]`
+        // keeps caller code from being inlined into the window.
+        let _denormal_disabler = unsafe { DenormalDisabler::new() };
         self.maybe_initialize_capture(input_config, output_config);
 
         let capture_audio = self.capture.capture_audio.as_mut().unwrap();
@@ -353,6 +364,7 @@ impl AudioProcessingImpl {
     /// Processes a reverse (render / far-end) audio frame.
     ///
     /// `src` and `dest` are deinterleaved float channel slices, one per channel.
+    #[inline(never)]
     pub(crate) fn process_reverse_stream(
         &mut self,
         src: &[&[f32]],
@@ -360,6 +372,12 @@ impl AudioProcessingImpl {
         output_config: &StreamConfig,
         dest: &mut [&mut [f32]],
     ) {
+        // SAFETY: the pipeline tolerates flushed subnormals; upstream runs it
+        // under the same guard (audio_processing_impl.cc, DenormalDisabler).
+        // Foreign code in the window (tracing subscribers, the allocator, the
+        // panic hook) is documented on `AudioProcessing`. `#[inline(never)]`
+        // keeps caller code from being inlined into the window.
+        let _denormal_disabler = unsafe { DenormalDisabler::new() };
         self.maybe_initialize_render(input_config, output_config);
         self.analyze_reverse_stream_locked(src, input_config);
 
@@ -387,6 +405,7 @@ impl AudioProcessingImpl {
     }
 
     /// Processes a capture audio frame (int16, interleaved).
+    #[inline(never)]
     pub(crate) fn process_stream_i16(
         &mut self,
         src: &[i16],
@@ -394,6 +413,12 @@ impl AudioProcessingImpl {
         output_config: &StreamConfig,
         dest: &mut [i16],
     ) {
+        // SAFETY: the pipeline tolerates flushed subnormals; upstream runs it
+        // under the same guard (audio_processing_impl.cc, DenormalDisabler).
+        // Foreign code in the window (tracing subscribers, the allocator, the
+        // panic hook) is documented on `AudioProcessing`. `#[inline(never)]`
+        // keeps caller code from being inlined into the window.
+        let _denormal_disabler = unsafe { DenormalDisabler::new() };
         self.maybe_initialize_capture(input_config, output_config);
 
         let capture_audio = self.capture.capture_audio.as_mut().unwrap();
@@ -429,6 +454,7 @@ impl AudioProcessingImpl {
     }
 
     /// Processes a reverse (render / far-end) audio frame (int16, interleaved).
+    #[inline(never)]
     pub(crate) fn process_reverse_stream_i16(
         &mut self,
         src: &[i16],
@@ -436,6 +462,12 @@ impl AudioProcessingImpl {
         output_config: &StreamConfig,
         dest: &mut [i16],
     ) {
+        // SAFETY: the pipeline tolerates flushed subnormals; upstream runs it
+        // under the same guard (audio_processing_impl.cc, DenormalDisabler).
+        // Foreign code in the window (tracing subscribers, the allocator, the
+        // panic hook) is documented on `AudioProcessing`. `#[inline(never)]`
+        // keeps caller code from being inlined into the window.
+        let _denormal_disabler = unsafe { DenormalDisabler::new() };
         self.maybe_initialize_render(input_config, output_config);
 
         let render_audio = self.render.render_audio.as_mut().unwrap();
