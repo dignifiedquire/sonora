@@ -134,12 +134,14 @@ impl<'a> RenderBuffer<'a> {
         let size = self.fft_buffer.index.size;
         let write = self.fft_buffer.index.write;
         let read = self.fft_buffer.index.read;
-        let headroom = if write < read {
+        // The write and read indices are decreased over time. On a render
+        // underrun they can meet, and then there is no headroom left.
+        let headroom = if write <= read {
             read - write
         } else {
             size - write + read
         };
-        debug_assert!(headroom <= size);
+        debug_assert!(headroom < size);
         headroom
     }
 
@@ -238,7 +240,7 @@ mod tests {
         let mut spectrum_buffer = SpectrumBuffer::new(size, num_channels);
         let mut fft_buffer = FftBuffer::new(size, num_channels);
 
-        // write=0, read=0 → headroom = size - 0 + 0 = size
+        // write=0, read=0 → the pointers have met, so headroom = 0
         set_indices(
             &mut block_buffer,
             &mut spectrum_buffer,
@@ -247,7 +249,7 @@ mod tests {
             0,
         );
         let rb = RenderBuffer::new(&block_buffer, &spectrum_buffer, &fft_buffer);
-        assert_eq!(rb.headroom(), size);
+        assert_eq!(rb.headroom(), 0);
 
         // write=3, read=7 → headroom = 7 - 3 = 4
         set_indices(
@@ -270,5 +272,32 @@ mod tests {
         );
         let rb = RenderBuffer::new(&block_buffer, &spectrum_buffer, &fft_buffer);
         assert_eq!(rb.headroom(), 6);
+    }
+
+    /// On a render underrun the read pointer catches up with the write
+    /// pointer. No render data is then buffered ahead of the read position,
+    /// so the headroom must be 0. Reporting the full buffer size instead
+    /// (upstream bug fixed in d460e60e19) makes consumers such as
+    /// `EchoAudibility` look ahead over stale render blocks, which offsets the
+    /// buffers needlessly and costs transparency.
+    #[test]
+    fn headroom_is_zero_when_read_meets_write() {
+        let size = 10;
+        let num_channels = 1;
+        let mut block_buffer = BlockBuffer::new(size, 1, num_channels);
+        let mut spectrum_buffer = SpectrumBuffer::new(size, num_channels);
+        let mut fft_buffer = FftBuffer::new(size, num_channels);
+
+        for position in 0..size {
+            set_indices(
+                &mut block_buffer,
+                &mut spectrum_buffer,
+                &mut fft_buffer,
+                position,
+                position,
+            );
+            let rb = RenderBuffer::new(&block_buffer, &spectrum_buffer, &fft_buffer);
+            assert_eq!(rb.headroom(), 0, "write == read == {position}");
+        }
     }
 }

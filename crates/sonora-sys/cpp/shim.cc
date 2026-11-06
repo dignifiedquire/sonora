@@ -131,6 +131,23 @@ int32_t process_reverse_stream_f32(
         src_ptrs, input_config, output_config, dest_ptrs);
 }
 
+int32_t process_reverse_stream_f32_2ch(
+    ApmHandle& handle,
+    rust::Slice<const float> src_l,
+    rust::Slice<const float> src_r,
+    int32_t sample_rate,
+    rust::Slice<float> dest_l,
+    rust::Slice<float> dest_r) {
+
+    webrtc::StreamConfig config(sample_rate, 2);
+
+    const float* src_ptrs[2] = { src_l.data(), src_r.data() };
+    float* dest_ptrs[2] = { dest_l.data(), dest_r.data() };
+
+    return handle.apm->ProcessReverseStream(
+        src_ptrs, config, config, dest_ptrs);
+}
+
 // ── Per-component: ThreeBandFilterBank ────────────────────────────────────────
 
 std::unique_ptr<FilterBankHandle> create_filter_bank() {

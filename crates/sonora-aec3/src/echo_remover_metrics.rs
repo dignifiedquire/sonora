@@ -104,8 +104,10 @@ impl EchoRemoverMetrics {
     }
 
     fn reset_metrics(&mut self) {
+        // The floor and the ceiling are sentinels: each starts at the opposite
+        // end of the range from the extreme it tracks.
         self.erl_time_domain = DbMetric::new(0.0, 10000.0, 0.0);
-        self.erle_time_domain = DbMetric::new(0.0, 0.0, 1000.0);
+        self.erle_time_domain = DbMetric::new(0.0, 1000.0, 0.0);
         self.saturated_capture = false;
     }
 }
@@ -144,5 +146,22 @@ mod tests {
         assert!((metric.sum_value - last_value).abs() < 1e-4);
         assert!((metric.ceil_value - max_value).abs() < 1e-4);
         assert!((metric.floor_value - min_value).abs() < 1e-4);
+    }
+
+    /// The ERL and ERLE floors and ceilings must report the smallest and
+    /// largest values seen since the last reset. If a sentinel starts inside
+    /// the value range (the ERLE bug fixed upstream in 86ef7fa42d), it hides
+    /// the real extreme and the reported min/max stay stuck at the sentinel.
+    #[test]
+    fn reset_sentinels_let_floor_and_ceiling_track_values() {
+        let mut metrics = EchoRemoverMetrics::new();
+        for value in [3.0f32, 7.0, 5.0] {
+            metrics.erl_time_domain.update_instant(value);
+            metrics.erle_time_domain.update_instant(value);
+        }
+        assert_eq!(metrics.erl_time_domain.floor_value, 3.0);
+        assert_eq!(metrics.erl_time_domain.ceil_value, 7.0);
+        assert_eq!(metrics.erle_time_domain.floor_value, 3.0);
+        assert_eq!(metrics.erle_time_domain.ceil_value, 7.0);
     }
 }

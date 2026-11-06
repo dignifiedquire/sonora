@@ -231,6 +231,33 @@ mod tests {
         n2.iter().sum::<f32>() / n2.len() as f32
     }
 
+    /// Upstream 297352a2fd applies the same random phases to every channel, so
+    /// that channels with the same noise estimate get identical comfort noise
+    /// instead of decorrelated noise. `correct_level` checks only the power,
+    /// which is the same either way.
+    #[test]
+    fn identical_noise_on_all_channels() {
+        const NUM_CHANNELS: usize = 3;
+        let config = EchoCanceller3Config::default();
+        let mut cng = ComfortNoiseGenerator::new(&config, NUM_CHANNELS);
+
+        let n2 = vec![[1000.0f32 * 1000.0; FFT_LENGTH_BY_2_PLUS_1]; NUM_CHANNELS];
+        let mut n_lower = vec![FftData::default(); NUM_CHANNELS];
+        let mut n_upper = vec![FftData::default(); NUM_CHANNELS];
+
+        // Several blocks, so the seed advances between calls.
+        for _ in 0..5 {
+            cng.compute(false, &n2, &mut n_lower, &mut n_upper);
+            assert!(power(&n_lower[0]) > 0.0);
+            for ch in 1..NUM_CHANNELS {
+                assert_eq!(n_lower[ch].re, n_lower[0].re, "lower re, ch {ch}");
+                assert_eq!(n_lower[ch].im, n_lower[0].im, "lower im, ch {ch}");
+                assert_eq!(n_upper[ch].re, n_upper[0].re, "upper re, ch {ch}");
+                assert_eq!(n_upper[ch].im, n_upper[0].im, "upper im, ch {ch}");
+            }
+        }
+    }
+
     #[test]
     fn correct_level() {
         const NUM_CHANNELS: usize = 5;

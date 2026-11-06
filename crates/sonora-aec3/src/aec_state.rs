@@ -188,10 +188,9 @@ impl FilterDelay {
         external_delay: &Option<DelayEstimate>,
         blocks_with_proper_filter_adaptation: usize,
     ) {
-        if let Some(ext) = external_delay
-            && (self.external_delay.is_none() || self.external_delay.unwrap().delay != ext.delay)
-        {
-            self.external_delay = Some(*ext);
+        // Update the delay based on the external delay.
+        if external_delay.is_some() {
+            self.external_delay = *external_delay;
         }
 
         let delay_estimator_may_not_have_converged =
@@ -348,9 +347,7 @@ impl SaturationDetector {
 pub(crate) struct AecState {
     config: EchoCanceller3Config,
     num_capture_channels: usize,
-    // Field trial flags — use defaults (no field trials).
-    deactivate_initial_state_reset_at_echo_path_change: bool,
-    full_reset_at_echo_path_change: bool,
+    // Field trial flag — uses the default (no field trials).
     subtractor_analyzer_reset_at_echo_path_change: bool,
 
     initial_state: InitialState,
@@ -376,9 +373,7 @@ impl AecState {
         Self {
             config: config.clone(),
             num_capture_channels,
-            // Without field trials, these are the defaults:
-            deactivate_initial_state_reset_at_echo_path_change: false,
-            full_reset_at_echo_path_change: true,
+            // Without field trials, this is the default:
             subtractor_analyzer_reset_at_echo_path_change: true,
 
             initial_state: InitialState::new(config),
@@ -483,16 +478,12 @@ impl AecState {
 
     /// Takes appropriate action at an echo path change.
     pub(crate) fn handle_echo_path_change(&mut self, echo_path_variability: &EchoPathVariability) {
-        if self.full_reset_at_echo_path_change
-            && echo_path_variability.delay_change != DelayAdjustment::None
-        {
+        if echo_path_variability.delay_change != DelayAdjustment::None {
             self.filter_analyzer.reset();
             self.capture_signal_saturation = false;
             self.strong_not_saturated_render_blocks = 0;
             self.blocks_with_active_render = 0;
-            if !self.deactivate_initial_state_reset_at_echo_path_change {
-                self.initial_state.reset();
-            }
+            self.initial_state.reset();
             if let Some(ref mut ts) = self.transparent_state {
                 ts.reset();
             }

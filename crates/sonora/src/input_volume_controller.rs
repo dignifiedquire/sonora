@@ -116,6 +116,9 @@ pub(crate) struct InputVolumeControllerConfig {
     pub speech_ratio_threshold: f32,
 }
 
+/// Upstream's production `InputVolumeController::Config{}` (upstream commit
+/// d9b92fe1bc), which C++ `AudioProcessingImpl::InitializeGainController2()`
+/// passes to the controller.
 impl Default for InputVolumeControllerConfig {
     fn default() -> Self {
         Self {
@@ -124,12 +127,12 @@ impl Default for InputVolumeControllerConfig {
             clipped_level_step: 15,
             clipped_ratio_threshold: 0.1,
             clipped_wait_frames: 300,
-            enable_clipping_predictor: false,
-            target_range_max_dbfs: -18,
-            target_range_min_dbfs: -30,
-            update_input_volume_wait_frames: 0,
-            speech_probability_threshold: 0.5,
-            speech_ratio_threshold: 0.8,
+            enable_clipping_predictor: true,
+            target_range_max_dbfs: -12,
+            target_range_min_dbfs: -50,
+            update_input_volume_wait_frames: 100,
+            speech_probability_threshold: 0.7,
+            speech_ratio_threshold: 0.6,
         }
     }
 }
@@ -1413,12 +1416,124 @@ mod tests {
         }
     }
 
+    /// The APM pipeline builds the controller from
+    /// `InputVolumeControllerConfig::default()`, just as C++ APM builds it from
+    /// `InputVolumeController::Config{}`. Any difference between the two
+    /// changes `recommended_stream_analog_level()` relative to C++. The Rust
+    /// default once drifted to test-like values (target range [-30, -18]
+    /// dBFS, no clipping predictor, no update wait), so this test pins every
+    /// field to upstream's production values in
+    /// `modules/audio_processing/agc2/input_volume_controller.h` at upstream
+    /// commit d9b92fe1bc ("Make max target input level for input controller
+    /// -12dB").
+    #[test]
+    fn default_config_matches_upstream_production_config() {
+        let config = InputVolumeControllerConfig::default();
+        assert_eq!(config.min_input_volume, 20);
+        assert_eq!(config.clipped_level_min, 70);
+        assert_eq!(config.clipped_level_step, 15);
+        assert_eq!(config.clipped_ratio_threshold, 0.1);
+        assert_eq!(config.clipped_wait_frames, 300);
+        assert!(config.enable_clipping_predictor);
+        // d9b92fe1bc raised this from -30 (M145) to the former experimental
+        // value of -12 and removed `target_range_experimental_max_dbfs`.
+        assert_eq!(config.target_range_max_dbfs, -12);
+        assert_eq!(config.target_range_min_dbfs, -50);
+        assert_eq!(config.update_input_volume_wait_frames, 100);
+        assert_eq!(config.speech_probability_threshold, 0.7);
+        assert_eq!(config.speech_ratio_threshold, 0.6);
+    }
+
+    /// Port of upstream `InputVolumeControllerChannelSampleRateTest.CheckIsAlive`.
+    /// Upstream's `Config{.enable_clipping_predictor = true}` equals the
+    /// production default, so this checks that the default config lowers the
+    /// volume on clipping, raises it below the target range, and lowers it
+    /// above the target range.
+    #[test]
+    fn check_is_alive() {
+        for num_channels in [1, 2, 3, 6] {
+            for sample_rate_hz in [8000, 16000, 32000, 48000] {
+                let case = format!("num_channels={num_channels}, sample_rate_hz={sample_rate_hz}");
+                let config = InputVolumeControllerConfig {
+                    enable_clipping_predictor: true,
+                    ..Default::default()
+                };
+                let mut controller = InputVolumeController::new(num_channels, &config);
+                controller.initialize();
+                let mut buffer = AudioBuffer::new(
+                    sample_rate_hz,
+                    num_channels,
+                    sample_rate_hz,
+                    num_channels,
+                    sample_rate_hz,
+                );
+
+                const STARTUP_VOLUME: i32 = 100;
+                let mut applied_input_volume = STARTUP_VOLUME;
+
+                // Trigger a downward adaptation with clipping.
+                let level_within_target_dbfs =
+                    (config.target_range_min_dbfs + config.target_range_max_dbfs) / 2;
+                write_alternating_audio_buffer_samples(MAX_SAMPLE, &mut buffer);
+                let initial_volume_1 = applied_input_volume;
+                for _ in 0..400 {
+                    controller.analyze_input_audio(applied_input_volume, &buffer);
+                    applied_input_volume = controller
+                        .recommend_input_volume(
+                            LOW_SPEECH_PROBABILITY,
+                            Some(level_within_target_dbfs as f32),
+                        )
+                        .unwrap();
+                }
+                assert!(
+                    controller.recommended_input_volume() < initial_volume_1,
+                    "{case}"
+                );
+
+                // Fill in audio that does not clip.
+                write_alternating_audio_buffer_samples(1234.5, &mut buffer);
+
+                // Trigger an upward adaptation.
+                let initial_volume_2 = controller.recommended_input_volume();
+                for _ in 0..config.clipped_wait_frames {
+                    controller.analyze_input_audio(applied_input_volume, &buffer);
+                    applied_input_volume = controller
+                        .recommend_input_volume(
+                            HIGH_SPEECH_PROBABILITY,
+                            Some((config.target_range_min_dbfs - 5) as f32),
+                        )
+                        .unwrap();
+                }
+                assert!(
+                    controller.recommended_input_volume() > initial_volume_2,
+                    "{case}"
+                );
+
+                // Trigger a downward adaptation.
+                let initial_volume = controller.recommended_input_volume();
+                for _ in 0..config.update_input_volume_wait_frames {
+                    controller.analyze_input_audio(applied_input_volume, &buffer);
+                    applied_input_volume = controller
+                        .recommend_input_volume(
+                            HIGH_SPEECH_PROBABILITY,
+                            Some((config.target_range_max_dbfs + 5) as f32),
+                        )
+                        .unwrap();
+                }
+                assert!(
+                    controller.recommended_input_volume() < initial_volume,
+                    "{case}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn startup_min_volume_configuration_respected_when_applied_input_volume_above_min() {
         for min_input_volume in [12, 20] {
             let mut helper = TestHelper::new(InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             assert_eq!(helper.call_agc_sequence(128, 0.9, -80.0, 1).unwrap(), 128);
@@ -1430,7 +1545,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let mut helper = TestHelper::new(InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             assert!(helper.call_agc_sequence(10, 0.9, -80.0, 1).unwrap() >= 10);
@@ -1446,7 +1561,7 @@ mod tests {
                 update_input_volume_wait_frames: 1,
                 speech_probability_threshold: 0.5,
                 speech_ratio_threshold: 0.5,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             let volume = helper.call_agc_sequence(1, 0.9, -80.0, 1).unwrap();
@@ -1463,7 +1578,7 @@ mod tests {
                 update_input_volume_wait_frames: 1,
                 speech_probability_threshold: 0.5,
                 speech_ratio_threshold: 0.5,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             for _ in 0..100 {
@@ -1482,7 +1597,7 @@ mod tests {
                 update_input_volume_wait_frames: 1,
                 speech_probability_threshold: 0.5,
                 speech_ratio_threshold: 0.5,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             });
 
             let volume = helper.call_agc_sequence(0, 0.9, -80.0, 1).unwrap();
@@ -1595,7 +1710,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper_1 = TestHelper::new(config.clone());
             let mut helper_2 = TestHelper::new(config);
@@ -1632,7 +1747,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1663,7 +1778,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1694,7 +1809,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1714,7 +1829,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1734,7 +1849,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(255, HIGH_SPEECH_PROBABILITY, SPEECH_LEVEL, 1);
@@ -1749,7 +1864,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(255, HIGH_SPEECH_PROBABILITY, SPEECH_LEVEL, 1);
@@ -1788,7 +1903,7 @@ mod tests {
                 clipped_level_step: CLIPPED_LEVEL_STEP,
                 clipped_ratio_threshold: CLIPPED_RATIO_THRESHOLD,
                 clipped_wait_frames: CLIPPED_WAIT_FRAMES,
-                ..Default::default()
+                ..get_test_config()
             };
             let mut controller = InputVolumeController::new(1, &config);
             controller.initialize();
@@ -1800,7 +1915,7 @@ mod tests {
                 clipped_level_step: 10,
                 clipped_ratio_threshold: 0.2,
                 clipped_wait_frames: 50,
-                ..Default::default()
+                ..get_test_config()
             };
             let mut controller_custom = InputVolumeController::new(1, &config_custom);
             controller_custom.initialize();
@@ -1818,7 +1933,7 @@ mod tests {
                 clipped_ratio_threshold: CLIPPED_RATIO_THRESHOLD,
                 clipped_wait_frames: CLIPPED_WAIT_FRAMES,
                 enable_clipping_predictor: false,
-                ..Default::default()
+                ..get_test_config()
             };
             let mut controller = InputVolumeController::new(1, &config);
             controller.initialize();
@@ -1836,7 +1951,7 @@ mod tests {
                 clipped_ratio_threshold: CLIPPED_RATIO_THRESHOLD,
                 clipped_wait_frames: CLIPPED_WAIT_FRAMES,
                 enable_clipping_predictor: true,
-                ..Default::default()
+                ..get_test_config()
             };
             let mut controller = InputVolumeController::new(1, &config);
             controller.initialize();
@@ -1851,7 +1966,7 @@ mod tests {
         for min_input_volume in [12, 20] {
             let config = InputVolumeControllerConfig {
                 min_input_volume,
-                ..get_test_config()
+                ..InputVolumeControllerConfig::default()
             };
             let mut helper = TestHelper::new(config);
             helper.call_agc_sequence(
@@ -1887,7 +2002,7 @@ mod tests {
         let mut helper = TestHelper::new(InputVolumeControllerConfig {
             min_input_volume: 80,
             clipped_level_min: 70,
-            ..get_test_config()
+            ..InputVolumeControllerConfig::default()
         });
 
         write_audio_buffer_samples(4000.0, 0.8, &mut helper.audio_buffer);
@@ -1902,7 +2017,7 @@ mod tests {
         let mut helper = TestHelper::new(InputVolumeControllerConfig {
             min_input_volume: 70,
             clipped_level_min: 80,
-            ..get_test_config()
+            ..InputVolumeControllerConfig::default()
         });
 
         write_audio_buffer_samples(4000.0, 0.8, &mut helper.audio_buffer);

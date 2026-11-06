@@ -496,6 +496,9 @@ dependencies = [
 [[package]]
 name = "sonora-fft"
 version = "0.2.0"
+dependencies = [
+ "sonora-simd",
+]
 
 [[package]]
 name = "sonora-fuzz"

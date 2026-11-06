@@ -3,10 +3,16 @@
 //! Per-component tests verify close matching at each DSP stage.
 //! Full-pipeline tests verify end-to-end equivalence.
 //!
-//! On ARM (NEON) both Rust and C++ use fused multiply-add producing bit-identical
-//! results. On x86 the Rust `mul_add` intrinsic and C++ scalar arithmetic may
-//! diverge by a small amount due to different FMA contraction behaviour between
-//! LLVM and GCC. The tolerances below accommodate this.
+//! On AArch64 both Rust and C++ use fused multiply-add, but the results are not
+//! always bit-identical. For example, on aarch64-apple-darwin the optimized C++
+//! build computes each fft4g twiddle `cos`/`sin` pair with one
+//! `__sincosf_stret` call, while Rust calls `cosf` and `sinf` separately (and
+//! merges only some pairs in release builds); some table entries differ by
+//! 1 ulp. On x86 without the `fma` target feature, Rust uses unfused
+//! arithmetic in the C++ source order. The C++ reference is built with
+//! `-march=native`, so on a CPU with FMA the C++ compiler may contract those
+//! expressions into fused multiply-adds, and the results may diverge by a
+//! small amount. The tolerances below accommodate this.
 
 use sonora::config::{EchoCanceller, GainController2, NoiseSuppression, TransparentModeType};
 use sonora::high_pass_filter::HighPassFilter;
@@ -404,6 +410,183 @@ fn rust_cpp_pipeline_comparison() {
             failures.join("\n")
         );
     }
+}
+
+// ── Full pipeline: stereo echo with decorrelated channels ────────────────────
+
+/// Frames for `stereo_echo_pipeline_matches_cpp`. AEC3 treats the render
+/// signal as mono until it has seen 2 s of stereo content
+/// (`stereo_detection_hysteresis_seconds`), so the run must be well past
+/// 200 frames to reach the multi-channel render path.
+const STEREO_ECHO_FRAMES: usize = 500;
+
+/// Echo path delay in samples (10 ms at 48 kHz).
+const ECHO_DELAY: usize = 480;
+
+/// Tolerance for `stereo_echo_pipeline_matches_cpp`, set from measurements
+/// instead of `PIPELINE_TOL`. The Rust/C++ max diff is 0.0050 (L) and 0.0056
+/// (R) on macOS arm64 and on x86_64 Linux (GCC, `-march=native`). With Rust
+/// render downmixed to mono (`multi_channel_render: false`, the default before
+/// upstream 7c388cbabb) it grows to 0.055 (L) and 0.046 (R) on both, which
+/// `PIPELINE_TOL` (0.2) would accept.
+const STEREO_ECHO_TOL: f32 = 0.02;
+
+/// Deterministic white noise in `[-amp, amp)` from a 32-bit LCG. Different
+/// seeds give uncorrelated channels.
+fn gen_noise(len: usize, seed: u32, amp: f32) -> Vec<f32> {
+    let mut state = seed;
+    (0..len)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ((state >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0) * amp
+        })
+        .collect()
+}
+
+/// Full pipeline (EC + NS + AGC2) at 48 kHz stereo with a far-end signal and
+/// different content on each channel.
+///
+/// `rust_cpp_pipeline_comparison` feeds no render signal and the same signal
+/// to both channels, so it never reaches the multi-channel AEC3 paths. Here
+/// the two render channels are independent noise, and each capture channel
+/// is a different mix of the delayed render plus its own near-end noise.
+///
+/// This guards the multi-channel defaults of upstream 7c388cbabb: capture
+/// downmixed to mono on either side fails the channel check, and Rust render
+/// downmixed to mono exceeds `STEREO_ECHO_TOL`. The stimulus also runs
+/// the shared comfort noise (297352a2fd) and the joint coarse/refined filter
+/// choice (573e746914), but reverting either one in Rust changes the max diff
+/// by less than 1e-5, so this test cannot detect those regressions.
+#[test]
+fn stereo_echo_pipeline_matches_cpp() {
+    let stream = StreamConfig::new(48000, 2);
+    let n = stream.num_frames();
+    let sr = 48000i32;
+    let total = n * STEREO_ECHO_FRAMES;
+
+    let render_l = gen_noise(total, 1, 0.3);
+    let render_r = gen_noise(total, 2, 0.3);
+    let near_l = gen_noise(total, 3, 0.01);
+    let near_r = gen_noise(total, 4, 0.01);
+    let delayed = |x: &[f32], i: usize| {
+        if i >= ECHO_DELAY {
+            x[i - ECHO_DELAY]
+        } else {
+            0.0
+        }
+    };
+    let capture_l: Vec<f32> = (0..total)
+        .map(|i| 0.5 * delayed(&render_l, i) + 0.2 * delayed(&render_r, i) + near_l[i])
+        .collect();
+    let capture_r: Vec<f32> = (0..total)
+        .map(|i| 0.2 * delayed(&render_l, i) + 0.5 * delayed(&render_r, i) + near_r[i])
+        .collect();
+
+    let mut rust_apm = make_rust_apm(&ComponentConfig {
+        name: "all",
+        ec: true,
+        ns: true,
+        agc2: true,
+    });
+    let mut cpp_apm = sonora_sys::create_apm();
+    sonora_sys::apply_config(cpp_apm.pin_mut(), true, true, 1, true, false);
+
+    let mut rust_rev_l = vec![0.0f32; n];
+    let mut rust_rev_r = vec![0.0f32; n];
+    let mut cpp_rev_l = vec![0.0f32; n];
+    let mut cpp_rev_r = vec![0.0f32; n];
+    let mut rust_dst_l = vec![0.0f32; n];
+    let mut rust_dst_r = vec![0.0f32; n];
+    let mut cpp_dst_l = vec![0.0f32; n];
+    let mut cpp_dst_r = vec![0.0f32; n];
+    let mut worst_l = sonora_bench::comparison::ComparisonResult {
+        max_abs_diff: 0.0,
+        max_abs_diff_index: 0,
+        mean_abs_diff: 0.0,
+        mismatches: 0,
+        total: 0,
+    };
+    let mut worst_r = worst_l.clone();
+    // Set when an output frame differs between channels. If capture were
+    // downmixed to mono, both output channels would be identical.
+    let mut rust_channels_differ = false;
+    let mut cpp_channels_differ = false;
+
+    for frame_idx in 0..STEREO_ECHO_FRAMES {
+        let range = frame_idx * n..(frame_idx + 1) * n;
+
+        let src_slices = [&render_l[range.clone()], &render_r[range.clone()]];
+        let mut dst_slices = [rust_rev_l.as_mut_slice(), rust_rev_r.as_mut_slice()];
+        rust_apm
+            .process_render_f32_with_config(&src_slices, &stream, &stream, &mut dst_slices)
+            .unwrap();
+        let ret = sonora_sys::process_reverse_stream_f32_2ch(
+            cpp_apm.pin_mut(),
+            &render_l[range.clone()],
+            &render_r[range.clone()],
+            sr,
+            &mut cpp_rev_l,
+            &mut cpp_rev_r,
+        );
+        assert_eq!(
+            ret, 0,
+            "C++ ProcessReverseStream failed at frame {frame_idx}"
+        );
+
+        let src_slices = [&capture_l[range.clone()], &capture_r[range.clone()]];
+        let mut dst_slices = [rust_dst_l.as_mut_slice(), rust_dst_r.as_mut_slice()];
+        rust_apm
+            .process_capture_f32_with_config(&src_slices, &stream, &stream, &mut dst_slices)
+            .unwrap();
+        let ret = sonora_sys::process_stream_f32_2ch(
+            cpp_apm.pin_mut(),
+            &capture_l[range.clone()],
+            &capture_r[range],
+            sr,
+            &mut cpp_dst_l,
+            &mut cpp_dst_r,
+        );
+        assert_eq!(ret, 0, "C++ ProcessStream failed at frame {frame_idx}");
+
+        if frame_idx >= WARMUP_FRAMES {
+            rust_channels_differ |= rust_dst_l != rust_dst_r;
+            cpp_channels_differ |= cpp_dst_l != cpp_dst_r;
+            let rl = compare_f32(&rust_dst_l, &cpp_dst_l, 0.0);
+            let rr = compare_f32(&rust_dst_r, &cpp_dst_r, 0.0);
+            if rl.max_abs_diff > worst_l.max_abs_diff {
+                worst_l = rl;
+            }
+            if rr.max_abs_diff > worst_r.max_abs_diff {
+                worst_r = rr;
+            }
+        }
+    }
+
+    eprintln!(
+        "\n=== Stereo echo: Rust vs C++ ({WARMUP_FRAMES}+{} frames) ===",
+        STEREO_ECHO_FRAMES - WARMUP_FRAMES
+    );
+    for (label, result) in [
+        ("48k_stereo/echo/L", &worst_l),
+        ("48k_stereo/echo/R", &worst_r),
+    ] {
+        if result.max_abs_diff > 0.0 {
+            eprintln!("  DIFF  {label}: {result}");
+        } else {
+            eprintln!("  OK    {label}: bit-identical");
+        }
+    }
+
+    assert!(
+        rust_channels_differ && cpp_channels_differ,
+        "output channels are identical (Rust: {}, C++: {}); capture was not processed as stereo",
+        !rust_channels_differ,
+        !cpp_channels_differ,
+    );
+    assert!(
+        worst_l.max_abs_diff <= STEREO_ECHO_TOL && worst_r.max_abs_diff <= STEREO_ECHO_TOL,
+        "stereo echo pipeline diverged:\n  L: {worst_l}\n  R: {worst_r}",
+    );
 }
 
 // ── HMM transparent mode: Rust vs C++ ────────────────────────────────────────
