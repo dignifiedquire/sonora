@@ -208,7 +208,9 @@ impl GainController2 {
             adaptive_digital_controller,
             limiter: Limiter::new(samples_per_channel),
             recommended_input_volume: None,
-            channel_data: vec![Vec::with_capacity(samples_per_channel); num_channels],
+            channel_data: (0..num_channels)
+                .map(|_| Vec::with_capacity(samples_per_channel))
+                .collect(),
         }
     }
 
