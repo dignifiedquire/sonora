@@ -272,7 +272,7 @@ impl GainController2 {
 
         // Noise level estimation.
         let noise_rms_dbfs = if let Some(ref mut nle) = self.noise_level_estimator {
-            Some(nle.analyze(&self.channel_data))
+            Some(nle.analyze_owned_frame(&self.channel_data))
         } else {
             None
         };
@@ -317,14 +317,15 @@ impl GainController2 {
                 limiter_envelope_dbfs,
             };
 
-            adc.process(&info, &mut self.channel_data);
+            adc.process_owned_frame(&info, &mut self.channel_data);
         }
 
         // Fixed gain.
-        self.fixed_gain_applier.apply_gain(&mut self.channel_data);
+        self.fixed_gain_applier
+            .apply_gain_to_owned_signal(&mut self.channel_data);
 
         // Limiter.
-        self.limiter.process(&mut self.channel_data);
+        self.limiter.process_owned_signal(&mut self.channel_data);
 
         write_back_channels(audio, &self.channel_data);
     }

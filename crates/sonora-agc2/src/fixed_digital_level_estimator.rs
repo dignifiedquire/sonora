@@ -44,7 +44,11 @@ impl FixedDigitalLevelEstimator {
     ///
     /// The input is assumed to be in FloatS16 format. Returns `SUB_FRAMES_IN_FRAME`
     /// level estimates, one per sub-frame.
-    pub fn compute_level<C: AsRef<[f32]>>(
+    pub fn compute_level(&mut self, frame: &[&[f32]]) -> [f32; SUB_FRAMES_IN_FRAME as usize] {
+        self.compute_level_of_channels(frame)
+    }
+
+    pub(crate) fn compute_level_of_channels<C: AsRef<[f32]>>(
         &mut self,
         frame: &[C],
     ) -> [f32; SUB_FRAMES_IN_FRAME as usize] {

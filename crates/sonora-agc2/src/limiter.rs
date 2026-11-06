@@ -93,14 +93,20 @@ impl Limiter {
     }
 
     /// Applies limiter and hard-clipping to the signal.
-    ///
-    /// `signal` holds one slice per channel; owned buffers (`Vec<f32>`) work
-    /// as well as borrowed slices, so callers need not build a view.
-    pub fn process<C: AsRef<[f32]> + AsMut<[f32]>>(&mut self, signal: &mut [C]) {
+    pub fn process(&mut self, signal: &mut [&mut [f32]]) {
+        self.process_channels(signal);
+    }
+
+    /// Applies limiter and hard-clipping to a signal in owned buffers.
+    pub fn process_owned_signal(&mut self, signal: &mut [Vec<f32>]) {
+        self.process_channels(signal);
+    }
+
+    fn process_channels<C: AsRef<[f32]> + AsMut<[f32]>>(&mut self, signal: &mut [C]) {
         let samples_per_channel = signal.first().map_or(0, |ch| ch.as_ref().len());
         debug_assert!(samples_per_channel <= MAXIMAL_NUMBER_OF_SAMPLES_PER_CHANNEL);
 
-        let level_estimate = self.level_estimator.compute_level(signal);
+        let level_estimate = self.level_estimator.compute_level_of_channels(signal);
 
         debug_assert_eq!(level_estimate.len() + 1, self.scaling_factors.len());
         self.scaling_factors[0] = self.last_scaling_factor;

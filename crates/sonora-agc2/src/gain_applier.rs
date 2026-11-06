@@ -80,10 +80,19 @@ impl GainApplier {
     }
 
     /// Applies gain to the signal with linear ramping between frames.
-    ///
-    /// `signal` holds one slice per channel; owned buffers (`Vec<f32>`) work
-    /// as well as borrowed slices, so callers need not build a view.
-    pub fn apply_gain<C: AsRef<[f32]> + AsMut<[f32]>>(&mut self, signal: &mut [C]) {
+    pub fn apply_gain(&mut self, signal: &mut [&mut [f32]]) {
+        self.apply_gain_to_channels(signal);
+    }
+
+    /// Applies gain to a signal in owned buffers with linear ramping between frames.
+    pub fn apply_gain_to_owned_signal(&mut self, signal: &mut [Vec<f32>]) {
+        self.apply_gain_to_channels(signal);
+    }
+
+    pub(crate) fn apply_gain_to_channels<C: AsRef<[f32]> + AsMut<[f32]>>(
+        &mut self,
+        signal: &mut [C],
+    ) {
         let spc = signal.first().map_or(0, |ch| ch.as_ref().len()) as i32;
         if spc != self.samples_per_channel {
             self.initialize(spc);

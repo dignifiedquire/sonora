@@ -75,10 +75,16 @@ impl Default for NoiseLevelEstimator {
 impl NoiseLevelEstimator {
     /// Analyzes a 10 ms frame, updates the noise level estimation and returns
     /// the value for the latter in dBFS.
-    ///
-    /// `frame` holds one slice per channel; owned buffers (`Vec<f32>`) work
-    /// as well as borrowed slices, so callers need not build a view.
-    pub fn analyze<C: AsRef<[f32]>>(&mut self, frame: &[C]) -> f32 {
+    pub fn analyze(&mut self, frame: &[&[f32]]) -> f32 {
+        self.analyze_channels(frame)
+    }
+
+    /// Analyzes a 10 ms frame in owned buffers, like [`Self::analyze`].
+    pub fn analyze_owned_frame(&mut self, frame: &[Vec<f32>]) -> f32 {
+        self.analyze_channels(frame)
+    }
+
+    fn analyze_channels<C: AsRef<[f32]>>(&mut self, frame: &[C]) -> f32 {
         debug_assert!(!frame.is_empty());
         let samples_per_channel = frame[0].as_ref().len();
 
