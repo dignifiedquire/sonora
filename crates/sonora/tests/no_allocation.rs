@@ -3,7 +3,8 @@
 //! echo canceller enabled does not allocate, through the float and int16
 //! APIs, at the 16, 32 and 48 kHz processing rates (one, two and three
 //! bands), with rate conversion, downmixing, stereo, an unused capture output,
-//! a change of the echo delay and noise suppression. They count allocations
+//! a change of the echo delay, noise suppression and the adaptive digital
+//! gain (AGC2). They count allocations
 //! (`alloc` and `realloc`) of the current thread only, so tests running in
 //! parallel do not interfere.
 //!
@@ -14,14 +15,16 @@
 //! counted. Upstream frees the same buffer at the same point.
 //!
 //! Each test also checks that the echo canceller found and removed the echo,
-//! and the noise suppression test checks that noise suppression changed the
-//! output, so that a test cannot pass because the processing it covers was
+//! and the noise suppression and gain tests check that their stage changed
+//! the output, so that a test cannot pass because the processing it covers was
 //! skipped.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use sonora::config::{EchoCanceller, MaxProcessingRate, NoiseSuppression, Pipeline};
+use sonora::config::{
+    AdaptiveDigital, EchoCanceller, GainController2, MaxProcessingRate, NoiseSuppression, Pipeline,
+};
 use sonora::{AudioProcessing, Config, StreamConfig};
 
 thread_local! {
@@ -101,6 +104,9 @@ struct Scenario {
     delay_change: bool,
     /// Whether noise suppression runs after the echo canceller.
     noise_suppression: bool,
+    /// Whether AGC2's adaptive digital gain runs at the end of the capture
+    /// path.
+    gain_control: bool,
 }
 
 impl Scenario {
@@ -115,6 +121,7 @@ impl Scenario {
             capture_output_used: true,
             delay_change: false,
             noise_suppression: false,
+            gain_control: false,
         }
     }
 }
@@ -217,6 +224,10 @@ fn run(scenario: Scenario) -> Outcome {
         .config(Config {
             echo_canceller: Some(EchoCanceller::default()),
             noise_suppression: scenario.noise_suppression.then(NoiseSuppression::default),
+            gain_controller2: scenario.gain_control.then(|| GainController2 {
+                adaptive_digital: Some(AdaptiveDigital::default()),
+                ..GainController2::default()
+            }),
             pipeline: Pipeline {
                 maximum_internal_processing_rate: scenario.max_processing_rate,
                 ..Pipeline::default()
@@ -448,6 +459,32 @@ fn f32_48k_stereo_noise_suppression() {
         "noise suppression did not change the output: {:.2} dB with it, {:.2} dB without",
         with_ns.attenuation_db,
         without_ns.attenuation_db
+    );
+}
+
+/// AGC2's adaptive digital gain runs in the same capture callback, once per
+/// capture channel.
+#[test]
+fn f32_48k_stereo_gain_control() {
+    let scenario = Scenario {
+        capture_in_channels: 2,
+        capture_out_channels: 2,
+        render_channels: 2,
+        gain_control: true,
+        ..Scenario::mono(48_000, Format::F32)
+    };
+    let with_gain = check(scenario);
+    // As for noise suppression: if the gain were skipped, the output would
+    // equal that of the same run without it.
+    let without_gain = run(Scenario {
+        gain_control: false,
+        ..scenario
+    });
+    assert!(
+        (with_gain.attenuation_db - without_gain.attenuation_db).abs() > 1.0,
+        "the gain did not change the output: {:.2} dB with it, {:.2} dB without",
+        with_gain.attenuation_db,
+        without_gain.attenuation_db
     );
 }
 

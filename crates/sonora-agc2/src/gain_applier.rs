@@ -12,20 +12,20 @@ fn gain_close_to_one(gain_factor: f32) -> bool {
 }
 
 /// Clamps all samples in multi-channel signal to FloatS16 range.
-fn clip_signal(signal: &mut [&mut [f32]]) {
+fn clip_signal<C: AsMut<[f32]>>(signal: &mut [C]) {
     for channel in signal.iter_mut() {
-        for sample in channel.iter_mut() {
+        for sample in channel.as_mut().iter_mut() {
             *sample = sample.clamp(MIN_FLOAT_S16_VALUE, MAX_FLOAT_S16_VALUE);
         }
     }
 }
 
 /// Applies gain with linear ramping across the frame.
-fn apply_gain_with_ramping(
+fn apply_gain_with_ramping<C: AsMut<[f32]>>(
     last_gain: f32,
     gain_at_end: f32,
     inverse_samples_per_channel: f32,
-    signal: &mut [&mut [f32]],
+    signal: &mut [C],
 ) {
     // Do not modify the signal.
     if last_gain == gain_at_end && gain_close_to_one(gain_at_end) {
@@ -35,7 +35,7 @@ fn apply_gain_with_ramping(
     // Gain is constant and different from 1.
     if last_gain == gain_at_end {
         for channel in signal.iter_mut() {
-            for sample in channel.iter_mut() {
+            for sample in channel.as_mut().iter_mut() {
                 *sample *= gain_at_end;
             }
         }
@@ -46,7 +46,7 @@ fn apply_gain_with_ramping(
     let increment = (gain_at_end - last_gain) * inverse_samples_per_channel;
     for channel in signal.iter_mut() {
         let mut gain = last_gain;
-        for sample in channel.iter_mut() {
+        for sample in channel.as_mut().iter_mut() {
             *sample *= gain;
             gain += increment;
         }
@@ -81,7 +81,19 @@ impl GainApplier {
 
     /// Applies gain to the signal with linear ramping between frames.
     pub fn apply_gain(&mut self, signal: &mut [&mut [f32]]) {
-        let spc = signal.first().map_or(0, |ch| ch.len()) as i32;
+        self.apply_gain_to_channels(signal);
+    }
+
+    /// Applies gain to a signal in owned buffers with linear ramping between frames.
+    pub fn apply_gain_to_owned_signal(&mut self, signal: &mut [Vec<f32>]) {
+        self.apply_gain_to_channels(signal);
+    }
+
+    pub(crate) fn apply_gain_to_channels<C: AsRef<[f32]> + AsMut<[f32]>>(
+        &mut self,
+        signal: &mut [C],
+    ) {
+        let spc = signal.first().map_or(0, |ch| ch.as_ref().len()) as i32;
         if spc != self.samples_per_channel {
             self.initialize(spc);
         }

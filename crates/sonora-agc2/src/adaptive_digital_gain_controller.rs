@@ -122,6 +122,19 @@ impl AdaptiveDigitalGainController {
 
     /// Analyzes `info`, updates the digital gain and applies it to a 10 ms frame.
     pub fn process(&mut self, info: &FrameInfo, frame: &mut [&mut [f32]]) {
+        self.process_channels(info, frame);
+    }
+
+    /// Analyzes `info`, updates the digital gain and applies it to a frame in owned buffers.
+    pub fn process_owned_frame(&mut self, info: &FrameInfo, frame: &mut [Vec<f32>]) {
+        self.process_channels(info, frame);
+    }
+
+    fn process_channels<C: AsRef<[f32]> + AsMut<[f32]>>(
+        &mut self,
+        info: &FrameInfo,
+        frame: &mut [C],
+    ) {
         debug_assert!(info.speech_level_dbfs >= -150.0);
         debug_assert!(!frame.is_empty());
 
@@ -174,7 +187,7 @@ impl AdaptiveDigitalGainController {
                 .set_gain_factor(db_to_ratio(self.last_gain_db + gain_change_this_frame_db));
         }
 
-        self.gain_applier.apply_gain(frame);
+        self.gain_applier.apply_gain_to_channels(frame);
 
         // Remember that the gain has changed for the next iteration.
         self.last_gain_db += gain_change_this_frame_db;

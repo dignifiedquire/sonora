@@ -7,10 +7,10 @@ const FRAMES_PER_SECOND: i32 = 100;
 /// Update the noise floor every 5 seconds.
 const UPDATE_PERIOD_NUM_FRAMES: i32 = 500;
 
-fn frame_energy(audio: &[&[f32]]) -> f32 {
+fn frame_energy<C: AsRef<[f32]>>(audio: &[C]) -> f32 {
     let mut energy = 0.0_f32;
     for channel in audio {
-        let channel_energy: f32 = channel.iter().map(|&s| s * s).sum();
+        let channel_energy: f32 = channel.as_ref().iter().map(|&s| s * s).sum();
         energy = energy.max(channel_energy);
     }
     energy
@@ -76,8 +76,17 @@ impl NoiseLevelEstimator {
     /// Analyzes a 10 ms frame, updates the noise level estimation and returns
     /// the value for the latter in dBFS.
     pub fn analyze(&mut self, frame: &[&[f32]]) -> f32 {
+        self.analyze_channels(frame)
+    }
+
+    /// Analyzes a 10 ms frame in owned buffers, like [`Self::analyze`].
+    pub fn analyze_owned_frame(&mut self, frame: &[Vec<f32>]) -> f32 {
+        self.analyze_channels(frame)
+    }
+
+    fn analyze_channels<C: AsRef<[f32]>>(&mut self, frame: &[C]) -> f32 {
         debug_assert!(!frame.is_empty());
-        let samples_per_channel = frame[0].len();
+        let samples_per_channel = frame[0].as_ref().len();
 
         // Detect sample rate changes.
         let sample_rate_hz = samples_per_channel as i32 * FRAMES_PER_SECOND;
