@@ -12,7 +12,16 @@ The port now tracks M145 plus 15 later upstream WebRTC changes, up to M156. `cpp
 - Floating-point environment: like upstream, each `process_*` call now sets hardware flush-to-zero for its duration (MXCSR FTZ and DAZ on x86/x86_64 with SSE, FPCR.FZ on aarch64 with NEON). This targets the AEC3 slowdown on x86 while the render reference is silent (#34). Code that a call reaches, such as `tracing` subscribers and the global allocator, runs in that mode, and the output can differ by tiny amounts on near-silent input. Upstream sets the x86 bits only in clang builds, so on x86 a caller that replaces a GCC-built C++ library gets FTZ/DAZ where it had IEEE gradual underflow. Changing the floating-point environment is formally undefined behavior in Rust, and upstream's `DenormalDisabler`, nih-plug and the `no_denormals` crate also change it; sonora sets flush-to-zero only on the calling thread and restores that thread's setting after each call, but a thread started during a call can inherit flush-to-zero and keep it (on Linux, for example). Other targets do not flush and log "Denormal disabler unsupported" when the processor is built. The "Floating-point environment" section on `AudioProcessing` has the details.
 - Arithmetic on targets without native FMA (#37): on x86/x86_64 without the `fma` target feature (including the default x86_64 target), i686, armv7, wasm32 and riscv64, the biquad filters, the three-band filter bank and fft4g now use the C++ expressions instead of `f32::mul_add`, which compiled to an `fmaf` library call there. The pipeline is 1.1-2.2x faster on default x86_64, and output differs from 0.2.0 by small rounding amounts on those targets, closer to C++. AArch64 and x86 built with `fma` are unchanged. New: `sonora_simd::NATIVE_FMA`; `sonora-fft` now depends on `sonora-simd`.
 
-## 0.1.0 (unreleased)
+## 0.2.0
+
+- `Pipeline::multi_channel_render` and `Pipeline::multi_channel_capture` now default to `true`, as upstream. This changes the output for callers with more than one render or capture channel.
+- AEC3: with more than one capture channel, it applies the same comfort noise to all channels (upstream 297352a2fd) and chooses between the coarse and refined filter outputs once for all channels (upstream 573e746914), as upstream.
+- AEC3: shrinking the adaptive FIR filter no longer panics (#15, fixes #14).
+- `sonora-simd` builds for 32-bit Android (armv7, i686): its `cpufeatures` dependency is now limited to x86 and x86_64.
+- C header: with C23, `WapDownmixMethod` and `WapNoiseSuppressionLevel` are declared as enums with an `int32_t` underlying type, as with C++.
+- The `examples` feature uses cpal 0.18 and ringbuf 0.5.
+
+## 0.1.0
 
 Initial release. Pure Rust port of WebRTC Audio Processing (M145).
 
