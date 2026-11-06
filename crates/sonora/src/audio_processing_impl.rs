@@ -1323,7 +1323,9 @@ impl AudioProcessingImpl {
         let mut config = match &self.echo_canceller3_config {
             Some(custom) => {
                 let mut custom = custom.clone();
-                let _ = custom.validate();
+                if !custom.validate() {
+                    tracing::warn!("Invalid EchoCanceller3Config; clamped to valid ranges");
+                }
                 custom
             }
             None => EchoCanceller3Config::default(),
