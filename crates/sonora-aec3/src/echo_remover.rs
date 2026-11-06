@@ -3,6 +3,7 @@
 //!
 //! Ported from `modules/audio_processing/aec3/echo_remover.h/cc`.
 
+use std::fmt;
 use std::ptr;
 
 use crate::aec_state::{AecState, AecStateUpdate};
@@ -151,6 +152,51 @@ pub(crate) struct EchoRemover {
     block_counter: usize,
     gain_change_hangover: i32,
     refined_filter_output_last_selected: bool,
+    scratch: CaptureScratch,
+}
+
+/// Per-channel working buffers of [`EchoRemover::process_capture`],
+/// allocated once so that processing a block does not allocate.
+struct CaptureScratch {
+    e: Vec<[f32; FFT_LENGTH_BY_2]>,
+    y2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+    e2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+    r2: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+    r2_unbounded: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+    s2_linear: Vec<[f32; FFT_LENGTH_BY_2_PLUS_1]>,
+    y_fft: Vec<FftData>,
+    e_fft: Vec<FftData>,
+    comfort_noise: Vec<FftData>,
+    high_band_comfort_noise: Vec<FftData>,
+    subtractor_output: Vec<SubtractorOutput>,
+}
+
+impl CaptureScratch {
+    fn new(num_capture_channels: usize) -> Self {
+        Self {
+            e: vec![[0.0; FFT_LENGTH_BY_2]; num_capture_channels],
+            y2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
+            e2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
+            r2: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
+            r2_unbounded: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
+            s2_linear: vec![[0.0; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels],
+            y_fft: vec![FftData::default(); num_capture_channels],
+            e_fft: vec![FftData::default(); num_capture_channels],
+            comfort_noise: vec![FftData::default(); num_capture_channels],
+            high_band_comfort_noise: vec![FftData::default(); num_capture_channels],
+            subtractor_output: (0..num_capture_channels)
+                .map(|_| SubtractorOutput::default())
+                .collect(),
+        }
+    }
+}
+
+impl fmt::Debug for CaptureScratch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CaptureScratch")
+            .field("num_channels", &self.e.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl EchoRemover {
@@ -184,6 +230,7 @@ impl EchoRemover {
             block_counter: 0,
             gain_change_hangover: 0,
             refined_filter_output_last_selected: true,
+            scratch: CaptureScratch::new(num_capture_channels),
         }
     }
 
@@ -221,20 +268,25 @@ impl EchoRemover {
         );
         debug_assert_eq!(capture.num_channels(), num_capture_channels);
 
-        // Per-channel working storage.
-        let mut e = vec![[0.0f32; FFT_LENGTH_BY_2]; num_capture_channels];
-        let mut y2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels];
-        let mut e2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels];
-        let mut r2 = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels];
-        let mut r2_unbounded = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels];
-        let mut s2_linear = vec![[0.0f32; FFT_LENGTH_BY_2_PLUS_1]; num_capture_channels];
-        let mut y_fft = vec![FftData::default(); num_capture_channels];
-        let mut e_fft = vec![FftData::default(); num_capture_channels];
-        let mut comfort_noise = vec![FftData::default(); num_capture_channels];
-        let mut high_band_comfort_noise = vec![FftData::default(); num_capture_channels];
-        let mut subtractor_output: Vec<SubtractorOutput> = (0..num_capture_channels)
-            .map(|_| SubtractorOutput::default())
-            .collect();
+        // Per-channel working storage, allocated once in `new` so that
+        // processing a block does not allocate (this runs in real-time audio
+        // callbacks). It is not cleared between blocks: every element read
+        // below is first written in the same call, except the DC and Nyquist
+        // imaginary parts of the comfort noise, which nothing writes and so
+        // stay zero.
+        let CaptureScratch {
+            e,
+            y2,
+            e2,
+            r2,
+            r2_unbounded,
+            s2_linear,
+            y_fft,
+            e_fft,
+            comfort_noise,
+            high_band_comfort_noise,
+            subtractor_output,
+        } = &mut self.scratch;
 
         self.aec_state
             .update_capture_saturation(capture_signal_saturation);
@@ -281,7 +333,7 @@ impl EchoRemover {
             capture,
             &self.render_signal_analyzer,
             &self.aec_state,
-            &mut subtractor_output,
+            subtractor_output,
         );
 
         // Decide refined vs coarse once across all channels.
@@ -329,16 +381,16 @@ impl EchoRemover {
             adaptive_filter_frequency_responses: self.subtractor.filter_frequency_responses(),
             adaptive_filter_impulse_responses: self.subtractor.filter_impulse_responses(),
             render_buffer,
-            e2_refined: &e2,
-            y2: &y2,
-            subtractor_output: &subtractor_output,
+            e2_refined: e2,
+            y2,
+            subtractor_output,
         });
 
         // Choose the linear output.
         let y_fft_for_suppression: &[FftData] = if self.aec_state.use_linear_filter_output() {
-            &e_fft
+            e_fft
         } else {
-            &y_fft
+            y_fft
         };
 
         // Only do the below processing if the output will be used.
@@ -349,12 +401,12 @@ impl EchoRemover {
                 &ResidualEchoInput {
                     aec_state: &self.aec_state,
                     render_buffer,
-                    s2_linear: &s2_linear,
-                    y2: &y2,
+                    s2_linear,
+                    y2,
                     dominant_nearend: self.suppression_gain.is_dominant_nearend(),
                 },
-                &mut r2,
-                &mut r2_unbounded,
+                r2,
+                r2_unbounded,
             );
 
             // Suppressor nearend estimate: E2 is bound by Y2.
@@ -369,25 +421,25 @@ impl EchoRemover {
             // Select nearend spectrum (after E2 clamping).
             let nearend_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]] =
                 if self.aec_state.usable_linear_estimate() {
-                    &e2
+                    e2
                 } else {
-                    &y2
+                    y2
                 };
 
             // Estimate the comfort noise.
             self.cng.compute(
                 self.aec_state.saturated_capture(),
                 nearend_spectrum,
-                &mut comfort_noise,
-                &mut high_band_comfort_noise,
+                comfort_noise,
+                high_band_comfort_noise,
             );
 
             // Suppressor echo estimate.
             let echo_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]] =
                 if self.aec_state.usable_linear_estimate() {
-                    &s2_linear
+                    s2_linear
                 } else {
-                    &r2
+                    r2
                 };
 
             // Determine if the suppressor should assume clock drift.
@@ -405,8 +457,8 @@ impl EchoRemover {
                 &SuppressionInput {
                     nearend_spectrum,
                     echo_spectrum,
-                    residual_echo_spectrum: &r2,
-                    residual_echo_spectrum_unbounded: &r2_unbounded,
+                    residual_echo_spectrum: r2,
+                    residual_echo_spectrum_unbounded: r2_unbounded,
                     comfort_noise_spectrum: self.cng.noise_spectrum(),
                     render_signal_analyzer: &self.render_signal_analyzer,
                     aec_state: &self.aec_state,
@@ -418,8 +470,8 @@ impl EchoRemover {
             );
 
             self.suppression_filter.apply_gain(
-                &comfort_noise,
-                &high_band_comfort_noise,
+                comfort_noise,
+                high_band_comfort_noise,
                 &g,
                 high_bands_gain,
                 y_fft_for_suppression,
@@ -428,15 +480,15 @@ impl EchoRemover {
         } else {
             let nearend_spectrum: &[[f32; FFT_LENGTH_BY_2_PLUS_1]] =
                 if self.aec_state.usable_linear_estimate() {
-                    &e2
+                    e2
                 } else {
-                    &y2
+                    y2
                 };
             self.cng.compute(
                 self.aec_state.saturated_capture(),
                 nearend_spectrum,
-                &mut comfort_noise,
-                &mut high_band_comfort_noise,
+                comfort_noise,
+                high_band_comfort_noise,
             );
             g.fill(0.0);
         }
@@ -459,6 +511,8 @@ impl EchoRemover {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
     use super::*;
     use crate::block::Block;
     use crate::block_buffer::BlockBuffer;
@@ -521,6 +575,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The C API catches panics and keeps using the instance, so a panic
+    /// inside `process_capture` must not leave the remover in a state where
+    /// every later call panics too.
+    #[test]
+    fn process_capture_works_after_a_panic() {
+        let config = EchoCanceller3Config::default();
+        let rate = 16000;
+        let num_bands = num_bands_for_rate(rate);
+        let mut remover = EchoRemover::new(sonora_simd::SimdBackend::Scalar, &config, rate, 1, 2);
+        let buf_size = config
+            .filter
+            .refined
+            .length_blocks
+            .max(config.filter.coarse.length_blocks)
+            + 1;
+        let bb = BlockBuffer::new(buf_size, num_bands, 1);
+        let sb = SpectrumBuffer::new(buf_size, 1);
+        let fb = FftBuffer::new(buf_size, 1);
+        let render_buffer = RenderBuffer::new(&bb, &sb, &fb);
+        let mut capture = Block::new(num_bands, 2);
+        let no_change = || EchoPathVariability::new(false, DelayAdjustment::None, false);
+
+        // A linear output with too few channels panics midway through the
+        // call, after the capture scratch buffers have been used.
+        let mut linear_output = Block::new(1, 1);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            remover.process_capture(
+                no_change(),
+                false,
+                &None,
+                &render_buffer,
+                Some(&mut linear_output),
+                &mut capture,
+            );
+        }));
+        assert!(result.is_err());
+
+        remover.process_capture(
+            no_change(),
+            false,
+            &None,
+            &render_buffer,
+            None,
+            &mut capture,
+        );
     }
 
     #[test]

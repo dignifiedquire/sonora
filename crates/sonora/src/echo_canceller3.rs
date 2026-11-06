@@ -560,15 +560,11 @@ impl EchoCanceller3 {
             &mut self.capture_sub_frame_view,
         );
 
-        // Convert sub-frame slices to the format FrameBlocker expects.
-        let sub_frame_refs: Vec<Vec<&[f32]>> = self
-            .capture_sub_frame_view
-            .iter()
-            .map(|band| band.iter().map(|ch| ch.as_slice()).collect())
-            .collect();
-
         self.capture_blocker
-            .insert_sub_frame_and_extract_block(&sub_frame_refs, &mut self.capture_block);
+            .insert_owned_sub_frame_and_extract_block(
+                &self.capture_sub_frame_view,
+                &mut self.capture_block,
+            );
 
         // Process through block processor.
         let echo_path_gain_change = level_change || aec_reference_is_downmixed_stereo;
@@ -679,14 +675,11 @@ impl EchoCanceller3 {
                     &mut self.render_sub_frame_view,
                 );
 
-                let sub_frame_refs: Vec<Vec<&[f32]>> = self
-                    .render_sub_frame_view
-                    .iter()
-                    .map(|band| band.iter().map(|ch| ch.as_slice()).collect())
-                    .collect();
-
                 self.render_blocker
-                    .insert_sub_frame_and_extract_block(&sub_frame_refs, &mut self.render_block);
+                    .insert_owned_sub_frame_and_extract_block(
+                        &self.render_sub_frame_view,
+                        &mut self.render_block,
+                    );
                 self.block_processor.buffer_render(&self.render_block);
             }
 

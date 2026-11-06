@@ -74,3 +74,23 @@ codegen-units = 1
 lto = "thin"
 codegen-units = 1
 debug = true
+
+# Optimize the echo canceller's crates in test builds (`cargo test`, and
+# `cargo nextest`, which builds through it). Unoptimized, the no_allocation
+# scenarios and the AEC3 unit tests take most of the test time, above all on
+# the emulated Android CI targets. Debug assertions and overflow checks stay
+# on, because the test profile inherits them from dev.
+[profile.test.package.sonora]
+opt-level = 3
+
+[profile.test.package.sonora-aec3]
+opt-level = 3
+
+[profile.test.package.sonora-common-audio]
+opt-level = 3
+
+[profile.test.package.sonora-fft]
+opt-level = 3
+
+[profile.test.package.sonora-simd]
+opt-level = 3

@@ -282,7 +282,7 @@ impl ResidualEchoEstimator {
 
     fn update_render_noise_power(&mut self, render_buffer: &RenderBuffer<'_>) {
         let x2 = render_buffer.spectrum(0);
-        let render_power: Vec<f32>;
+        let render_power: [f32; FFT_LENGTH_BY_2_PLUS_1];
         let render_power_ref: &[f32] = if self.num_render_channels > 1 {
             let mut power_data = [0.0f32; FFT_LENGTH_BY_2_PLUS_1];
             for channel_power in &x2[..self.num_render_channels] {
@@ -290,7 +290,7 @@ impl ResidualEchoEstimator {
                     *pd_k += cp_k;
                 }
             }
-            render_power = power_data.to_vec();
+            render_power = power_data;
             &render_power
         } else {
             &x2[0]
