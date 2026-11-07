@@ -1,6 +1,6 @@
 [package]
 name = "sonora-agc2"
-version = "0.2.0"
+version = "0.3.0"
 description = "Automatic Gain Control 2 (AGC2) with RNN VAD for WebRTC Audio Processing"
 keywords = ["webrtc", "audio", "agc", "gain-control", "vad"]
 categories = ["multimedia::audio"]

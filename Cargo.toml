@@ -20,14 +20,14 @@ repository = "https://github.com/dignifiedquire/sonora"
 
 [workspace.dependencies]
 # Internal crates
-sonora = { version = "0.2.0", path = "crates/sonora" }
-sonora-ffi = { version = "0.2.0", path = "crates/sonora-ffi" }
-sonora-common-audio = { version = "0.2.0", path = "crates/sonora-common-audio" }
-sonora-aec3 = { version = "0.2.0", path = "crates/sonora-aec3" }
-sonora-agc2 = { version = "0.2.0", path = "crates/sonora-agc2" }
-sonora-ns = { version = "0.2.0", path = "crates/sonora-ns" }
-sonora-simd = { version = "0.2.0", path = "crates/sonora-simd" }
-sonora-fft = { version = "0.2.0", path = "crates/sonora-fft" }
+sonora = { version = "0.3.0", path = "crates/sonora" }
+sonora-ffi = { version = "0.3.0", path = "crates/sonora-ffi" }
+sonora-common-audio = { version = "0.3.0", path = "crates/sonora-common-audio" }
+sonora-aec3 = { version = "0.3.0", path = "crates/sonora-aec3" }
+sonora-agc2 = { version = "0.3.0", path = "crates/sonora-agc2" }
+sonora-ns = { version = "0.3.0", path = "crates/sonora-ns" }
+sonora-simd = { version = "0.3.0", path = "crates/sonora-simd" }
+sonora-fft = { version = "0.3.0", path = "crates/sonora-fft" }
 
 # External dependencies
 cpufeatures = "0.3"

@@ -1,6 +1,6 @@
 [package]
 name = "sonora-simd"
-version = "0.2.0"
+version = "0.3.0"
 description = "SIMD abstraction layer for WebRTC Audio Processing"
 keywords = ["simd", "sse2", "avx2", "neon"]
 categories = ["hardware-support"]

@@ -1,6 +1,6 @@
 [package]
 name = "sonora-ffi"
-version = "0.2.0"
+version = "0.3.0"
 description = "C API (FFI) for the sonora audio processing library"
 readme = "README.md"
 keywords = ["audio", "webrtc", "ffi", "echo-cancellation", "noise-suppression"]

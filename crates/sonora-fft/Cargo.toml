@@ -1,6 +1,6 @@
 [package]
 name = "sonora-fft"
-version = "0.2.0"
+version = "0.3.0"
 description = "FFT implementations for WebRTC Audio Processing (Ooura, PFFFT)"
 keywords = ["fft", "audio", "dsp", "ooura"]
 categories = ["algorithms", "multimedia::audio"]

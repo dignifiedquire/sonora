@@ -1,6 +1,6 @@
 [package]
 name = "sonora-common-audio"
-version = "0.2.0"
+version = "0.3.0"
 description = "DSP primitives for WebRTC Audio Processing (resamplers, filters, channel buffers)"
 keywords = ["dsp", "audio", "biquad", "resampler", "channel-buffer"]
 categories = ["multimedia::audio", "algorithms"]

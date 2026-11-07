@@ -1,6 +1,6 @@
 [package]
 name = "sonora-aec3"
-version = "0.2.0"
+version = "0.3.0"
 description = "Echo Canceller 3 (AEC3) — Rust port of WebRTC's modern echo canceller"
 readme = "README.md"
 edition.workspace = true
