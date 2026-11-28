@@ -219,6 +219,7 @@ impl FilterDelay {
 #[derive(Debug)]
 struct FilteringQualityAnalyzer {
     use_linear_filter: bool,
+    startup_blocks: f32,
     overall_usable_linear_estimates: bool,
     filter_update_blocks_since_reset: usize,
     filter_update_blocks_since_start: usize,
@@ -230,6 +231,8 @@ impl FilteringQualityAnalyzer {
     fn new(config: &EchoCanceller3Config, num_capture_channels: usize) -> Self {
         Self {
             use_linear_filter: config.filter.use_linear_filter,
+            startup_blocks: NUM_BLOCKS_PER_SECOND as f32
+                * config.filter.startup_linear_estimate_seconds,
             overall_usable_linear_estimates: false,
             filter_update_blocks_since_reset: 0,
             filter_update_blocks_since_start: 0,
@@ -267,7 +270,7 @@ impl FilteringQualityAnalyzer {
         self.convergence_seen = self.convergence_seen || any_filter_converged;
 
         let sufficient_data_to_converge_at_startup =
-            self.filter_update_blocks_since_start as f32 > NUM_BLOCKS_PER_SECOND as f32 * 0.4;
+            self.filter_update_blocks_since_start as f32 > self.startup_blocks;
         let sufficient_data_to_converge_at_reset = sufficient_data_to_converge_at_startup
             && self.filter_update_blocks_since_reset as f32 > NUM_BLOCKS_PER_SECOND as f32 * 0.2;
 
@@ -700,5 +703,34 @@ mod tests {
         assert!(state.saturated_capture());
         state.update_capture_saturation(false);
         assert!(!state.saturated_capture());
+    }
+
+    fn blocks_until_usable(config: &EchoCanceller3Config) -> usize {
+        let mut analyzer = FilteringQualityAnalyzer::new(config, 1);
+        let delay = None;
+        (1..=10 * NUM_BLOCKS_PER_SECOND)
+            .find(|_| {
+                analyzer.update(true, false, false, &delay, true);
+                analyzer.linear_filter_usable()
+            })
+            .expect("the linear estimate becomes usable")
+    }
+
+    #[test]
+    fn linear_estimate_is_usable_after_startup_seconds_of_render() {
+        let config = EchoCanceller3Config::default();
+        assert_eq!(blocks_until_usable(&config), 101);
+
+        let mut config = EchoCanceller3Config::default();
+        config.filter.startup_linear_estimate_seconds = 1.5;
+        assert_eq!(blocks_until_usable(&config), 376);
+    }
+
+    #[test]
+    fn startup_linear_estimate_seconds_is_limited() {
+        let mut config = EchoCanceller3Config::default();
+        config.filter.startup_linear_estimate_seconds = -1.0;
+        assert!(!config.validate());
+        assert_eq!(config.filter.startup_linear_estimate_seconds, 0.0);
     }
 }

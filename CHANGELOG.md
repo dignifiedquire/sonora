@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- AEC3: `Filter::startup_linear_estimate_seconds` sets how many seconds of active render the linear filter needs after start before its echo estimate is used. The default, 0.4, keeps the current behaviour. `Filter` gains a public field, so code that builds it as a struct literal without `..Default::default()` needs the new field.
+
 ## 0.3.0
 
 The port now tracks M145 plus 15 later upstream WebRTC changes, up to M156. `cpp/NEWS` lists them. Three of them (multi-channel defaults, shared comfort noise, joint coarse/refined filter choice) were already in 0.2.0.

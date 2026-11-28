@@ -115,6 +115,7 @@ impl EchoCanceller3Config {
 
         ok &= limit_usize(&mut self.filter.config_change_duration_blocks, 0, 100_000);
         ok &= limit_f32(&mut self.filter.initial_state_seconds, 0.0, 100.0);
+        ok &= limit_f32(&mut self.filter.startup_linear_estimate_seconds, 0.0, 100.0);
         ok &= limit_i32(&mut self.filter.coarse_reset_hangover_blocks, 0, 250_000);
 
         ok &= limit_f32(&mut self.erle.min, 1.0, 100_000.0);
@@ -515,6 +516,8 @@ pub struct Filter {
     pub config_change_duration_blocks: usize,
     /// Duration in seconds of the initial adaptation phase (default: 2.5).
     pub initial_state_seconds: f32,
+    /// Seconds of active render after start before the linear echo estimate is used (default: 0.4).
+    pub startup_linear_estimate_seconds: f32,
     /// Hangover in blocks after a coarse filter reset (default: 25).
     pub coarse_reset_hangover_blocks: i32,
     /// Whether to use a conservative strategy during the initial phase.
@@ -560,6 +563,7 @@ impl Default for Filter {
             },
             config_change_duration_blocks: 250,
             initial_state_seconds: 2.5,
+            startup_linear_estimate_seconds: 0.4,
             coarse_reset_hangover_blocks: 25,
             conservative_initial_phase: false,
             enable_coarse_filter_output_usage: true,
